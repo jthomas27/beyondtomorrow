@@ -1,0 +1,22 @@
+{
+  "name": "beyondtomorrow-world",
+  "version": "1.0.0",
+  "description": "BeyondTomorrow - A blog exploring ideas that shape our future",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve .",
+    "dev": "npx serve . -l 3000"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jthomas27/beyondtomorrow.git"
+  },
+  "keywords": [
+    "blog",
+    "technology",
+    "future",
+    "innovation"
+  ],
+  "author": "BeyondTomorrow",
+  "license": "MIT"
+}
