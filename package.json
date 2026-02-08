@@ -7,7 +7,9 @@
     "start": "npx serve .",
     "dev": "npx serve . -l 3000",
     "db:test": "node db-test.js",
-    "db:connect": "railway run npm run db:test"
+    "db:connect": "railway run npm run db:test",
+    "mysql:test": "node mysql-test.js",
+    "mysql:fix-lock": "node fix-migration-lock.js"
   },
   "repository": {
     "type": "git",
@@ -22,6 +24,7 @@
   "author": "BeyondTomorrow",
   "license": "MIT",
   "dependencies": {
+    "mysql2": "^3.16.3",
     "pg": "^8.11.0"
   }
 }

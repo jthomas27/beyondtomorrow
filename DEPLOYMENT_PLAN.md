@@ -1,140 +1,136 @@
 # BeyondTomorrow.World - Deployment Plan
 
-A step-by-step guide to create a simple one-page blog website and deploy it on Railway with your custom domain.
+Deployment guide for the BeyondTomorrow.World blog platform on Railway, powered by Ghost CMS.
+
+**Project:** caring-alignment
+**Domain:** beyondtomorrow.world
+**Railway Project ID:** 752fdaea-fd96-4521-bec6-b7d5ef451270
 
 ---
 
-## Part 1: Create the One-Page Website
+## Railway Services Overview
 
-### Step 1: Set Up Project Structure
-Create a simple static website with the following files:
-- `index.html` - Main blog page
-- `styles.css` - Styling
-- `package.json` - For serving the static site (optional, for Railway)
+> **Status:** ✅ All services deployed and verified.
 
-### Step 2: Create the HTML Page
-Build a clean, responsive one-page blog layout with:
-- Header with "BeyondTomorrow" branding
-- Hero section with blog introduction
-- Blog posts/content section
-- Footer with links and copyright
-
-### Step 3: Style the Website
-Create modern, responsive CSS with:
-- Typography and color scheme
-- Mobile-friendly responsive design
-- Clean, readable blog layout
-
-### Step 4: Test Locally
-Open `index.html` in a browser to verify everything looks correct.
+| Service | Type | Role | Service ID |
+|---------|------|------|------------|
+| **ghost** | Ghost CMS (Docker `ghost:5`) | Blog front-end + CMS admin | `0daf496c-e14f-41d4-b89b-3624a778c99d` |
+| **MySQL** | MySQL 9.4 database | Blog content storage (Ghost) | `375d48d7-df84-4acc-a93b-9fc69159a44e` |
+| **pgvector** | PostgreSQL 18 + pgvector | AI knowledge embeddings | `2a98f138-d230-4633-87ad-729736bfbc92` |
 
 ---
 
-## Part 2: Deploy to Railway
+## Part 1: Ghost CMS Setup
 
-### Step 5: Create a Railway Account
-1. Go to [railway.app](https://railway.app)
-2. Sign up with GitHub, GitLab, or email
-3. Verify your account
+### Ghost Service
+Deployed as a Docker image (`ghost:5`) on Railway with:
+- Persistent volume at `/var/lib/ghost/content` for themes, images, and uploads
+- Connected to MySQL via Railway's internal network
+- Custom domain: `beyondtomorrow.world`
+- Railway domain: `ghost-production-66d4.up.railway.app`
+- Admin panel: `https://beyondtomorrow.world/ghost/`
 
-### Step 6: Prepare Your Project for Railway
-**Static Site with Nginx**:
-Create a `Dockerfile`:
-```dockerfile
-FROM nginx:alpine
-COPY . /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+### MySQL Service
+Railway-managed MySQL 9.4 with:
+- Persistent volume at `/var/lib/mysql`
+- Internal host: `mysql.railway.internal:3306`
+- Public proxy: `metro.proxy.rlwy.net:32958`
+- Database: `railway`
+- Ghost tables: 58 tables auto-created on first boot
+
+### pgvector Service
+PostgreSQL 18 with pgvector extension:
+- Persistent volume at `/var/lib/postgresql`
+- Internal host: `pgvector.railway.internal:5432`
+- Public proxy: `ballast.proxy.rlwy.net:32490`
+- 5 tables: documents, chunks, embeddings, blog_posts, knowledge_graph
+- See [POSTGRES_SETUP_GUIDE.md](POSTGRES_SETUP_GUIDE.md) for details
+
+---
+
+## Part 2: Ghost Environment Variables
+
+```
+url                            = https://beyondtomorrow.world
+database__client               = mysql
+database__connection__host     = mysql.railway.internal
+database__connection__port     = 3306
+database__connection__user     = root
+database__connection__database = railway
+NODE_ENV                       = production
+PORT                           = 2368
+mail__transport                = Direct
+mail__from                     = noreply@beyondtomorrow.world
+privacy__useUpdateCheck        = false
+privacy__useGravatar           = false
+privacy__useRpcPing            = false
+privacy__useStructuredData     = true
 ```
 
-### Step 7: Push Code to GitHub
+---
+
+## Part 3: GitHub Repository
+
 **Repository:** https://github.com/jthomas27/beyondtomorrow.git
 
-1. Initialize git: `git init`
-2. Add files: `git add .`
-3. Commit: `git commit -m "Initial blog setup"`
-4. Add remote: `git remote add origin https://github.com/jthomas27/beyondtomorrow.git`
-5. Push to GitHub: `git push -u origin main`
-
-### Step 8: Deploy to Railway
-1. Log in to [railway.app](https://railway.app)
-2. Click **"New Project"**
-3. Select **"Deploy from GitHub repo"**
-4. Authorize Railway to access your GitHub
-5. Select your blog repository
-6. Railway will auto-detect and deploy your project
+The repo contains utility scripts and documentation:
+- `db-test.js` — pgvector connectivity test and table creation
+- `mysql-test.js` — MySQL connectivity test and Ghost table verification
+- `fix-migration-lock.js` — Utility to clear Ghost migration locks
 
 ---
 
-## Part 3: Configure Custom Domain (beyondtomorrow.world)
+## Part 4: Custom Domain (beyondtomorrow.world)
 
-### Step 9: Add Custom Domain in Railway
-1. In your Railway project dashboard, click on your **deployed service**
-2. Go to the **"Settings"** tab
-3. Scroll to **"Domains"** section
-4. Click **"+ Custom Domain"**
-5. Enter: `beyondtomorrow.world`
-6. Click **"Add Domain"**
-7. Railway will display the required DNS records
+> **Status:** ✅ Domain assigned to Ghost service and verified.
 
-### Step 10: Copy Railway's DNS Configuration
-Railway will show you one of the following:
-- **CNAME record** pointing to something like `your-project.up.railway.app`
-- Or specific instructions for your setup
+### DNS Records Required
 
-Write down/copy:
-- Record Type (usually CNAME)
-- Host/Name (usually `@` or `www`)
-- Value/Target (Railway's provided domain)
-
-### Step 11: Configure DNS at Your Domain Registrar
-Go to your domain registrar where `beyondtomorrow.world` is registered (e.g., Namecheap, GoDaddy, Cloudflare, Google Domains, etc.)
-
-1. Log in to your domain registrar
-2. Navigate to **DNS Settings** or **DNS Management**
-3. Find existing A or CNAME records for the root domain
-
-### Step 12: Add/Update DNS Records
-
-#### For Root Domain (beyondtomorrow.world):
-| Type | Host/Name | Value/Target | TTL |
-|------|-----------|--------------|-----|
-| CNAME | @ | `your-project.up.railway.app` | 3600 |
-
-> ⚠️ **Note:** Some registrars don't allow CNAME on root domain. In that case, use Railway's provided IP addresses as A records, or use a service like Cloudflare that supports CNAME flattening.
-
-#### For WWW subdomain (www.beyondtomorrow.world):
-| Type | Host/Name | Value/Target | TTL |
-|------|-----------|--------------|-----|
-| CNAME | www | `your-project.up.railway.app` | 3600 |
-
-### Step 13: Remove Conflicting Records
-Delete any existing A records or other records that might conflict with your new CNAME records for `@` and `www`.
-
-### Step 14: Save DNS Changes
-1. Save/Apply your DNS configuration
-2. DNS propagation can take **5 minutes to 48 hours** (usually under 1 hour)
-
-### Step 15: Verify Domain in Railway
-1. Return to Railway dashboard
-2. Go to your service → Settings → Domains
-3. Railway will show a checkmark ✓ once DNS is verified
-4. Railway automatically provisions **SSL/HTTPS** for your domain
-
-### Step 16: Test Your Domain
-1. Wait for DNS propagation (check with [dnschecker.org](https://dnschecker.org))
-2. Visit `https://beyondtomorrow.world` in your browser
-3. Verify SSL certificate is active (padlock icon)
-4. Test `https://www.beyondtomorrow.world` as well
-
----
-
-## Quick Reference: DNS Records Summary
+Configure these at your domain registrar:
 
 | Purpose | Type | Name | Value |
 |---------|------|------|-------|
-| Root domain | CNAME or A | @ | Railway's target |
-| WWW subdomain | CNAME | www | Railway's target |
+| Root domain | CNAME | @ | `mj7rnb3d.up.railway.app` |
+| WWW subdomain | CNAME | www | `t0qibbne.up.railway.app` |
+
+> ⚠️ Some registrars don't allow CNAME on root domain. Use Cloudflare (free) for CNAME flattening.
+
+### Verification
+- `https://beyondtomorrow.world` → HTTP 200 ✅
+- `https://beyondtomorrow.world/ghost/` → HTTP 200 ✅
+- SSL auto-provisioned by Railway ✅
+
+---
+
+## Quick Reference
+
+### Internal Service Networking
+
+| Service | Internal Domain | Port |
+|---------|----------------|------|
+| Ghost | `ghost.railway.internal` | 2368 |
+| MySQL | `mysql.railway.internal` | 3306 |
+| pgvector | `pgvector.railway.internal` | 5432 |
+
+### External Access (for local development/debugging)
+
+| Service | Public Proxy | Port |
+|---------|-------------|------|
+| MySQL | `metro.proxy.rlwy.net` | 32958 |
+| pgvector | `ballast.proxy.rlwy.net` | 32490 |
+
+### Railway Project Values (caring-alignment)
+- **Project ID:** 752fdaea-fd96-4521-bec6-b7d5ef451270
+- **Environment:** production
+- **Environment ID:** c9dfebe4-097a-4151-be37-2b1fcd414e74
+
+### Volumes
+
+| Service | Volume Name | Mount Path |
+|---------|------------|------------|
+| Ghost | `ghost-volume` | `/var/lib/ghost/content` |
+| MySQL | `mysql-volume-5Iak` | `/var/lib/mysql` |
+| pgvector | `pgvector-volume` | `/var/lib/postgresql` |
 
 ---
 
@@ -170,9 +166,14 @@ Delete any existing A records or other records that might conflict with your new
 
 ---
 
-## Next Steps After Launch
-- [ ] Add more blog posts
-- [ ] Set up analytics (Plausible, Fathom, or Google Analytics)
-- [ ] Add RSS feed
-- [ ] Consider a CMS for easier content management
-- [ ] Set up email with custom domain (optional)
+## Next Steps
+- [ ] Delete the old `beyondtomorrow` static service from Railway dashboard (Settings → Delete Service)
+- [ ] Update DNS CNAME records at registrar to point to new Railway targets
+- [ ] Set up Ghost admin account at `https://beyondtomorrow.world/ghost/`
+- [ ] Generate Ghost Admin API key (for publisher agent)
+- [ ] Create GitHub Actions workflow for agent automation
+- [ ] Configure Hostinger email IMAP for Railway worker
+- [ ] Set up Railway Object Storage for knowledge corpus
+- [ ] Build agent services (Orchestrator, Research, Writer, Editor, Publisher, Indexer)
+- [ ] Set up Slack webhook alerts
+- [ ] Upload initial PDFs to knowledge corpus

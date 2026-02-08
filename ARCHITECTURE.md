@@ -77,7 +77,7 @@ Two databases serve distinct purposes, both hosted on Railway:
    - Agent searches target websites + knowledge corpus, writes a post, publishes
 
 2. **Email-triggered**
-   - You send an email to your Hostinger business email (beyondtomorrow.world)
+   - You send an email to your Hostinger business email (admin@beyondtomorrow.world)
    - Email is fetched via IMAP and processed by Railway worker
    - Railway triggers GitHub Actions
    - Agent reads the email, follows instructions, publishes
@@ -288,8 +288,8 @@ CORPUS UPDATE FLOW
 
 ## Next Steps
 
-1. Set up Railway project with Ghost + MySQL
-2. Add PostgreSQL service with pgvector extension
+1. ~~Set up Railway project with Ghost + MySQL~~ ✅ Done
+2. ~~Add PostgreSQL service with pgvector extension~~ ✅ Done
 3. Create GitHub repo with Actions workflow
 4. Configure Hostinger email IMAP settings for Railway
 5. Set up Railway Object Storage bucket
@@ -297,7 +297,7 @@ CORPUS UPDATE FLOW
 7. Build Orchestrator agent
 8. Build Research agent (web + corpus search)
 9. Build Writer + Editor agents
-10. Build Publisher agent
+10. Build Publisher agent (needs Ghost Admin API key)
 11. Set up Slack alerts
 12. Upload initial PDFs to corpus
 13. Test end-to-end with scheduled run
