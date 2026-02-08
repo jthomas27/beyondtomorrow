@@ -5,7 +5,9 @@
   "main": "index.html",
   "scripts": {
     "start": "npx serve .",
-    "dev": "npx serve . -l 3000"
+    "dev": "npx serve . -l 3000",
+    "db:test": "node db-test.js",
+    "db:connect": "railway run npm run db:test"
   },
   "repository": {
     "type": "git",
@@ -18,5 +20,8 @@
     "innovation"
   ],
   "author": "BeyondTomorrow",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "pg": "^8.11.0"
+  }
 }
