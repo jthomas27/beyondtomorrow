@@ -60,7 +60,7 @@ The AI doesn't just search the web — it also reads **your own documents** for 
 3. Before writing, agents search these documents for relevant information
 4. Posts are more accurate because they draw on your source material
 
-> 📖 Full details in [RAG_WORKFLOW.md](RAG_WORKFLOW.md)
+> 📖 Full details in [docs/RAG_WORKFLOW.md](docs/RAG_WORKFLOW.md)
 
 ---
 
@@ -116,34 +116,60 @@ Add these in Railway's dashboard under **Variables**:
 - Update your DNS records at your registrar (instructions provided by Railway)
 - SSL is set up automatically
 
-> 🚀 Full walkthrough in [DEPLOYMENT_PLAN.md](DEPLOYMENT_PLAN.md)
-
-### Run Locally
-
-```bash
-npm install        # Install dependencies
-npm run dev        # Start local server at http://localhost:3000
-```
+> 🚀 Full walkthrough in [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md)
 
 ---
 
-## Project Files
+## Project Structure
 
-| File | Description |
-|------|-------------|
-| `index.html` | Main website page |
-| `styles.css` | Visual styling |
-| `Dockerfile` | Deployment configuration for Railway |
-| `nginx.conf` | Web server settings |
-| `package.json` | Project metadata and scripts |
+```
+BeyondTomorrow.World/
+├── README.md                 # This file
+├── package.json              # Dependencies & npm scripts
+│
+├── docs/                     # Documentation
+│   ├── ARCHITECTURE.md       # System design — services, databases, agents
+│   ├── DEPLOYMENT_PLAN.md    # Step-by-step Railway deployment guide
+│   ├── GHOST_PUBLISHING_GUIDE.md  # Ghost Admin API reference
+│   ├── POSTGRES_SETUP_GUIDE.md    # pgvector setup on Railway
+│   ├── RAG_WORKFLOW.md       # How AI reads and learns from documents
+│   └── SMTP_ISSUE.md         # SMTP troubleshooting log (historical)
+│
+├── theme/                    # Ghost Code Injection source files
+│   ├── header.txt            # CSS → injected into Site Header
+│   └── footer.txt            # JS  → injected into Site Footer
+│
+├── scripts/                  # Utility & maintenance scripts
+│   ├── inject-code.js        # Push theme to Ghost (reusable)
+│   ├── setup-ghost-api.js    # One-time API key setup
+│   ├── db-test.js            # PostgreSQL / pgvector connectivity
+│   ├── mysql-test.js         # MySQL diagnostic
+│   └── fix-migration-lock.js # Emergency migration lock release
+│
+└── assets/                   # Static assets
+    └── images/               # Feature images for blog posts
+```
+
+### npm Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run ghost:inject` | Push theme CSS/JS to Ghost |
+| `npm run ghost:setup` | One-time Ghost API key setup |
+| `npm run db:test` | Test PostgreSQL connection |
+| `npm run db:connect` | Test via Railway (`railway run`) |
+| `npm run mysql:test` | Test MySQL connection |
+| `npm run mysql:fix-lock` | Fix stuck Ghost migration lock |
 
 ### Documentation
 
 | Document | What's Inside |
-|----------|--------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Full system design — services, databases, agents, data flow |
-| [DEPLOYMENT_PLAN.md](DEPLOYMENT_PLAN.md) | Step-by-step deployment and domain setup guide |
-| [RAG_WORKFLOW.md](RAG_WORKFLOW.md) | How the AI reads and learns from your documents |
+|----------|---------------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full system design — services, databases, agents, data flow |
+| [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md) | Step-by-step deployment and domain setup guide |
+| [docs/GHOST_PUBLISHING_GUIDE.md](docs/GHOST_PUBLISHING_GUIDE.md) | Ghost Admin API — auth, Lexical format, publishing |
+| [docs/POSTGRES_SETUP_GUIDE.md](docs/POSTGRES_SETUP_GUIDE.md) | pgvector setup, table schema, pgAdmin |
+| [docs/RAG_WORKFLOW.md](docs/RAG_WORKFLOW.md) | How the AI reads and learns from your documents |
 
 ---
 

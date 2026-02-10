@@ -2,14 +2,13 @@
   "name": "beyondtomorrow-world",
   "version": "1.0.0",
   "description": "BeyondTomorrow - A blog exploring ideas that shape our future",
-  "main": "index.html",
   "scripts": {
-    "start": "npx serve .",
-    "dev": "npx serve . -l 3000",
-    "db:test": "node db-test.js",
+    "ghost:inject": "node scripts/inject-code.js",
+    "ghost:setup": "node scripts/setup-ghost-api.js",
+    "db:test": "node scripts/db-test.js",
     "db:connect": "railway run npm run db:test",
-    "mysql:test": "node mysql-test.js",
-    "mysql:fix-lock": "node fix-migration-lock.js"
+    "mysql:test": "node scripts/mysql-test.js",
+    "mysql:fix-lock": "node scripts/fix-migration-lock.js"
   },
   "repository": {
     "type": "git",
