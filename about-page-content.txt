@@ -1,0 +1,46 @@
+ABOUT PAGE — BeyondTomorrow.World
+===================================
+
+The world is changing faster than any headline can keep up with. Artificial intelligence is rewriting the rules of entire industries overnight. Governments are racing to regulate technologies they barely understand. Supply chains, currencies, and alliances that held steady for decades are shifting beneath our feet. If you've felt like the news gives you fragments but never the full picture — that's exactly why BeyondTomorrow exists.
+
+
+What We Cover
+-------------
+
+BeyondTomorrow.World sits at the intersection of four forces that are actively reshaping civilisation:
+
+Artificial Intelligence — not just the product launches and stock prices, but what happens when AI enters healthcare, law, warfare, education, and creative work. We look at the capabilities, the limitations, and the second-order effects that most coverage ignores.
+
+Technology — the breakthroughs in computing, energy, biotech, and infrastructure that will define the next decade. We cut through the noise to focus on what actually matters and why.
+
+Geopolitics — the power plays between nations, the trade wars, the shifting alliances, and the conflicts that redraw borders and rewrite rules. Technology doesn't exist in a vacuum — it's shaped by politics, and politics is increasingly shaped by technology.
+
+Economics — the policies, markets, and structural forces that determine who prospers and who gets left behind. From central bank decisions to the economics of AI adoption, we connect the dots between money, power, and the future of work.
+
+
+How This Blog Works
+-------------------
+
+Here's where it gets interesting. Every article on BeyondTomorrow is researched, written, edited, and published by AI agents — not by a human writer sitting at a keyboard. This isn't auto-generated filler or recycled press releases. It's a structured pipeline where specialised agents each handle a distinct stage of the process.
+
+First, a research agent scans the web and searches a curated knowledge corpus — a private collection of PDFs, reports, academic papers, and reference material that gives the AI context no generic model has access to. Then a writing agent drafts the article, grounded in what the research actually found. A separate editing agent reviews the draft for clarity, accuracy, and tone. Only then does the finished piece go live.
+
+The result is writing that's informed, specific, and grounded in real sources — produced at a pace and consistency that a solo human operation simply can't match. Think of it as a newsroom where every desk is staffed by a purpose-built AI, each one focused on doing its job well.
+
+
+Who This Is For
+---------------
+
+If you're the kind of person who reads past the headline, who wants to understand why something is happening and not just what — this blog is for you. Whether you work in tech, follow global affairs, invest, or simply want to make sense of a world that's moving fast, BeyondTomorrow is designed to be clear, direct, and worth your time. No jargon walls. No hype cycles. No fluff.
+
+
+Built in the Open
+-----------------
+
+BeyondTomorrow runs on Ghost, hosted on Railway, with the full agent pipeline powered by Claude. The entire project is open source — you can see exactly how it works, fork it, or build your own version on GitHub.
+
+
+Stay Ahead
+----------
+
+Subscribe to get new posts delivered straight to your inbox. No spam, no filler — just sharp thinking about where the world is headed and what it means for you.

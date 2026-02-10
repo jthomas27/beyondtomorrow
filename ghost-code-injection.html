@@ -1,0 +1,684 @@
+<!--
+  ============================================================
+  GHOST CODE INJECTION — BeyondTomorrow.World
+  ============================================================
+  Paste the STYLE block into:  Ghost Admin → Settings → Code Injection → Site Header
+  Paste the SCRIPT block into: Ghost Admin → Settings → Code Injection → Site Footer
+  
+  URL: https://beyondtomorrow.world/ghost/#/settings/code-injection
+  ============================================================
+-->
+
+<!-- ═══════════════════════════════════════════════════════════
+     SITE HEADER — Paste everything below into "Site Header"
+     ═══════════════════════════════════════════════════════════ -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* ─── BeyondTomorrow Dark Digital Theme ─── */
+
+:root {
+    --bt-bg: #0f0f14;
+    --bt-bg-elevated: #18181f;
+    --bt-bg-card: #1e1e27;
+    --bt-bg-card-hover: #252530;
+    --bt-text: #e8e8ec;
+    --bt-text-secondary: #a0a0b0;
+    --bt-text-muted: #6b6b7b;
+    --bt-accent: #c8b8ff;
+    --bt-accent-dim: rgba(200, 184, 255, 0.15);
+    --bt-warm: #ffd6a5;
+    --bt-border: rgba(255, 255, 255, 0.06);
+    --bt-border-hover: rgba(255, 255, 255, 0.12);
+    --bt-radius: 12px;
+    --bt-radius-lg: 20px;
+}
+
+/* ─── Global ─── */
+body {
+    background-color: var(--bt-bg) !important;
+    color: var(--bt-text) !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Typography ─── */
+h1, h2, h3, h4, h5, h6,
+.gh-article-title,
+.post-card-title,
+.gh-content-title {
+    font-family: 'Space Grotesk', 'Inter', sans-serif !important;
+    color: var(--bt-text) !important;
+    letter-spacing: -0.02em;
+}
+
+p, .gh-content p, .post-card-excerpt {
+    color: var(--bt-text-secondary) !important;
+    line-height: 1.8;
+}
+
+a {
+    color: var(--bt-accent) !important;
+    text-decoration: none !important;
+    transition: color 0.2s ease;
+}
+
+a:hover {
+    color: var(--bt-warm) !important;
+}
+
+/* ─── Site Header / Navigation ─── */
+.gh-head,
+.site-header,
+.gh-navigation {
+    background: rgba(15, 15, 20, 0.85) !important;
+    backdrop-filter: blur(20px) !important;
+    -webkit-backdrop-filter: blur(20px) !important;
+    border-bottom: 1px solid var(--bt-border) !important;
+}
+
+.gh-head-logo,
+.site-title,
+.gh-head-brand a {
+    color: var(--bt-text) !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-weight: 700 !important;
+    font-size: 2.75rem !important;
+    letter-spacing: -0.03em;
+    text-shadow: 0 0 30px rgba(200, 184, 255, 0.15);
+}
+
+.gh-head-menu a,
+.nav a,
+.gh-navigation a,
+.gh-head-link,
+.gh-head-members a {
+    color: var(--bt-accent) !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-size: 1.55rem !important;
+    font-weight: 500 !important;
+    letter-spacing: -0.01em;
+    text-transform: none !important;
+    transition: color 0.2s ease !important;
+}
+
+.gh-head-menu a:hover,
+.nav a:hover,
+.gh-navigation a:hover,
+.gh-head-link:hover,
+.gh-head-members a:hover {
+    color: var(--bt-warm) !important;
+}
+
+/* ─── Hero / Cover image ─── */
+.gh-canvas > .kg-width-full,
+.post-full-image,
+.gh-article-image {
+    border-radius: var(--bt-radius-lg) !important;
+    overflow: hidden;
+}
+
+.post-full-image img,
+.gh-article-image img {
+    filter: brightness(0.85) contrast(1.05);
+    transition: transform 0.4s ease;
+}
+
+.post-full-image:hover img,
+.gh-article-image:hover img {
+    transform: scale(1.02);
+}
+
+/* ─── Post Cards (Index / Home) ─── */
+.post-card,
+.gh-card {
+    background: var(--bt-bg-card) !important;
+    border: 1px solid var(--bt-border) !important;
+    border-radius: var(--bt-radius-lg) !important;
+    overflow: hidden;
+    transition: all 0.35s ease !important;
+}
+
+.post-card:hover,
+.gh-card:hover {
+    background: var(--bt-bg-card-hover) !important;
+    border-color: var(--bt-border-hover) !important;
+    transform: translateY(-4px) !important;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3) !important;
+}
+
+.post-card-image-link img,
+.gh-card-image img {
+    filter: brightness(0.85) contrast(1.05);
+    transition: transform 0.4s ease;
+}
+
+.post-card:hover .post-card-image-link img,
+.gh-card:hover .gh-card-image img {
+    transform: scale(1.05);
+}
+
+.post-card-content,
+.gh-card-content {
+    padding: 1.5rem !important;
+}
+
+.post-card-title,
+.gh-card-title {
+    color: var(--bt-text) !important;
+    transition: color 0.2s ease !important;
+}
+
+.post-card:hover .post-card-title,
+.gh-card:hover .gh-card-title {
+    color: var(--bt-accent) !important;
+}
+
+.post-card-excerpt,
+.gh-card-excerpt {
+    color: var(--bt-text-secondary) !important;
+}
+
+.post-card-meta,
+.gh-card-meta {
+    color: var(--bt-text-muted) !important;
+    font-size: 0.85rem !important;
+}
+
+/* ─── Tags / Categories ─── */
+.post-card-tags,
+.gh-card-tag,
+.post-card-primary-tag {
+    color: var(--bt-accent) !important;
+    font-weight: 500 !important;
+    font-size: 0.75rem !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--bt-accent-dim);
+    padding: 2px 10px;
+    border-radius: 100px;
+    display: inline-block;
+}
+
+/* ─── Full Post / Article Page ─── */
+.post-full-content,
+.gh-content,
+.gh-article {
+    background: transparent !important;
+    color: var(--bt-text-secondary) !important;
+}
+
+.gh-content h2, .gh-content h3, .gh-content h4,
+.post-full-content h2, .post-full-content h3 {
+    color: var(--bt-text) !important;
+    margin-top: 2.5rem !important;
+}
+
+.gh-content a,
+.post-full-content a {
+    color: var(--bt-accent) !important;
+    text-decoration: underline !important;
+    text-decoration-color: rgba(200, 184, 255, 0.3) !important;
+    text-underline-offset: 3px;
+}
+
+.gh-content a:hover,
+.post-full-content a:hover {
+    text-decoration-color: var(--bt-accent) !important;
+}
+
+.gh-content blockquote,
+.post-full-content blockquote {
+    border-left: 3px solid var(--bt-accent) !important;
+    padding-left: 1.5rem !important;
+    color: var(--bt-text-secondary) !important;
+    font-style: italic;
+}
+
+.gh-content code,
+.post-full-content code {
+    background: var(--bt-bg-card) !important;
+    color: var(--bt-accent) !important;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.gh-content pre,
+.post-full-content pre {
+    background: var(--bt-bg-card) !important;
+    border: 1px solid var(--bt-border) !important;
+    border-radius: var(--bt-radius) !important;
+    padding: 1.5rem !important;
+}
+
+.gh-content pre code,
+.post-full-content pre code {
+    background: transparent !important;
+    padding: 0;
+}
+
+/* ─── Author / Byline ─── */
+.post-full-byline,
+.gh-article-meta,
+.author-card,
+.gh-author-card {
+    color: var(--bt-text-muted) !important;
+}
+
+.author-profile-image,
+.gh-author-image img {
+    border: 2px solid var(--bt-border) !important;
+    border-radius: 50% !important;
+}
+
+.author-name a,
+.gh-author-name a {
+    color: var(--bt-text) !important;
+}
+
+/* ─── Subscription / CTA ─── */
+.subscribe-form,
+.gh-subscribe,
+.gh-portal-triggerbtn-container {
+    background: var(--bt-bg-card) !important;
+    border: 1px solid var(--bt-border) !important;
+    border-radius: var(--bt-radius-lg) !important;
+    padding: 2.5rem !important;
+}
+
+.subscribe-form button,
+.gh-btn,
+.gh-btn-primary,
+.gh-portal-triggerbtn-iframe {
+    background: var(--bt-accent-dim) !important;
+    color: var(--bt-accent) !important;
+    border: 1px solid rgba(200, 184, 255, 0.2) !important;
+    border-radius: 100px !important;
+    font-family: 'Space Grotesk', sans-serif !important;
+    font-size: 1.45rem !important;
+    font-weight: 500 !important;
+    padding: 14px 34px !important;
+    transition: all 0.25s ease !important;
+}
+
+.subscribe-form button:hover,
+.gh-btn:hover,
+.gh-btn-primary:hover {
+    background: rgba(200, 184, 255, 0.25) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 30px rgba(200, 184, 255, 0.15) !important;
+}
+
+.subscribe-form input[type="email"],
+.gh-input {
+    background: var(--bt-bg) !important;
+    border: 1px solid var(--bt-border) !important;
+    border-radius: 100px !important;
+    color: var(--bt-text) !important;
+    padding: 12px 20px !important;
+}
+
+.subscribe-form input[type="email"]::placeholder,
+.gh-input::placeholder {
+    color: var(--bt-text-muted) !important;
+}
+
+/* ─── Footer ─── */
+.site-footer,
+.gh-foot {
+    background: var(--bt-bg-elevated) !important;
+    border-top: 1px solid var(--bt-border) !important;
+    color: var(--bt-text-muted) !important;
+}
+
+.site-footer a,
+.gh-foot a {
+    color: var(--bt-text-muted) !important;
+}
+
+.site-footer a:hover,
+.gh-foot a:hover {
+    color: var(--bt-text) !important;
+}
+
+/* ─── Pagination ─── */
+.pagination,
+.gh-pagination {
+    color: var(--bt-text-muted) !important;
+}
+
+.pagination a,
+.gh-pagination a {
+    color: var(--bt-accent) !important;
+    border: 1px solid var(--bt-border) !important;
+    border-radius: var(--bt-radius) !important;
+    padding: 8px 16px !important;
+    transition: all 0.2s ease !important;
+}
+
+.pagination a:hover,
+.gh-pagination a:hover {
+    background: var(--bt-accent-dim) !important;
+    border-color: rgba(200, 184, 255, 0.2) !important;
+}
+
+/* ─── Koenig Editor Cards ─── */
+.kg-card,
+.kg-image-card,
+.kg-gallery-card {
+    border-radius: var(--bt-radius) !important;
+    overflow: hidden;
+}
+
+.kg-bookmark-card {
+    background: var(--bt-bg-card) !important;
+    border: 1px solid var(--bt-border) !important;
+    border-radius: var(--bt-radius) !important;
+}
+
+.kg-bookmark-title {
+    color: var(--bt-text) !important;
+}
+
+.kg-bookmark-description {
+    color: var(--bt-text-secondary) !important;
+}
+
+.kg-bookmark-metadata {
+    color: var(--bt-text-muted) !important;
+}
+
+/* ─── Light trail glow effects ─── */
+.post-card::before,
+.gh-card::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: 20%;
+    right: 20%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--bt-accent), transparent);
+    opacity: 0;
+    transition: opacity 0.4s ease;
+}
+
+.post-card,
+.gh-card {
+    position: relative;
+}
+
+.post-card:hover::before,
+.gh-card:hover::before {
+    opacity: 0.6;
+}
+
+/* ─── Misc / Utility ─── */
+.post-full-meta-date,
+.gh-article-date {
+    color: var(--bt-text-muted) !important;
+}
+
+hr {
+    border-color: var(--bt-border) !important;
+}
+
+::selection {
+    background: rgba(200, 184, 255, 0.3);
+    color: var(--bt-text);
+}
+
+/* ─── Smooth transitions on page load ─── */
+.post-card, .gh-card, .post-feed {
+    animation: fadeInUp 0.6s ease both;
+}
+
+.post-card:nth-child(2), .gh-card:nth-child(2) { animation-delay: 0.1s; }
+.post-card:nth-child(3), .gh-card:nth-child(3) { animation-delay: 0.2s; }
+.post-card:nth-child(4), .gh-card:nth-child(4) { animation-delay: 0.3s; }
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+</style>
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     SITE FOOTER — Paste everything below into "Site Footer"
+     ═══════════════════════════════════════════════════════════ -->
+
+<script>
+// ─── Animated light-trails background ───
+// Adds a subtle canvas behind the site header with moving light particles
+(function() {
+    const header = document.querySelector('.gh-head, .site-header, header');
+    if (!header) return;
+
+    // Create canvas
+    const canvas = document.createElement('canvas');
+    canvas.id = 'bt-light-canvas';
+    canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100vh;z-index:-1;pointer-events:none;';
+    document.body.prepend(canvas);
+
+    const ctx = canvas.getContext('2d');
+    let w, h;
+
+    function resize() {
+        w = canvas.width = window.innerWidth;
+        h = canvas.height = window.innerHeight;
+    }
+
+    class LightParticle {
+        constructor() { this.reset(); }
+        reset() {
+            this.x = Math.random() * w;
+            this.y = Math.random() * h;
+            this.vx = (Math.random() - 0.3) * 0.8;
+            this.vy = (Math.random() - 0.5) * 0.3;
+            this.life = Math.random() * 300 + 150;
+            this.maxLife = this.life;
+            this.size = Math.random() * 1.5 + 0.3;
+            this.hue = Math.random() > 0.5 ? 255 : 40; // lavender or amber
+            this.sat = this.hue === 255 ? 60 : 80;
+            this.trail = [];
+        }
+        update() {
+            this.trail.push({ x: this.x, y: this.y });
+            if (this.trail.length > 15) this.trail.shift();
+            this.x += this.vx;
+            this.y += this.vy;
+            this.life--;
+            if (this.life <= 0 || this.x < -50 || this.x > w + 50) this.reset();
+        }
+        draw() {
+            const a = Math.min(this.life / this.maxLife, 1) * 0.4;
+            if (this.trail.length > 1) {
+                ctx.beginPath();
+                ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                for (let i = 1; i < this.trail.length; i++) ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                ctx.strokeStyle = 'hsla(' + this.hue + ',' + this.sat + '%,70%,' + (a * 0.2) + ')';
+                ctx.lineWidth = this.size * 0.4;
+                ctx.stroke();
+            }
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fillStyle = 'hsla(' + this.hue + ',' + this.sat + '%,80%,' + a + ')';
+            ctx.fill();
+        }
+    }
+
+    resize();
+    const particles = Array.from({ length: 40 }, () => new LightParticle());
+
+    function animate() {
+        ctx.fillStyle = 'rgba(15,15,20,0.12)';
+        ctx.fillRect(0, 0, w, h);
+        particles.forEach(p => { p.update(); p.draw(); });
+        requestAnimationFrame(animate);
+    }
+
+    ctx.fillStyle = 'rgba(15,15,20,1)';
+    ctx.fillRect(0, 0, w, h);
+    animate();
+    window.addEventListener('resize', resize);
+
+    // Fade canvas based on scroll depth
+    window.addEventListener('scroll', function() {
+        const scrolled = window.scrollY / (window.innerHeight * 0.8);
+        canvas.style.opacity = Math.max(0, 1 - scrolled);
+    });
+})();
+
+// ─── Subscribe celebration popup ───
+(function() {
+    // Build the overlay (hidden by default)
+    var overlay = document.createElement('div');
+    overlay.id = 'bt-celebrate';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(15,15,20,0.4);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;transition:opacity 0.4s ease;';
+    overlay.innerHTML = '<div style="text-align:center;max-width:480px;padding:3rem 2rem;background:linear-gradient(135deg,#1e1e27 0%,#252535 100%);border:1px solid rgba(200,184,255,0.2);border-radius:24px;box-shadow:0 30px 80px rgba(0,0,0,0.5);transform:scale(0.9);transition:transform 0.4s cubic-bezier(0.34,1.56,0.64,1);">'
+        + '<div style="font-size:7rem;margin-bottom:0.5rem;">🎉</div>'
+        + '<h2 style="font-family:Space Grotesk,sans-serif;color:#e8e8ec;font-size:3.5rem;font-weight:700;margin:0 0 0.75rem;letter-spacing:-0.02em;">Welcome Aboard!</h2>'
+        + '<p style="font-family:Inter,sans-serif;color:#a0a0b0;font-size:2.2rem;line-height:1.7;margin:0 0 2rem;">Thanks for subscribing! Check your inbox to complete subscription.</p>'
+        + '<button id="bt-celebrate-close" style="font-family:Space Grotesk,sans-serif;font-size:2rem;font-weight:500;background:rgba(200,184,255,0.15);color:#c8b8ff;border:1px solid rgba(200,184,255,0.25);border-radius:100px;padding:18px 48px;cursor:pointer;transition:all 0.25s ease;">Got it!</button>'
+        + '</div>';
+    document.body.appendChild(overlay);
+
+    var confettiCanvas = document.createElement('canvas');
+    confettiCanvas.style.cssText = 'position:fixed;inset:0;z-index:100000;pointer-events:none;';
+    document.body.appendChild(confettiCanvas);
+    var cCtx = confettiCanvas.getContext('2d');
+
+    function resizeConfetti() {
+        confettiCanvas.width = window.innerWidth;
+        confettiCanvas.height = window.innerHeight;
+    }
+    resizeConfetti();
+    window.addEventListener('resize', resizeConfetti);
+
+    var confetti = [];
+    var confettiRunning = false;
+    var confettiColors = ['#c8b8ff','#ffd6a5','#a0e8af','#ff9ec6','#80d4ff','#ffec80'];
+
+    function spawnConfetti() {
+        confetti = [];
+        for (var i = 0; i < 120; i++) {
+            confetti.push({
+                x: Math.random() * confettiCanvas.width,
+                y: -20 - Math.random() * 400,
+                w: 6 + Math.random() * 6,
+                h: 4 + Math.random() * 4,
+                vx: (Math.random() - 0.5) * 2,
+                vy: 1 + Math.random() * 2,
+                rot: Math.random() * 360,
+                rotV: (Math.random() - 0.5) * 12,
+                color: confettiColors[Math.floor(Math.random() * confettiColors.length)],
+                opacity: 1
+            });
+        }
+    }
+
+    function animateConfetti() {
+        if (!confettiRunning) return;
+        cCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+        var alive = 0;
+        confetti.forEach(function(p) {
+            p.x += p.vx;
+            p.vy += 0.04;
+            p.y += p.vy;
+            p.rot += p.rotV;
+            if (p.y > confettiCanvas.height + 20) { p.opacity -= 0.02; }
+            if (p.opacity <= 0) return;
+            alive++;
+            cCtx.save();
+            cCtx.translate(p.x, p.y);
+            cCtx.rotate(p.rot * Math.PI / 180);
+            cCtx.globalAlpha = Math.max(0, p.opacity);
+            cCtx.fillStyle = p.color;
+            cCtx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+            cCtx.restore();
+        });
+        if (alive > 0) {
+            requestAnimationFrame(animateConfetti);
+        } else {
+            cCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+            confettiRunning = false;
+        }
+    }
+
+    function showCelebration() {
+        overlay.style.display = 'flex';
+        requestAnimationFrame(function() {
+            overlay.style.opacity = '1';
+            overlay.firstChild.style.transform = 'scale(1)';
+        });
+        confettiRunning = true;
+        spawnConfetti();
+        animateConfetti();
+    }
+
+    function hideCelebration() {
+        overlay.style.opacity = '0';
+        overlay.firstChild.style.transform = 'scale(0.9)';
+        setTimeout(function() { overlay.style.display = 'none'; }, 400);
+    }
+
+    // Close button
+    document.getElementById('bt-celebrate-close').addEventListener('click', hideCelebration);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) hideCelebration(); });
+
+    // Trigger 1: Cover form success (data-members-form)
+    var forms = document.querySelectorAll('[data-members-form]');
+    forms.forEach(function(form) {
+        var observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(m) {
+                if (m.type === 'attributes' && m.attributeName === 'class') {
+                    if (form.classList.contains('success')) {
+                        setTimeout(showCelebration, 600);
+                    }
+                }
+            });
+        });
+        observer.observe(form, { attributes: true });
+
+        // Also listen for the loading→success transition on child spans
+        form.querySelectorAll('.success').forEach(function(el) {
+            var spanObs = new MutationObserver(function() {
+                var cs = window.getComputedStyle(el);
+                if (cs.display !== 'none' && cs.opacity !== '0') {
+                    setTimeout(showCelebration, 600);
+                }
+            });
+            spanObs.observe(el, { attributes: true, attributeFilter: ['style','class'] });
+        });
+    });
+
+    // Trigger 2: Ghost Portal signup success (listens for hash change)
+    window.addEventListener('hashchange', function() {
+        if (window.location.hash === '#/portal/signup/success' || window.location.hash === '#/portal/success') {
+            setTimeout(showCelebration, 800);
+        }
+    });
+
+    // Trigger 3: Watch for Ghost's data-members-success attribute
+    var bodyObserver = new MutationObserver(function(mutations) {
+        mutations.forEach(function(m) {
+            if (m.type === 'attributes' && m.attributeName === 'data-members-success') {
+                setTimeout(showCelebration, 600);
+            }
+        });
+    });
+    bodyObserver.observe(document.body, { attributes: true });
+})();
+</script>

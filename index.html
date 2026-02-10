@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <!-- Header -->
@@ -22,88 +22,125 @@
                 <li><a href="#about">About</a></li>
                 <li><a href="#contact">Contact</a></li>
             </ul>
+            <button class="mobile-menu-btn" aria-label="Toggle menu">
+                <span></span><span></span><span></span>
+            </button>
         </nav>
     </header>
 
     <!-- Hero Section -->
     <section class="hero">
-        <div class="container">
-            <h1 class="hero-title">Exploring Ideas That Shape Our Future</h1>
+        <!-- Animated light trails canvas -->
+        <canvas id="hero-canvas"></canvas>
+        <div class="hero-overlay"></div>
+        <div class="container hero-content">
+            <p class="hero-eyebrow">Welcome to the future</p>
+            <h1 class="hero-title">Exploring Ideas<br>That Shape Our Future</h1>
             <p class="hero-subtitle">Thoughts on technology, innovation, and the world of tomorrow</p>
+            <a href="#blog" class="hero-cta">Read Latest Posts
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </a>
         </div>
     </section>
 
     <!-- Blog Section -->
     <main id="blog" class="blog-section">
         <div class="container">
-            <h2 class="section-title">Latest Posts</h2>
+            <div class="section-header">
+                <h2 class="section-title">Latest Posts</h2>
+                <p class="section-desc">Ideas worth exploring</p>
+            </div>
             
-            <article class="blog-post">
-                <div class="post-meta">
-                    <time datetime="2026-02-07">February 7, 2026</time>
-                    <span class="post-category">Technology</span>
-                </div>
-                <h3 class="post-title">Welcome to BeyondTomorrow</h3>
-                <p class="post-excerpt">
-                    Welcome to BeyondTomorrow, a space dedicated to exploring the ideas, technologies, 
-                    and innovations that are shaping our collective future. In this blog, we'll dive deep 
-                    into the trends and breakthroughs that matter most—from artificial intelligence and 
-                    sustainable technology to the evolving nature of work and human connection.
-                </p>
-                <p class="post-content">
-                    The future isn't something that simply happens to us; it's something we actively create 
-                    through our choices, innovations, and the questions we dare to ask. Here at BeyondTomorrow, 
-                    we believe in the power of informed curiosity—the kind that drives us to look past the 
-                    horizon and imagine what's possible.
-                </p>
-                <p class="post-content">
-                    Whether you're a technologist, an entrepreneur, a curious thinker, or someone who simply 
-                    wonders what the world will look like in five, ten, or fifty years, this is your space. 
-                    Together, we'll explore the forces transforming our world and consider how we can 
-                    shape them for the better.
-                </p>
-                <p class="post-content">
-                    Stay tuned for insights, analysis, and conversations about the technologies and ideas 
-                    that will define the decades ahead. The future starts now—let's explore it together.
-                </p>
-            </article>
+            <div class="posts-grid">
+                <article class="blog-post featured">
+                    <div class="post-image">
+                        <img src="https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=80" alt="Digital connections and data streams at night" loading="lazy">
+                    </div>
+                    <div class="post-body">
+                        <div class="post-meta">
+                            <time datetime="2026-02-07">Feb 7, 2026</time>
+                            <span class="post-category">Technology</span>
+                        </div>
+                        <h3 class="post-title">Welcome to BeyondTomorrow</h3>
+                        <p class="post-excerpt">
+                            Welcome to BeyondTomorrow, a space dedicated to exploring the ideas, technologies, 
+                            and innovations that are shaping our collective future. We'll dive deep 
+                            into the trends and breakthroughs that matter most.
+                        </p>
+                        <div class="post-expandable">
+                            <p class="post-content">
+                                The future isn't something that simply happens to us; it's something we actively create 
+                                through our choices, innovations, and the questions we dare to ask. Here at BeyondTomorrow, 
+                                we believe in the power of informed curiosity—the kind that drives us to look past the 
+                                horizon and imagine what's possible.
+                            </p>
+                            <p class="post-content">
+                                Whether you're a technologist, an entrepreneur, a curious thinker, or someone who simply 
+                                wonders what the world will look like in five, ten, or fifty years, this is your space. 
+                                Together, we'll explore the forces transforming our world and consider how we can 
+                                shape them for the better.
+                            </p>
+                            <p class="post-content">
+                                Stay tuned for insights, analysis, and conversations about the technologies and ideas 
+                                that will define the decades ahead. The future starts now—let's explore it together.
+                            </p>
+                        </div>
+                        <a href="#" class="read-more">Continue reading →</a>
+                    </div>
+                </article>
 
-            <article class="blog-post">
-                <div class="post-meta">
-                    <time datetime="2026-02-06">February 6, 2026</time>
-                    <span class="post-category">AI & Innovation</span>
-                </div>
-                <h3 class="post-title">The Rise of Thoughtful AI</h3>
-                <p class="post-excerpt">
-                    As artificial intelligence continues to evolve at an unprecedented pace, we find ourselves 
-                    at a crossroads. The question is no longer whether AI will transform our world, but how 
-                    we can ensure that transformation benefits humanity as a whole.
-                </p>
-                <p class="post-content">
-                    The most exciting developments in AI aren't just about raw capability—they're about 
-                    building systems that understand context, respect human values, and augment rather than 
-                    replace human intelligence. This shift toward thoughtful AI represents a maturation of 
-                    the field and offers hope for a future where technology truly serves human flourishing.
-                </p>
-            </article>
+                <article class="blog-post">
+                    <div class="post-image">
+                        <img src="https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=800&q=80" alt="Light trails on a city highway at night" loading="lazy">
+                    </div>
+                    <div class="post-body">
+                        <div class="post-meta">
+                            <time datetime="2026-02-06">Feb 6, 2026</time>
+                            <span class="post-category">AI &amp; Innovation</span>
+                        </div>
+                        <h3 class="post-title">The Rise of Thoughtful AI</h3>
+                        <p class="post-excerpt">
+                            As artificial intelligence continues to evolve at an unprecedented pace, we find ourselves 
+                            at a crossroads. The question is no longer whether AI will transform our world, but how 
+                            we can ensure that transformation benefits humanity as a whole.
+                        </p>
+                        <div class="post-expandable">
+                            <p class="post-content">
+                                The most exciting developments in AI aren't just about raw capability—they're about 
+                                building systems that understand context, respect human values, and augment rather than 
+                                replace human intelligence. This shift toward thoughtful AI represents a maturation of 
+                                the field and offers hope for a future where technology truly serves human flourishing.
+                            </p>
+                        </div>
+                        <a href="#" class="read-more">Continue reading →</a>
+                    </div>
+                </article>
+            </div>
         </div>
     </main>
 
     <!-- About Section -->
     <section id="about" class="about-section">
         <div class="container">
-            <h2 class="section-title">About</h2>
-            <div class="about-content">
-                <p>
-                    BeyondTomorrow is a blog dedicated to exploring the intersection of technology, 
-                    innovation, and human potential. We believe that understanding the forces shaping 
-                    our future is the first step toward actively participating in its creation.
-                </p>
-                <p>
-                    Our mission is to provide thoughtful, accessible analysis of the trends and 
-                    technologies that matter most—helping readers navigate an increasingly complex 
-                    world with clarity and purpose.
-                </p>
+            <div class="about-grid">
+                <div class="about-image">
+                    <img src="https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=800&q=80" alt="People working with technology in a modern environment" loading="lazy">
+                </div>
+                <div class="about-text">
+                    <h2 class="section-title">About</h2>
+                    <p>
+                        BeyondTomorrow is a blog dedicated to exploring the intersection of technology, 
+                        innovation, and human potential. We believe that understanding the forces shaping 
+                        our future is the first step toward actively participating in its creation.
+                    </p>
+                    <p>
+                        Our mission is to provide thoughtful, accessible analysis of the trends and 
+                        technologies that matter most—helping readers navigate an increasingly complex 
+                        world with clarity and purpose.
+                    </p>
+                </div>
             </div>
         </div>
     </section>
@@ -111,12 +148,20 @@
     <!-- Contact Section -->
     <section id="contact" class="contact-section">
         <div class="container">
-            <h2 class="section-title">Get In Touch</h2>
-            <p class="contact-text">
-                Have thoughts to share or topics you'd like us to explore? 
-                We'd love to hear from you.
-            </p>
-            <a href="mailto:admin@beyondtomorrow.world" class="contact-link">admin@beyondtomorrow.world</a>
+            <div class="contact-card">
+                <h2 class="section-title">Get In Touch</h2>
+                <p class="contact-text">
+                    Have thoughts to share or topics you'd like us to explore? 
+                    We'd love to hear from you.
+                </p>
+                <a href="mailto:admin@beyondtomorrow.world" class="contact-link">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M22 6l-10 7L2 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    admin@beyondtomorrow.world
+                </a>
+            </div>
         </div>
     </section>
 
@@ -139,5 +184,89 @@
             </div>
         </div>
     </footer>
+
+    <script>
+    // Light trails animation on hero canvas
+    (function() {
+        const canvas = document.getElementById('hero-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        let w, h, particles;
+
+        function resize() {
+            w = canvas.width = canvas.offsetWidth;
+            h = canvas.height = canvas.offsetHeight;
+        }
+
+        class Particle {
+            constructor() { this.reset(); }
+            reset() {
+                this.x = Math.random() * w;
+                this.y = Math.random() * h;
+                this.vx = (Math.random() - 0.3) * 1.2;
+                this.vy = (Math.random() - 0.5) * 0.4;
+                this.life = Math.random() * 200 + 100;
+                this.maxLife = this.life;
+                this.size = Math.random() * 2 + 0.5;
+                this.hue = Math.random() > 0.5 ? 210 + Math.random() * 30 : 40 + Math.random() * 20;
+                this.trail = [];
+            }
+            update() {
+                this.trail.push({ x: this.x, y: this.y });
+                if (this.trail.length > 20) this.trail.shift();
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life--;
+                if (this.life <= 0 || this.x < -50 || this.x > w + 50 || this.y < -50 || this.y > h + 50) {
+                    this.reset();
+                }
+            }
+            draw() {
+                const alpha = Math.min(this.life / this.maxLife, 1) * 0.6;
+                // Draw trail
+                if (this.trail.length > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                    for (let i = 1; i < this.trail.length; i++) {
+                        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                    }
+                    ctx.strokeStyle = `hsla(${this.hue}, 60%, 70%, ${alpha * 0.3})`;
+                    ctx.lineWidth = this.size * 0.5;
+                    ctx.stroke();
+                }
+                // Draw particle
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${this.hue}, 60%, 80%, ${alpha})`;
+                ctx.fill();
+            }
+        }
+
+        function init() {
+            resize();
+            particles = Array.from({ length: 60 }, () => new Particle());
+        }
+
+        function animate() {
+            ctx.fillStyle = 'rgba(15, 15, 20, 0.15)';
+            ctx.fillRect(0, 0, w, h);
+            particles.forEach(p => { p.update(); p.draw(); });
+            requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', resize);
+        init();
+        // Initial clear
+        ctx.fillStyle = 'rgba(15, 15, 20, 1)';
+        ctx.fillRect(0, 0, w, h);
+        animate();
+    })();
+
+    // Mobile menu toggle
+    document.querySelector('.mobile-menu-btn')?.addEventListener('click', function() {
+        this.classList.toggle('active');
+        document.querySelector('.nav-links').classList.toggle('open');
+    });
+    </script>
 </body>
 </html>

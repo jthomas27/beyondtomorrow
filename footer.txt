@@ -1,0 +1,223 @@
+<script>
+// ─── Animated light-trails background ───
+// Adds a subtle canvas behind the site header with moving light particles
+(function() {
+    const header = document.querySelector('.gh-head, .site-header, header');
+    if (!header) return;
+
+    // Create canvas
+    const canvas = document.createElement('canvas');
+    canvas.id = 'bt-light-canvas';
+    canvas.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100vh;z-index:-1;pointer-events:none;';
+    document.body.prepend(canvas);
+
+    const ctx = canvas.getContext('2d');
+    let w, h;
+
+    function resize() {
+        w = canvas.width = window.innerWidth;
+        h = canvas.height = window.innerHeight;
+    }
+
+    class LightParticle {
+        constructor() { this.reset(); }
+        reset() {
+            this.x = Math.random() * w;
+            this.y = Math.random() * h;
+            this.vx = (Math.random() - 0.3) * 0.8;
+            this.vy = (Math.random() - 0.5) * 0.3;
+            this.life = Math.random() * 300 + 150;
+            this.maxLife = this.life;
+            this.size = Math.random() * 1.5 + 0.3;
+            this.hue = Math.random() > 0.5 ? 255 : 40; // lavender or amber
+            this.sat = this.hue === 255 ? 60 : 80;
+            this.trail = [];
+        }
+        update() {
+            this.trail.push({ x: this.x, y: this.y });
+            if (this.trail.length > 15) this.trail.shift();
+            this.x += this.vx;
+            this.y += this.vy;
+            this.life--;
+            if (this.life <= 0 || this.x < -50 || this.x > w + 50) this.reset();
+        }
+        draw() {
+            const a = Math.min(this.life / this.maxLife, 1) * 0.4;
+            if (this.trail.length > 1) {
+                ctx.beginPath();
+                ctx.moveTo(this.trail[0].x, this.trail[0].y);
+                for (let i = 1; i < this.trail.length; i++) ctx.lineTo(this.trail[i].x, this.trail[i].y);
+                ctx.strokeStyle = 'hsla(' + this.hue + ',' + this.sat + '%,70%,' + (a * 0.2) + ')';
+                ctx.lineWidth = this.size * 0.4;
+                ctx.stroke();
+            }
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+            ctx.fillStyle = 'hsla(' + this.hue + ',' + this.sat + '%,80%,' + a + ')';
+            ctx.fill();
+        }
+    }
+
+    resize();
+    const particles = Array.from({ length: 40 }, () => new LightParticle());
+
+    function animate() {
+        ctx.fillStyle = 'rgba(15,15,20,0.12)';
+        ctx.fillRect(0, 0, w, h);
+        particles.forEach(p => { p.update(); p.draw(); });
+        requestAnimationFrame(animate);
+    }
+
+    ctx.fillStyle = 'rgba(15,15,20,1)';
+    ctx.fillRect(0, 0, w, h);
+    animate();
+    window.addEventListener('resize', resize);
+
+    // Fade canvas based on scroll depth
+    window.addEventListener('scroll', function() {
+        const scrolled = window.scrollY / (window.innerHeight * 0.8);
+        canvas.style.opacity = Math.max(0, 1 - scrolled);
+    });
+})();
+
+// ─── Subscribe celebration popup ───
+(function() {
+    // Build the overlay (hidden by default)
+    var overlay = document.createElement('div');
+    overlay.id = 'bt-celebrate';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(15,15,20,0.4);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;transition:opacity 0.4s ease;';
+    overlay.innerHTML = '<div style="text-align:center;max-width:480px;padding:3rem 2rem;background:linear-gradient(135deg,#1e1e27 0%,#252535 100%);border:1px solid rgba(200,184,255,0.2);border-radius:24px;box-shadow:0 30px 80px rgba(0,0,0,0.5);transform:scale(0.9);transition:transform 0.4s cubic-bezier(0.34,1.56,0.64,1);">'
+        + '<div style="font-size:7rem;margin-bottom:0.5rem;">🎉</div>'
+        + '<h2 style="font-family:Space Grotesk,sans-serif;color:#e8e8ec;font-size:3.5rem;font-weight:700;margin:0 0 0.75rem;letter-spacing:-0.02em;">Welcome Aboard!</h2>'
+        + '<p style="font-family:Inter,sans-serif;color:#a0a0b0;font-size:2.2rem;line-height:1.7;margin:0 0 2rem;">Thanks for subscribing! Check your inbox to complete subscription.</p>'
+        + '<button id="bt-celebrate-close" style="font-family:Space Grotesk,sans-serif;font-size:2rem;font-weight:500;background:rgba(200,184,255,0.15);color:#c8b8ff;border:1px solid rgba(200,184,255,0.25);border-radius:100px;padding:18px 48px;cursor:pointer;transition:all 0.25s ease;">Got it!</button>'
+        + '</div>';
+    document.body.appendChild(overlay);
+
+    var confettiCanvas = document.createElement('canvas');
+    confettiCanvas.style.cssText = 'position:fixed;inset:0;z-index:100000;pointer-events:none;';
+    document.body.appendChild(confettiCanvas);
+    var cCtx = confettiCanvas.getContext('2d');
+
+    function resizeConfetti() {
+        confettiCanvas.width = window.innerWidth;
+        confettiCanvas.height = window.innerHeight;
+    }
+    resizeConfetti();
+    window.addEventListener('resize', resizeConfetti);
+
+    var confetti = [];
+    var confettiRunning = false;
+    var confettiColors = ['#c8b8ff','#ffd6a5','#a0e8af','#ff9ec6','#80d4ff','#ffec80'];
+
+    function spawnConfetti() {
+        confetti = [];
+        for (var i = 0; i < 120; i++) {
+            confetti.push({
+                x: Math.random() * confettiCanvas.width,
+                y: -20 - Math.random() * 400,
+                w: 6 + Math.random() * 6,
+                h: 4 + Math.random() * 4,
+                vx: (Math.random() - 0.5) * 2,
+                vy: 1 + Math.random() * 2,
+                rot: Math.random() * 360,
+                rotV: (Math.random() - 0.5) * 12,
+                color: confettiColors[Math.floor(Math.random() * confettiColors.length)],
+                opacity: 1
+            });
+        }
+    }
+
+    function animateConfetti() {
+        if (!confettiRunning) return;
+        cCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+        var alive = 0;
+        confetti.forEach(function(p) {
+            p.x += p.vx;
+            p.vy += 0.04;
+            p.y += p.vy;
+            p.rot += p.rotV;
+            if (p.y > confettiCanvas.height + 20) { p.opacity -= 0.02; }
+            if (p.opacity <= 0) return;
+            alive++;
+            cCtx.save();
+            cCtx.translate(p.x, p.y);
+            cCtx.rotate(p.rot * Math.PI / 180);
+            cCtx.globalAlpha = Math.max(0, p.opacity);
+            cCtx.fillStyle = p.color;
+            cCtx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+            cCtx.restore();
+        });
+        if (alive > 0) {
+            requestAnimationFrame(animateConfetti);
+        } else {
+            cCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+            confettiRunning = false;
+        }
+    }
+
+    function showCelebration() {
+        overlay.style.display = 'flex';
+        requestAnimationFrame(function() {
+            overlay.style.opacity = '1';
+            overlay.firstChild.style.transform = 'scale(1)';
+        });
+        confettiRunning = true;
+        spawnConfetti();
+        animateConfetti();
+    }
+
+    function hideCelebration() {
+        overlay.style.opacity = '0';
+        overlay.firstChild.style.transform = 'scale(0.9)';
+        setTimeout(function() { overlay.style.display = 'none'; }, 400);
+    }
+
+    // Close button
+    document.getElementById('bt-celebrate-close').addEventListener('click', hideCelebration);
+    overlay.addEventListener('click', function(e) { if (e.target === overlay) hideCelebration(); });
+
+    // Trigger 1: Cover form success (data-members-form)
+    var forms = document.querySelectorAll('[data-members-form]');
+    forms.forEach(function(form) {
+        var observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(m) {
+                if (m.type === 'attributes' && m.attributeName === 'class') {
+                    if (form.classList.contains('success')) {
+                        setTimeout(showCelebration, 600);
+                    }
+                }
+            });
+        });
+        observer.observe(form, { attributes: true });
+
+        // Also listen for the loading→success transition on child spans
+        form.querySelectorAll('.success').forEach(function(el) {
+            var spanObs = new MutationObserver(function() {
+                var cs = window.getComputedStyle(el);
+                if (cs.display !== 'none' && cs.opacity !== '0') {
+                    setTimeout(showCelebration, 600);
+                }
+            });
+            spanObs.observe(el, { attributes: true, attributeFilter: ['style','class'] });
+        });
+    });
+
+    // Trigger 2: Ghost Portal signup success (listens for hash change)
+    window.addEventListener('hashchange', function() {
+        if (window.location.hash === '#/portal/signup/success' || window.location.hash === '#/portal/success') {
+            setTimeout(showCelebration, 800);
+        }
+    });
+
+    // Trigger 3: Watch for Ghost's data-members-success attribute
+    var bodyObserver = new MutationObserver(function(mutations) {
+        mutations.forEach(function(m) {
+            if (m.type === 'attributes' && m.attributeName === 'data-members-success') {
+                setTimeout(showCelebration, 600);
+            }
+        });
+    });
+    bodyObserver.observe(document.body, { attributes: true });
+})();
+</script>
