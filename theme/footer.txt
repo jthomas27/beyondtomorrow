@@ -221,3 +221,17 @@
     bodyObserver.observe(document.body, { attributes: true });
 })();
 </script>
+
+<script>
+// ─── Security: Remove version fingerprinting ───
+(function() {
+    // Remove <meta name="generator" content="Ghost x.x.x">
+    var gen = document.querySelector('meta[name="generator"]');
+    if (gen) gen.remove();
+
+    // Remove Ghost social meta that leaks platform identity
+    document.querySelectorAll('meta[content*="facebook.com/ghost"], meta[content="@ghost"]').forEach(function(el) {
+        el.remove();
+    });
+})();
+</script>

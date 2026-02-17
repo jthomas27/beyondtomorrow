@@ -19,7 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const GHOST_URL = 'https://www.beyondtomorrow.world';
+const GHOST_URL = 'https://beyondtomorrow.world';
 const INTEGRATION_NAME = 'Publisher Agent';
 
 // ── Parse CLI args ──

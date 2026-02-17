@@ -1,79 +1,40 @@
 #!/usr/bin/env node
 /**
  * Ghost Code Injection Updater
- * 
+ *
  * Pushes header.txt → Site Header and footer.txt → Site Footer
- * using the GHOST_ADMIN_API_KEY stored in Railway.
- * 
+ * via Ghost Admin session auth (email/password login).
+ *
  * Usage:
- *   node inject-code.js
- *   node inject-code.js --key <id:secret>    # override with explicit key
- * 
- * Prerequisite: Run setup-ghost-api.js first to create the API key.
+ *   node inject-code.js --email <email> --password <password>
+ *
+ * Ghost's settings API requires Owner/Admin session auth —
+ * custom integration API keys cannot edit settings (returns 501).
  */
 
 const https = require('https');
-const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
-const GHOST_URL = 'https://www.beyondtomorrow.world';
+const GHOST_URL = 'https://beyondtomorrow.world';
 
-// ── Get API key ──
-function getApiKey() {
-  // CLI override
-  const keyIdx = process.argv.indexOf('--key');
-  if (keyIdx !== -1 && process.argv[keyIdx + 1]) {
-    return process.argv[keyIdx + 1];
+// ── Parse CLI args ──
+function parseArgs() {
+  const args = process.argv.slice(2);
+  const parsed = {};
+  for (let i = 0; i < args.length; i += 2) {
+    const key = args[i].replace(/^--/, '');
+    parsed[key] = args[i + 1];
   }
-
-  // Environment variable
-  if (process.env.GHOST_ADMIN_API_KEY) {
-    return process.env.GHOST_ADMIN_API_KEY;
+  if (!parsed.email || !parsed.password) {
+    console.error('Usage: node inject-code.js --email <email> --password <password>');
+    process.exit(1);
   }
-
-  // Try fetching from Railway
-  try {
-    const output = execSync('railway variables --json 2>/dev/null', { encoding: 'utf-8' });
-    const vars = JSON.parse(output);
-    if (vars.GHOST_ADMIN_API_KEY) return vars.GHOST_ADMIN_API_KEY;
-  } catch {}
-
-  console.error('❌ No API key found. Set GHOST_ADMIN_API_KEY or run setup-ghost-api.js first.');
-  process.exit(1);
+  return parsed;
 }
 
-// ── Generate JWT from Admin API Key ──
-function makeToken(apiKey) {
-  const [id, secret] = apiKey.split(':');
-
-  // Header
-  const header = Buffer.from(JSON.stringify({
-    alg: 'HS256',
-    typ: 'JWT',
-    kid: id,
-  })).toString('base64url');
-
-  // Payload
-  const now = Math.floor(Date.now() / 1000);
-  const payload = Buffer.from(JSON.stringify({
-    iat: now,
-    exp: now + 300,
-    aud: '/admin/',
-  })).toString('base64url');
-
-  // Signature
-  const signature = crypto
-    .createHmac('sha256', Buffer.from(secret, 'hex'))
-    .update(`${header}.${payload}`)
-    .digest('base64url');
-
-  return `${header}.${payload}.${signature}`;
-}
-
-// ── HTTP helper ──
-function request(method, urlPath, body, token) {
+// ── HTTP helper (supports cookie auth) ──
+function request(method, urlPath, body, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const url = new URL(urlPath, GHOST_URL);
     const options = {
@@ -82,7 +43,8 @@ function request(method, urlPath, body, token) {
       path: url.pathname + url.search,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Ghost ${token}`,
+        'Origin': GHOST_URL,
+        ...extraHeaders,
       },
     };
 
@@ -90,10 +52,11 @@ function request(method, urlPath, body, token) {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
+        const cookies = res.headers['set-cookie'];
         try {
-          resolve({ status: res.statusCode, data: JSON.parse(data) });
+          resolve({ status: res.statusCode, data: data ? JSON.parse(data) : null, cookies });
         } catch {
-          resolve({ status: res.statusCode, data });
+          resolve({ status: res.statusCode, data, cookies });
         }
       });
     });
@@ -103,17 +66,47 @@ function request(method, urlPath, body, token) {
   });
 }
 
+// ── Session login ──
+async function login(email, password) {
+  console.log('\n🔐 Logging in via session auth...');
+  const res = await request('POST', '/ghost/api/admin/session/', {
+    username: email,
+    password: password,
+  });
+
+  if (res.status === 201 && res.cookies) {
+    const cookie = res.cookies.map(c => c.split(';')[0]).join('; ');
+    console.log('   ✅ Logged in successfully');
+    return cookie;
+  }
+
+  if (res.status === 403) {
+    console.error('   ❌ 403 — Device verification may be required.');
+    console.error('   Check your email for a verification link, then try again.');
+    process.exit(1);
+  }
+
+  if (res.status === 429) {
+    console.error('   ❌ 429 — Rate limited. Wait a few minutes and try again.');
+    process.exit(1);
+  }
+
+  console.error(`   ❌ Login failed (HTTP ${res.status}):`, JSON.stringify(res.data, null, 2));
+  process.exit(1);
+}
+
 // ── Main ──
 async function main() {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('  Ghost Code Injection — BeyondTomorrow.World');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-  const apiKey = getApiKey();
-  const token = makeToken(apiKey);
-  console.log(`\n🔑 Using API key: ${apiKey.substring(0, 24)}...`);
+  const { email, password } = parseArgs();
 
-  // Read source files (in theme/ directory)
+  // 1. Login
+  const cookie = await login(email, password);
+
+  // 2. Read source files
   const headerPath = path.join(__dirname, '..', 'theme', 'header.txt');
   const footerPath = path.join(__dirname, '..', 'theme', 'footer.txt');
 
@@ -128,20 +121,20 @@ async function main() {
   console.log(`\n📄 Header: ${headerCode.length} chars from header.txt`);
   console.log(`📄 Footer: ${footerCode.length} chars from footer.txt`);
 
-  // Push to Ghost
+  // 3. Push code injection
   console.log('\n🚀 Pushing code injection...');
   const res = await request('PUT', '/ghost/api/admin/settings/', {
     settings: [
       { key: 'codeinjection_head', value: headerCode },
       { key: 'codeinjection_foot', value: footerCode },
     ]
-  }, token);
+  }, { Cookie: cookie });
 
   if (res.status === 200) {
     console.log('✅ Code injection updated successfully');
 
-    // Verify
-    const verify = await request('GET', '/ghost/api/admin/settings/', null, token);
+    // 4. Verify
+    const verify = await request('GET', '/ghost/api/admin/settings/', null, { Cookie: cookie });
     if (verify.status === 200) {
       const settings = verify.data.settings;
       const head = settings.find(s => s.key === 'codeinjection_head');
@@ -156,7 +149,7 @@ async function main() {
   }
 
   console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('  ✅ Done — check https://www.beyondtomorrow.world');
+  console.log('  ✅ Done — check https://beyondtomorrow.world');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 }
 

@@ -276,13 +276,71 @@ CORPUS UPDATE FLOW
 
 ---
 
-## Security Basics
+## Security
+
+### Infrastructure Security (Cloudflare + Railway)
+
+| Layer | Measure | Status |
+|-------|---------|--------|
+| **DNS/Proxy** | Cloudflare (free tier) proxies all traffic — hides Railway origin IP | ✅ Active |
+| **SSL/TLS** | Cloudflare Full (Strict) mode + Railway auto-provisioned Let's Encrypt cert | ✅ Active |
+| **HSTS** | `max-age=15552000; includeSubDomains; preload` (180 days) | ✅ Active |
+| **HTTP → HTTPS** | Cloudflare "Always Use HTTPS" — 301 redirect on all HTTP requests | ✅ Active |
+| **Minimum TLS** | TLS 1.2 minimum enforced at Cloudflare edge | ✅ Active |
+| **DDoS** | Cloudflare automatic DDoS mitigation | ✅ Active |
+| **Domain routing** | Primary domain: `beyondtomorrow.world` — www 301-redirects to root | ✅ Active |
+| **Database access** | MySQL and pgvector use Railway internal networking only — no public proxies | ✅ Active |
+
+### Application Security (Ghost Code Injection)
+
+Security headers are injected via Ghost's site-wide code injection (managed by `scripts/inject-code.js`):
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `Content-Security-Policy` | Restrictive CSP allowing only trusted sources | Prevents XSS and code injection |
+| `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
+| `X-Frame-Options` | `SAMEORIGIN` | Prevents clickjacking |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Controls referrer leakage |
+| `Permissions-Policy` | Denies camera, microphone, geolocation, payment | Blocks unnecessary browser APIs |
+
+Additional client-side protections (via footer code injection):
+- `<meta name="generator">` tag removed from DOM (hides Ghost version)
+- Ghost social meta tags removed from DOM
+
+### Cloudflare Security Rules
+
+| Rule | Target | Action |
+|------|--------|--------|
+| **Rate limit Ghost admin login** | `/ghost/api/admin/session/` | Block after 5 req/10s per IP (60s ban) |
+| **Rate limit magic link** | `/members/api/send-magic-link/` | Block after 3 req/min per IP (300s ban) |
+| **Remove X-Powered-By** | All responses | Transform rule strips `X-Powered-By: Express` header |
+| **Redirect www to root** | `www.beyondtomorrow.world` | 301 redirect to `beyondtomorrow.world` |
+
+### Cloudflare DNS Records
+
+| Type | Name | Content | Proxy |
+|------|------|---------|-------|
+| CNAME | @ | `ghost-production-66d4.up.railway.app` | Proxied (orange) |
+| CNAME | www | `ghost-production-66d4.up.railway.app` | Proxied (orange) |
+| CNAME | autoconfig | `autoconfig.mail.hostinger.c...` | DNS only |
+| CNAME | autodiscover | `autodiscover.mail.hostinge...` | DNS only |
+| CNAME | hostingermail-a/b/c | DKIM records | DNS only |
+| MX | @ | `mx1.hostinger.com` (5), `mx2.hostinger.com` (10) | DNS only |
+| TXT | @ | SPF record | DNS only |
+| TXT | _dmarc | `v=DMARC1; p=none` | DNS only |
+| CAA | @ | Multiple CA issuers (DigiCert, Let's Encrypt, etc.) | DNS only |
+
+> ⚠️ Email CNAMEs (autoconfig, autodiscover, hostingermail-*) MUST stay DNS-only or Hostinger email will break.
+
+### Security Best Practices
 
 - Store API keys in Railway environment variables (not in code)
 - Only accept emails from an allowlist of senders
 - Log all agent actions for debugging
 - Use rate limits on external API calls
 - Validate file types before processing (PDFs only)
+- Ghost Admin API settings changes require session auth (email/password), not API keys
+- Use `scripts/inject-code.js` to push security header updates to Ghost
 
 ---
 

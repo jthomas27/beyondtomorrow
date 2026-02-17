@@ -26,15 +26,16 @@ Deployment guide for the BeyondTomorrow.World blog platform on Railway, powered 
 Deployed as a Docker image (`ghost:5`) on Railway with:
 - Persistent volume at `/var/lib/ghost/content` for themes, images, and uploads
 - Connected to MySQL via Railway's internal network
-- Custom domain: `beyondtomorrow.world`
+- Primary domain: `beyondtomorrow.world` (www redirects to root via Cloudflare)
 - Railway domain: `ghost-production-66d4.up.railway.app`
 - Admin panel: `https://beyondtomorrow.world/ghost/`
+- Cloudflare proxy: Active on both root and www domains
 
 ### MySQL Service
 Railway-managed MySQL 9.4 with:
 - Persistent volume at `/var/lib/mysql`
 - Internal host: `mysql.railway.internal:3306`
-- Public proxy: `metro.proxy.rlwy.net:32958`
+- Public proxy: **Disabled** (internal-only access for security)
 - Database: `railway`
 - Ghost tables: 58 tables auto-created on first boot
 
@@ -42,7 +43,7 @@ Railway-managed MySQL 9.4 with:
 PostgreSQL 18 with pgvector extension:
 - Persistent volume at `/var/lib/postgresql`
 - Internal host: `pgvector.railway.internal:5432`
-- Public proxy: `ballast.proxy.rlwy.net:32490`
+- Public proxy: **Disabled** (internal-only access for security)
 - 5 tables: documents, chunks, embeddings, blog_posts, knowledge_graph
 - See [POSTGRES_SETUP_GUIDE.md](POSTGRES_SETUP_GUIDE.md) for details
 
@@ -82,23 +83,34 @@ The repo contains utility scripts and documentation:
 
 ## Part 4: Custom Domain (beyondtomorrow.world)
 
-> **Status:** ✅ Domain assigned to Ghost service and verified.
+> **Status:** ✅ Domain assigned to Ghost service via Cloudflare.
 
-### DNS Records Required
+### DNS (Cloudflare)
 
-Configure these at your domain registrar:
+DNS is managed via Cloudflare (free tier). Nameservers:
+- `carlos.ns.cloudflare.com`
+- `zelda.ns.cloudflare.com`
 
-| Purpose | Type | Name | Value |
-|---------|------|------|-------|
-| Root domain | CNAME | @ | `mj7rnb3d.up.railway.app` |
-| WWW subdomain | CNAME | www | `t0qibbne.up.railway.app` |
+| Purpose | Type | Name | Value | Proxy |
+|---------|------|------|-------|-------|
+| Root domain | CNAME | @ | `ghost-production-66d4.up.railway.app` | ☁️ Proxied |
+| WWW subdomain | CNAME | www | `ghost-production-66d4.up.railway.app` | ☁️ Proxied |
 
-> ⚠️ Some registrars don't allow CNAME on root domain. Use Cloudflare (free) for CNAME flattening.
+> `www.beyondtomorrow.world` is 301-redirected to `beyondtomorrow.world` via Cloudflare Redirect Rule.
+
+### SSL/TLS
+- Cloudflare SSL mode: **Full (Strict)**
+- Railway auto-provisions Let's Encrypt cert for origin
+- HSTS enabled: `max-age=15552000; includeSubDomains; preload`
+- Minimum TLS version: 1.2
+- Always Use HTTPS: On
 
 ### Verification
 - `https://beyondtomorrow.world` → HTTP 200 ✅
 - `https://beyondtomorrow.world/ghost/` → HTTP 200 ✅
-- SSL auto-provisioned by Railway ✅
+- `server: cloudflare` + `cf-ray` header present ✅
+- `X-Powered-By` header stripped by Cloudflare transform rule ✅
+- HSTS header present ✅
 
 ---
 
@@ -114,10 +126,12 @@ Configure these at your domain registrar:
 
 ### External Access (for local development/debugging)
 
-| Service | Public Proxy | Port |
-|---------|-------------|------|
-| MySQL | `metro.proxy.rlwy.net` | 32958 |
-| pgvector | `ballast.proxy.rlwy.net` | 32490 |
+> ⚠️ Public proxies have been **disabled** for security. Re-enable in Railway dashboard if needed for local dev.
+
+| Service | Public Proxy | Status |
+|---------|-------------|--------|
+| MySQL | ~~`metro.proxy.rlwy.net:32958`~~ | Disabled |
+| pgvector | ~~`ballast.proxy.rlwy.net:32490`~~ | Disabled |
 
 ### Railway Project Values (caring-alignment)
 - **Project ID:** 752fdaea-fd96-4521-bec6-b7d5ef451270
@@ -166,14 +180,26 @@ Configure these at your domain registrar:
 
 ---
 
+## Completed Setup
+- [x] Deploy Ghost CMS + MySQL + pgvector on Railway
+- [x] Configure custom domain (`beyondtomorrow.world`)
+- [x] Set up Cloudflare DNS with proxied CNAME records
+- [x] Configure SSL/TLS (Full Strict + HSTS + Always HTTPS)
+- [x] Add security headers via Ghost code injection
+- [x] Set up Cloudflare WAF rate limiting rules
+- [x] Strip `X-Powered-By` header via Cloudflare transform rule
+- [x] Redirect www → root domain (301)
+- [x] Remove generator meta tag (client-side)
+- [x] Disable public database proxies
+- [x] Generate Ghost Admin API key
+- [x] Set up Ghost admin account
+
 ## Next Steps
-- [ ] Delete the old `beyondtomorrow` static service from Railway dashboard (Settings → Delete Service)
-- [ ] Update DNS CNAME records at registrar to point to new Railway targets
-- [ ] Set up Ghost admin account at `https://beyondtomorrow.world/ghost/`
-- [ ] Generate Ghost Admin API key (for publisher agent)
 - [ ] Create GitHub Actions workflow for agent automation
 - [ ] Configure Hostinger email IMAP for Railway worker
 - [ ] Set up Railway Object Storage for knowledge corpus
 - [ ] Build agent services (Orchestrator, Research, Writer, Editor, Publisher, Indexer)
 - [ ] Set up Slack webhook alerts
 - [ ] Upload initial PDFs to knowledge corpus
+- [ ] Upgrade DMARC policy from `p=none` to `p=quarantine` after monitoring
+- [ ] Consider Cloudflare Pro for managed WAF rulesets
