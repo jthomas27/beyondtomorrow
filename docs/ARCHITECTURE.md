@@ -2,7 +2,7 @@
 
 ## What We're Building
 
-A blog that publishes new posts automatically. Python agents (powered by Claude) research topics, write content, and publish to the blog. Agents are activated by scheduled events or incoming emails. A knowledge corpus of PDFs and emails provides context for writing.
+A blog that publishes new posts automatically. Python agents (powered by the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) + GitHub Models API) research topics, write content, and publish to the blog. Agents are activated by scheduled events or incoming emails. A knowledge corpus of PDFs and emails provides context for writing.
 
 ---
 
@@ -16,8 +16,8 @@ A blog that publishes new posts automatically. Python agents (powered by Claude)
 | Vector Database  | PostgreSQL + pgvector (Railway) | Stores embeddings for AI semantic search |
 | Automation       | GitHub Actions       | Triggers agent runs (schedule or event)   |
 | Email            | Hostinger Business Email | Receives inbound emails (beyondtomorrow.world) |
-| AI               | Claude (Anthropic)   | Powers research, writing, publishing agents |
-| Embeddings       | OpenAI text-embedding-3-small | Creates vector embeddings for semantic search |
+| AI               | [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) via GitHub Models API | Powers research, writing, publishing agents with built-in agent loop, `@function_tool` decorators, handoffs between agents, guardrails, and tracing — zero LLM cost via Copilot Pro |
+| Embeddings       | all-MiniLM-L6-v2 (sentence-transformers, local) | Creates 384-dim vector embeddings for semantic search — runs on Railway compute, zero API cost |
 | Media Storage    | Railway Object Storage | Stores images and documents             |
 | Knowledge Corpus | Railway Object Storage | Stores raw PDFs, emails, webpages       |
 | Monitoring       | Railway Logs + Slack | Alerts on success/failure                 |
@@ -40,7 +40,7 @@ Two databases serve distinct purposes, both hosted on Railway:
 
 **How they connect:**
 - Agents query the vector database to find relevant knowledge chunks before writing
-- OpenAI's `text-embedding-3-small` model converts text chunks into vectors for storage and search
+- The local `all-MiniLM-L6-v2` model (via `sentence-transformers`) converts text chunks into 384-dimension vectors for storage and search — runs on Railway compute with zero API cost
 - Agents publish finished posts to Ghost via its Admin API (which writes to MySQL)
 - Raw documents (PDFs, emails) live in Railway Object Storage; only their embeddings go to PostgreSQL
 
@@ -53,10 +53,12 @@ Two databases serve distinct purposes, both hosted on Railway:
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │   TRIGGER       │ ──▶ │   AGENTS        │ ──▶ │   REVIEW        │ ──▶ │   PUBLISH       │
-│                 │     │                 │     │                 │     │                 │
-│ • Scheduled     │     │ • Research      │     │ • Editor Agent  │     │ Ghost Admin API │
-│ • Email arrives │     │ • Summarise     │     │ • Quality check │     │       ↓         │
-│                 │     │ • Write         │     │                 │     │     MySQL       │
+│                 │     │  (OpenAI Agents │     │                 │     │                 │
+│ • Scheduled     │     │   SDK + GitHub  │     │ • Editor Agent  │     │ Ghost Admin API │
+│ • Email arrives │     │   Models API)   │     │ • Quality check │     │       ↓         │
+│                 │     │                 │     │                 │     │     MySQL       │
+│                 │     │ • Research      │     │                 │     │                 │
+│                 │     │ • Write         │     │                 │     │                 │
 └─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
                                  │
                                  ▼
@@ -66,6 +68,7 @@ Two databases serve distinct purposes, both hosted on Railway:
                     │ • PDFs (technical docs) │
                     │ • Emails (past content) │
                     │ • Vector search index   │
+                    │ • Past research output  │
                     └─────────────────────────┘
 ```
 
@@ -114,7 +117,7 @@ Two databases serve distinct purposes, both hosted on Railway:
 1. **Upload** — PDFs and emails are saved to Railway Object Storage
 2. **Extract** — Python worker extracts text from documents
 3. **Chunk** — Text is split into smaller pieces (500-1000 words each)
-4. **Embed** — OpenAI `text-embedding-3-small` creates embeddings for each chunk
+4. **Embed** — Local `all-MiniLM-L6-v2` model (via `sentence-transformers`) creates 384-dim embeddings for each chunk — runs on Railway compute, no API calls
 5. **Index** — Embeddings are stored in PostgreSQL via pgvector
 6. **Query** — Research agent searches corpus by topic before writing
 
@@ -141,14 +144,15 @@ knowledge-corpus/
 | Railway Object Storage | Store raw files | Included in Railway plan |
 | PostgreSQL + pgvector | Vector search | Included in Railway plan |
 | PyPDF2 | Extract text from PDFs | Free (Python library) |
+| sentence-transformers + all-MiniLM-L6-v2 | Generate 384-dim embeddings locally | Free (Python library, runs on CPU) |
 | LangChain (optional) | Simplify chunking + embedding | Free (Python library) |
 
 
 ---
 
-## Agent Roles (Python + Claude)
+## Agent Roles (OpenAI Agents SDK)
 
-Each agent has one job. The **Orchestrator** coordinates them.
+Each agent is defined via the OpenAI Agents SDK `Agent()` class with its own model, tools, and system prompt. The **Orchestrator** coordinates them via `handoffs`. See [OPENAI_AGENTS_SDK_GUIDE.md](OPENAI_AGENTS_SDK_GUIDE.md) for full implementation.
 
 | Agent        | Task                                             | Priority |
 |--------------|--------------------------------------------------|----------|
@@ -164,18 +168,19 @@ Each agent has one job. The **Orchestrator** coordinates them.
 
 ## Data Flow
 
-1. **Trigger** — GitHub Actions starts a workflow (scheduled or via dispatch)
-2. **Research** — Agent searches web + knowledge corpus
-3. **Summarise** — Agent condenses sources into notes
-4. **Write** — Agent creates draft post
-5. **Edit** — Editor agent reviews and improves draft
-6. **Publish** — Agent calls Ghost Admin API
+1. **Trigger** — GitHub Actions starts a workflow (scheduled or via dispatch), or email arrives
+2. **Orchestrate** — Orchestrator agent receives the task, identifies type (BLOG/RESEARCH/REPORT/INDEX)
+3. **Research** — Researcher agent searches web + knowledge corpus, outputs structured JSON with findings
+4. **Write** — Writer agent creates draft blog post from research findings (handoff from Researcher)
+5. **Edit** — Editor agent reviews and improves draft (handoff from Writer)
+6. **Publish** — Publisher agent calls Ghost Admin API — defaults to `draft` status for human review
 7. **Store** — Ghost writes post to MySQL
-8. **Index** — New emails saved to knowledge corpus
-9. **Alert** — Success/failure notification sent
-10. **Live** — Post appears on the blog
+8. **Index** — Indexer agent stores research output + sources in pgvector corpus
+9. **Alert** — Success/failure notification sent (Slack webhook)
+10. **Live** — Post appears on the blog after approval
 
-> Agents never write to MySQL directly. Ghost is the only service that touches the database.
+> Agents never write to MySQL directly. Ghost is the only service that touches the blog database.
+> All agent coordination happens via OpenAI Agents SDK handoffs — the Orchestrator delegates to subagents which return results back up the chain.
 
 ---
 
@@ -183,7 +188,7 @@ Each agent has one job. The **Orchestrator** coordinates them.
 
 | Scenario | Action |
 |----------|--------|
-| Claude API fails | Retry 3x with exponential backoff (5s, 15s, 45s) |
+| GitHub Models API fails | Retry 3x with exponential backoff (5s, 15s, 45s); auto-degrade to cheaper model if rate-limited |
 | Ghost API fails | Retry 3x, then save draft locally and alert |
 | Research finds nothing | Fall back to knowledge corpus only |
 | PDF extraction fails | Log error, skip file, continue with others |
@@ -226,12 +231,13 @@ Each agent has one job. The **Orchestrator** coordinates them.
 | Service          | Cost Driver                              | Est. Monthly |
 |------------------|------------------------------------------|--------------|
 | Railway          | Hosting + MySQL + PostgreSQL             | $5–25        |
-| Claude API       | Tokens used per post (research + writing)| $5–50        |
-| OpenAI Embeddings| Tokens for embedding corpus chunks       | $1–5         |
+| LLM Calls        | GitHub Models API (included in Copilot Pro) | $0 |
+| Agent Framework  | OpenAI Agents SDK (open source, MIT)     | $0           |
+| Embeddings       | Local `all-MiniLM-L6-v2` on Railway compute | $0 |
 | Hostinger Email  | Included with domain hosting             | $0           |
 | GitHub Actions   | Workflow minutes                         | Free         |
 | Railway Storage  | Included in Railway hosting              | $0           |
-| **Total**        |                                          | **$15–85**   |
+| **Total**        |                                          | **$5–25**    |
 
 *Start small. Costs scale with usage.*
 
@@ -240,38 +246,42 @@ Each agent has one job. The **Orchestrator** coordinates them.
 ## Workflow Summary
 
 ```
-DAILY FLOW
-──────────
+DAILY FLOW (OpenAI Agents SDK — handoff chain)
+────────────────────────────────────────────────
 1. GitHub Actions triggers at scheduled time
-2. Agent worker wakes up on Railway
-3. Research agent searches web + knowledge corpus
-4. Summariser agent condenses findings
-5. Writer agent creates draft
-6. Editor agent reviews and improves
-7. Publisher agent sends to Ghost
-8. Ghost saves to MySQL
-9. Alert sent (Slack)
-10. Blog displays new post
+2. Agent worker wakes up on Railway, init_github_models()
+3. Orchestrator receives task, hands off to Researcher
+4. Researcher searches web + corpus, returns structured findings
+5. Orchestrator hands off to Writer with findings
+6. Writer creates draft blog post
+7. Orchestrator hands off to Editor
+8. Editor reviews and improves draft
+9. Orchestrator hands off to Publisher
+10. Publisher sends to Ghost (as draft for review)
+11. Orchestrator hands off to Indexer
+12. Indexer stores research in pgvector corpus
+13. Alert sent (Slack)
+14. Blog displays new post after approval
 
 EMAIL FLOW
 ──────────
-1. Email sent to blog@beyondtomorrow.world
-2. Railway worker fetches email via IMAP
-3. Sender validated against allowlist
-4. Email saved to knowledge corpus
-5. Agent reads email, follows instructions
-6. Same flow as above (research → publish)
-7. Reply email sent with post link
+1. Email sent to admin@beyondtomorrow.world
+2. email_listener.py polls IMAP, fetches new messages
+3. Sender validated against config/allowlist.yaml
+4. Subject parsed for command (BLOG:/RESEARCH:/REPORT:/INDEX:)
+5. Orchestrator agent receives task via Runner.run()
+6. Same handoff chain as above (research → write → edit → publish)
+7. Reply email sent with results/post link
 
 CORPUS UPDATE FLOW
 ──────────────────
 1. New PDF uploaded to Railway Object Storage (manual or via email)
-2. Indexer agent detects new file
+2. Indexer agent receives document via orchestrator handoff
 3. Text extracted from PDF
-4. Text chunked into smaller pieces
-5. Embeddings created via OpenAI `text-embedding-3-small`
-6. Chunks indexed in PostgreSQL (pgvector)
-7. Document available for future research
+4. Text chunked into smaller pieces (500-1000 tokens, paragraph boundaries)
+5. Embeddings created locally via `all-MiniLM-L6-v2` (sentence-transformers) — no API calls
+6. Chunks indexed in PostgreSQL (pgvector) with metadata
+7. Document available for future research via search_corpus tool
 ```
 
 ---
@@ -348,14 +358,18 @@ Additional client-side protections (via footer code injection):
 
 1. ~~Set up Railway project with Ghost + MySQL~~ ✅ Done
 2. ~~Add PostgreSQL service with pgvector extension~~ ✅ Done
-3. Create GitHub repo with Actions workflow
-4. Configure Hostinger email IMAP settings for Railway
-5. Set up Railway Object Storage bucket
-6. Build Indexer agent (process PDFs)
-7. Build Orchestrator agent
-8. Build Research agent (web + corpus search)
-9. Build Writer + Editor agents
-10. Build Publisher agent (needs Ghost Admin API key)
-11. Set up Slack alerts
-12. Upload initial PDFs to corpus
-13. Test end-to-end with scheduled run
+3. `pip install openai-agents` + create `agents/setup.py` (GitHub Models client)
+4. Create PostgreSQL schema (`scripts/init-schema.py` — embeddings, research_runs, rate_limit_log, agent_sessions)
+5. Run vector migration (`scripts/migrate-to-384.py` — 1536→384 dims)
+6. Build `agents/tools/` — all `@function_tool` definitions (search, corpus, ghost, files, quality)
+7. Build `agents/definitions.py` — Agent definitions with handoffs
+8. Build `agents/guardrails.py` + `agents/degradation.py` — cost controls
+9. Build `agents/main.py` + `agents/cli.py` — entry points
+10. Build `agents/email_listener.py` — IMAP polling + dispatch
+11. Create `config/` — YAML configs (sources, allowlist, models, limits)
+12. Create GitHub Actions workflows (email-check, daily-research, manual)
+13. Set up Slack alerts
+14. Upload initial PDFs to corpus
+15. Integration testing + end-to-end validation
+
+> See [OPENAI_AGENTS_SDK_GUIDE.md](OPENAI_AGENTS_SDK_GUIDE.md) for detailed build order and implementation code.

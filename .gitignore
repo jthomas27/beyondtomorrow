@@ -3,6 +3,11 @@ node_modules/
 npm-cache/
 package-lock.json
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+
 # OS files
 .DS_Store
 Thumbs.db

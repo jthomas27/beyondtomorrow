@@ -8,7 +8,8 @@
     "db:test": "node scripts/db-test.js",
     "db:connect": "railway run npm run db:test",
     "mysql:test": "node scripts/mysql-test.js",
-    "mysql:fix-lock": "node scripts/fix-migration-lock.js"
+    "mysql:fix-lock": "node scripts/fix-migration-lock.js",
+    "railway:vars": "bash scripts/railway-vars.sh"
   },
   "repository": {
     "type": "git",

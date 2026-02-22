@@ -55,12 +55,12 @@ async function testDatabase() {
       CREATE TABLE IF NOT EXISTS embeddings (
         id SERIAL PRIMARY KEY,
         chunk_id INTEGER REFERENCES chunks(id) ON DELETE CASCADE,
-        embedding vector(1536),
-        model VARCHAR(100),
+        embedding vector(384),
+        model VARCHAR(100) DEFAULT 'all-MiniLM-L6-v2',
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    console.log('✓ Created embeddings table');
+    console.log('✓ Created embeddings table (384 dimensions — all-MiniLM-L6-v2)');
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS blog_posts (

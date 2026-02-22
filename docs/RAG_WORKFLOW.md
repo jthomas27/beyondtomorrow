@@ -352,148 +352,118 @@ When you search for information, the system compares your query's embedding agai
 
 | Model | Provider | Dimensions | Best For |
 |-------|----------|------------|----------|
-| **voyage-large-2** | Voyage AI | 1,536 | Code and technical content |
-| **text-embedding-3-small** | OpenAI | 1,536 | Cost-effective general use |
-| **text-embedding-3-large** | OpenAI | 3,072 | Higher quality, complex queries |
-| **text-embedding-ada-002** | OpenAI | 1,536 | Legacy; still widely used |
-| **embed-english-v3.0** | Cohere | 1,024 | English-focused applications |
-| **embed-multilingual-v3.0** | Cohere | 1,024 | Multi-language support |
-| **all-MiniLM-L6-v2** | Sentence Transformers (Open Source) | 384 | Free; runs locally |
-| **BGE-large-en** | BAAI (Open Source) | 1,024 | Free; high quality |
-| **Titan Embeddings** | Amazon Bedrock | 1,536 | AWS-integrated workflows |
-| **Gecko** | Google Vertex AI | 768 | Google Cloud integration |
+| **all-MiniLM-L6-v2** ✅ | Sentence Transformers (Open Source) | 384 | Free; runs locally; our chosen model |
+| **all-mpnet-base-v2** | Sentence Transformers (Open Source) | 768 | Free; higher quality upgrade path |
+| **bge-small-en-v1.5** | BAAI (Open Source) | 384 | Free; high quality |
+| **nomic-embed-text-v1.5** | Nomic AI (Open Source) | 768 | Free; very good quality |
+| **BGE-large-en** | BAAI (Open Source) | 1,024 | Free; best open-source quality |
+| **text-embedding-3-small** | OpenAI | 1,536 | Paid API; cost-effective general use |
+| **text-embedding-3-large** | OpenAI | 3,072 | Paid API; higher quality, complex queries |
+| **voyage-3** | Voyage AI | 1,024 | Paid API; optimised for retrieval |
+| **embed-english-v3.0** | Cohere | 1,024 | Paid API; English-focused applications |
+| **Titan Embeddings** | Amazon Bedrock | 1,536 | Paid API; AWS-integrated workflows |
+| **Gecko** | Google Vertex AI | 768 | Paid API; Google Cloud integration |
 
 ---
 
-### Recommended Embedding Providers: OpenAI vs Voyage AI
+### Our Choice: Local Embeddings with `all-MiniLM-L6-v2`
 
-For most RAG knowledge base projects, we recommend choosing between **OpenAI** and **Voyage AI**. Both are industry leaders with excellent quality, but they have different strengths.
+We use a **free, open-source embedding model** that runs locally on Railway's compute — no API calls, no API keys, no per-token costs. The model is loaded once when the worker starts and stays in memory.
 
-#### OpenAI Embeddings
+#### Why Local Instead of Paid APIs?
 
-OpenAI is the most widely used embedding provider, known for its ease of use and strong general-purpose performance.
+| Factor | Local Model (Our Choice) | Paid API (OpenAI / Voyage AI) |
+|--------|--------------------------|-------------------------------|
+| **Cost** | $0 — runs on Railway compute | ~$0.02–$0.06 per 1M tokens |
+| **Speed** | Very fast — no network latency | Slower — requires API round-trip |
+| **Privacy** | Text never leaves your server | Text is sent to a third party |
+| **Availability** | Always available — no API outages | Subject to provider downtime |
+| **Rate Limits** | None — limited only by CPU | Per-minute/per-day token limits |
+| **Setup** | `pip install sentence-transformers` | API key + billing account |
 
-| Model | Dimensions | Max Tokens | Best For |
-|-------|------------|------------|----------|
-| **text-embedding-3-small** | 1,536 | 8,191 | Budget-friendly, most use cases |
-| **text-embedding-3-large** | 3,072 | 8,191 | Maximum quality, complex content |
+#### Our Chosen Model: `all-MiniLM-L6-v2`
 
-**Strengths:**
-- **Easy to get started** – If you already use OpenAI for chat (GPT-4, etc.), embeddings use the same API key and billing
-- **Excellent documentation** – Widely documented with countless tutorials and examples
-- **Large community** – Easy to find help, code samples, and integrations
-- **Flexible dimensions** – You can reduce dimensions to save storage while keeping good quality
-- **Strong general performance** – Works well across many content types
+| Property | Value |
+|----------|-------|
+| **Provider** | Sentence Transformers (Open Source) |
+| **Dimensions** | 384 |
+| **Download Size** | 80 MB |
+| **RAM Usage** | ~250 MB |
+| **Max Input** | 256 word pieces (~200 words) |
+| **Speed** | Very fast on CPU (no GPU needed) |
+| **Quality** | Good — sufficient for knowledge bases under 100K chunks |
+| **License** | Apache 2.0 (fully open) |
 
-**Considerations:**
-- General-purpose model; not specialized for any particular domain
-- Pricing based on tokens processed
+**How it works:**
+1. Install the `sentence-transformers` Python package
+2. Load the model once at worker startup: `model = SentenceTransformer('all-MiniLM-L6-v2')`
+3. Embed text: `vector = model.encode("your text here")` → returns a 384-dimension vector
+4. Store the vector in PostgreSQL via pgvector
+5. Query by embedding your search text with the same model and using cosine similarity
 
-#### Voyage AI Embeddings
+#### Upgrade Path
 
-Voyage AI specializes in embeddings optimized for **retrieval** tasks—exactly what RAG systems need. Their models are specifically trained to find relevant documents.
+If retrieval quality needs improvement later, switch to a larger local model:
 
-| Model | Dimensions | Max Tokens | Best For |
-|-------|------------|------------|----------|
-| **voyage-3** | 1,024 | 32,000 | General retrieval (recommended) |
-| **voyage-3-lite** | 512 | 32,000 | Budget option with good quality |
-| **voyage-code-3** | 1,024 | 32,000 | Code and technical documentation |
-| **voyage-finance-2** | 1,024 | 32,000 | Financial documents |
-| **voyage-law-2** | 1,024 | 16,000 | Legal documents |
+| Model | Dimensions | Size | Quality | Speed | When to Switch |
+|-------|-----------|------|---------|-------|----------------|
+| **`all-MiniLM-L6-v2`** ✅ | 384 | 80 MB | Good | Very fast | Current choice |
+| `all-mpnet-base-v2` | 768 | 420 MB | Better | Fast | If retrieval precision drops |
+| `bge-small-en-v1.5` | 384 | 130 MB | Good | Fast | Alternative at same dimensions |
+| `nomic-embed-text-v1.5` | 768 | 550 MB | Very good | Moderate | For larger knowledge bases |
 
-**Strengths:**
-- **Built for retrieval** – Models are specifically optimized to find relevant documents, not just measure similarity
-- **Domain-specific models** – Specialized models for code, finance, and legal content outperform general models
-- **Longer context** – Supports up to 32,000 tokens (4x more than OpenAI), useful for larger chunks
-- **Top benchmark scores** – Consistently ranks at the top of retrieval benchmarks (MTEB)
-- **Retrieval-focused training** – Trained specifically on search and retrieval tasks
-
-**Considerations:**
-- Smaller community compared to OpenAI
-- Requires a separate API account and key
-- Fewer general tutorials available
-
----
-
-### Head-to-Head Comparison
-
-| Factor | OpenAI | Voyage AI | Winner |
-|--------|--------|-----------|--------|
-| **Ease of Setup** | Very easy; same API as GPT | Easy; separate account needed | OpenAI |
-| **General Text Quality** | Excellent | Excellent | Tie |
-| **Retrieval Performance** | Very good | Excellent (optimized for this) | Voyage AI |
-| **Code/Technical Docs** | Good | Excellent (voyage-code-3) | Voyage AI |
-| **Legal/Finance Docs** | Good | Excellent (specialized models) | Voyage AI |
-| **Max Input Length** | 8,191 tokens | 32,000 tokens | Voyage AI |
-| **Community & Resources** | Huge | Growing | OpenAI |
-| **Pricing** | ~$0.02 per 1M tokens (small) | ~$0.06 per 1M tokens (voyage-3) | OpenAI |
-| **Existing OpenAI Users** | No extra setup | New account needed | OpenAI |
+Switching models requires re-embedding all existing documents and updating the pgvector column dimensions. This is a one-time migration.
 
 ---
 
-### Recommendation for Your RAG Workflow
+### Paid API Alternatives (For Reference)
 
-#### Choose **OpenAI** if:
-- You're **new to RAG** and want the easiest path to get started
-- You already use OpenAI for chat models (GPT-4, etc.) and want unified billing
-- Your knowledge base contains **general content** (FAQs, policies, guides)
-- You want access to the **largest community** for help and examples
-- **Budget is a primary concern** and your content is general-purpose
+If you later decide to use a paid embedding service (e.g., for higher quality or multilingual support), these are the main options:
 
-#### Choose **Voyage AI** if:
-- Your knowledge base contains **code or technical documentation** → use voyage-code-3
-- You're building for **legal or financial** domains → use specialized models
-- **Retrieval accuracy is critical** and you want the best possible results
-- You have **longer documents** and want to use larger chunks (up to 32K tokens)
-- You're willing to invest slightly more for **measurably better retrieval**
+| Provider | Model | Dimensions | Pricing | Best For |
+|----------|-------|-----------|---------|----------|
+| **OpenAI** | text-embedding-3-small | 1,536 | ~$0.02/1M tokens | General content, largest community |
+| **OpenAI** | text-embedding-3-large | 3,072 | ~$0.13/1M tokens | Maximum quality |
+| **Voyage AI** | voyage-3 | 1,024 | ~$0.06/1M tokens | Optimised for retrieval tasks |
+| **Voyage AI** | voyage-code-3 | 1,024 | ~$0.06/1M tokens | Code and technical documentation |
+| **Cohere** | embed-english-v3.0 | 1,024 | Per API call | English-focused, multilingual options |
 
 ---
 
-### Popular Python Packages for Embeddings
+### Python Packages for Embeddings
 
-| Package | Description | Best For |
-|---------|-------------|----------|
-| **Voyage AI SDK** | Specialized embeddings for code and technical content | Developer documentation |
-| **OpenAI Python SDK** | Official client for OpenAI embedding models | Direct OpenAI API access |
-| **ChromaDB** | Vector database with built-in embedding functions | Simple all-in-one setup |
-| **LangChain** | Unified interface for multiple embedding providers | Switching between providers easily |
-| **LlamaIndex** | Integrates embedding generation into RAG pipelines | End-to-end RAG applications |
-| **Sentence Transformers** | Open-source library for local embedding models | Free, offline, privacy-focused |
-| **Hugging Face Transformers** | Access to thousands of open-source models | Research, custom models |
-| **Cohere SDK** | Official client for Cohere embedding models | Cohere API users |
-| **FastEmbed** | Lightweight, fast local embeddings | Speed-critical applications |
-
-### Embedding APIs and Services
-
-| Service | Description | Pricing Model |
-|---------|-------------|---------------|
-| **Voyage AI** | Specialized for code and retrieval tasks | Pay per token |
-| **OpenAI Embeddings API** | Industry-standard embeddings with excellent quality | Pay per token |
-| **Cohere Embed API** | Strong multilingual support | Pay per API call |
-| **Google Vertex AI** | Gecko model integrated with Google Cloud | Pay per character |
-| **Amazon Bedrock** | Titan embeddings with AWS integration | Pay per token |
-| **Azure OpenAI Service** | OpenAI models with enterprise Azure features | Pay per token |
-| **Jina AI** | Open-source and API options | Free tier available |
+| Package | Description | Best For | Cost |
+|---------|-------------|----------|------|
+| **Sentence Transformers** ✅ | Open-source library for local embedding models — **our chosen tool** | Free, offline, privacy-focused | Free |
+| **FastEmbed** | Lightweight, fast local embeddings (alternative to Sentence Transformers) | Speed-critical applications | Free |
+| **Hugging Face Transformers** | Access to thousands of open-source models | Research, custom models | Free |
+| **LangChain** | Unified interface for multiple embedding providers | Switching between providers easily | Free |
+| **LlamaIndex** | Integrates embedding generation into RAG pipelines | End-to-end RAG applications | Free |
+| **ChromaDB** | Vector database with built-in embedding functions | Simple all-in-one setup | Free |
+| **OpenAI Python SDK** | Official client for OpenAI embedding models | Paid API alternative | Pay per token |
+| **Voyage AI SDK** | Specialized embeddings for code and retrieval | Paid API alternative | Pay per token |
+| **Cohere SDK** | Official client for Cohere embedding models | Paid API alternative | Pay per API call |
 
 ### Embedding Considerations for AI Knowledge Bases
 
 | Factor | Guidance |
 |--------|----------|
-| **Model Choice** | Match model to content type (general text vs. code vs. multilingual) |
-| **Dimension Trade-off** | Higher dimensions = better quality but more storage and slower search |
-| **Batch Processing** | Embed multiple chunks in a single API call to reduce costs and latency |
-| **Caching** | Store embeddings permanently; re-embedding is wasteful and expensive |
-| **Consistency** | Always use the same model for queries as you used for documents |
-| **Rate Limits** | Respect API rate limits; implement retry logic with backoff |
+| **Model Choice** | We use `all-MiniLM-L6-v2` (384 dims, local, free). Upgrade to `all-mpnet-base-v2` (768 dims) if retrieval quality needs improvement |
+| **Dimension Trade-off** | Higher dimensions = better quality but more storage and slower search. 384 is sufficient for <100K chunks |
+| **Batch Processing** | Embed multiple chunks in a single `model.encode()` call for efficiency |
+| **Caching** | Store embeddings permanently in pgvector; re-embedding is wasteful even when free (costs compute time) |
+| **Consistency** | Always use the same model for queries as you used for documents. Mixing models = broken search |
+| **Model Loading** | Load the model once at worker startup and keep it in memory (~250 MB for MiniLM) |
 
 ### Common Pitfalls to Avoid
 
 | Pitfall | Problem | Solution |
 |---------|---------|----------|
-| **Mixing Models** | Query and document embeddings from different models won't match | Use one consistent model throughout |
-| **Ignoring Token Limits** | Text exceeding model limits gets truncated silently | Chunk text properly before embedding |
+| **Mixing Models** | Query and document embeddings from different models won't match | Use `all-MiniLM-L6-v2` consistently for both indexing and querying |
+| **Ignoring Token Limits** | Text exceeding model limits gets truncated silently | Chunk text to 500–1,000 tokens before embedding (MiniLM max: ~256 word pieces) |
 | **No Preprocessing** | Garbage in = garbage out | Clean text (remove noise, normalize formatting) |
 | **Embedding Entire Documents** | Single embedding loses detail | Chunk first, then embed each chunk |
+| **Switching Models Without Re-embedding** | Old embeddings are incompatible with new model dimensions | Re-embed all documents when changing models |
 
 ---
 
@@ -881,8 +851,9 @@ Your vector database on Railway needs to support hybrid search. Options include:
 | **Qdrant** | Fast, supports sparse vectors natively | Learning curve |
 
 #### 4. **Embedding Model Choice**
-- `text-embedding-3-small` → Cheaper, faster, 1536 dimensions
-- `text-embedding-3-large` → Better quality, 3072 dimensions, higher cost
+- `all-MiniLM-L6-v2` ✅ → Free, local, 384 dimensions — our chosen model
+- `all-mpnet-base-v2` → Free, local, 768 dimensions — upgrade if retrieval quality needs improvement
+- Paid alternatives (OpenAI, Voyage AI) available if budget allows in the future
 
 ---
 
@@ -899,7 +870,7 @@ Your vector database on Railway needs to support hybrid search. Options include:
 | **Chunk Overlap** | Shared text between consecutive chunks to preserve context at boundaries |
 | **Embedding** | A list of numbers that represents the meaning of text |
 | **Vector** | Another name for an embedding; a list of numbers in mathematical space |
-| **Dimensions** | The count of numbers in an embedding (e.g., 1,536 dimensions = 1,536 numbers) |
+| **Dimensions** | The count of numbers in an embedding (e.g., 384 dimensions = 384 numbers for `all-MiniLM-L6-v2`) |
 | **Cosine Similarity** | A mathematical formula to measure how similar two embeddings are |
 | **Token** | A unit of text (roughly 4 characters or ¾ of a word in English) |
 | **Vector Database** | A database optimized for storing and searching embeddings quickly |
@@ -915,8 +886,10 @@ Your vector database on Railway needs to support hybrid search. Options include:
 
 ## Next Steps
 
-1. Set up a Railway project
-2. Configure document storage
-3. Connect to Embeddings API
-4. Deploy a vector database
-5. Build the retrieval logic
+1. ~~Set up a Railway project~~ ✅ Done
+2. ~~Configure document storage~~ ✅ Done (Railway Object Storage)
+3. ~~Deploy a vector database~~ ✅ Done (PostgreSQL + pgvector on Railway)
+4. Install `sentence-transformers` and load `all-MiniLM-L6-v2` on Railway worker
+5. Migrate pgvector `embeddings` table from `vector(1536)` → `vector(384)`
+6. Build the embedding pipeline (chunk → embed → store)
+7. Build the retrieval logic (embed query → pgvector cosine search → return chunks)
