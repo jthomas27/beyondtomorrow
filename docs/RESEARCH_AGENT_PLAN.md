@@ -144,12 +144,12 @@ Each Agent in the SDK has its own `model` parameter. The Orchestrator uses hando
 
 | Agent | Default Model | Daily Budget (Copilot Pro) | Fallback |
 |---|---|---|---|
-| Orchestrator | `claude-sonnet-4` | 200 calls/day | `gpt-4o-mini` |
-| Researcher | `claude-sonnet-4` | 200 calls/day | `gpt-4o-mini` |
-| Writer | `claude-sonnet-4` | 200 calls/day | `gpt-4o-mini` |
-| Editor | `claude-sonnet-4` | 200 calls/day | `gpt-4o-mini` |
-| Publisher | `claude-haiku-3-5` | 3,000 calls/day | `gpt-4o-mini` |
-| Indexer | `claude-haiku-3-5` | 3,000 calls/day | `gpt-4o-mini` |
+| Orchestrator | `claude-sonnet-4` | 200 calls/day | `gpt-5.1` |
+| Researcher | `claude-sonnet-4` | 200 calls/day | `gpt-5.1` |
+| Writer | `claude-sonnet-4` | 200 calls/day | `gpt-5.1` |
+| Editor | `claude-sonnet-4` | 200 calls/day | `gpt-5.1` |
+| Publisher | `claude-haiku-3-5` | 3,000 calls/day | `gpt-5.1` |
+| Indexer | `claude-haiku-3-5` | 3,000 calls/day | `gpt-5.1` |
 | Deep synthesis (optional) | `claude-opus-4-6` | 50 calls/day | `claude-sonnet-4` |
 
 ### Copilot Pro Rate Limits
@@ -1228,16 +1228,15 @@ See [OPENAI_AGENTS_SDK_GUIDE.md](OPENAI_AGENTS_SDK_GUIDE.md) for full implementa
 
 Remaining open questions:
 
-1. **Existing corpus data** — Have any documents been indexed into pgvector yet? This affects whether the embedding migration needs a data re-embedding step.
+1. **Existing corpus data** — Have any documents been indexed into pgvector yet? This affects whether the embedding migration needs a data re-embedding step: NO
 
-2. **Email address for triggers** — Should the agent listen on `admin@beyondtomorrow.world` or a different mailbox (e.g., `research@beyondtomorrow.world`)?
+2. **Email address for triggers** — Should the agent listen on `admin@beyondtomorrow.world`: YES
 
 3. **Blog topic selection** — For the daily scheduled run, how should the agent pick a topic? Options:
-   - From a queue you maintain (YAML file of upcoming topics)
-   - AI-generated based on trending news in your topic categories
+   - From a queue you maintain (YAML file of upcoming topics): YES
+   - AI-generated based on trending news in your topic categories: NO
    - Rotating through topic categories defined in `config/sources.yaml`
 
 4. **Report delivery** — For standalone reports, preferred delivery method?
-   - Email reply with report attached
-   - Saved to repository and accessible via URL
-   - Both
+   - Email reply with report attached: YES
+   - Saved to repository and accessible via URL: YES

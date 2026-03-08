@@ -43,8 +43,8 @@ Railway-managed MySQL 9.4 with:
 PostgreSQL 18 with pgvector extension:
 - Persistent volume at `/var/lib/postgresql`
 - Internal host: `pgvector.railway.internal:5432`
-- Public proxy: **Disabled** (internal-only access for security)
-- 5 tables: documents, chunks, embeddings, blog_posts, knowledge_graph
+- Public proxy: **Disabled** (internal-only access for security) — enable TCP proxy to run schema setup
+- 4 tables: documents, chunks, embeddings (flat, 384-dim + metadata JSONB), blog_posts
 - See [POSTGRES_SETUP_GUIDE.md](POSTGRES_SETUP_GUIDE.md) for details
 
 ---
@@ -60,8 +60,14 @@ database__connection__user     = root
 database__connection__database = railway
 NODE_ENV                       = production
 PORT                           = 2368
-mail__transport                = Direct
-mail__from                     = noreply@beyondtomorrow.world
+mail__transport                = SMTP
+mail__from                     = admin@beyondtomorrow.world
+mail__options__host            = smtp.hostinger.com
+mail__options__port            = 465
+mail__options__secure          = true
+mail__options__requireTLS      = true
+mail__options__auth__user      = admin@beyondtomorrow.world
+mail__options__auth__pass      = (Ghost admin password — stored in Railway, also used for session auth)
 privacy__useUpdateCheck        = false
 privacy__useGravatar           = false
 privacy__useRpcPing            = false
@@ -111,6 +117,7 @@ DNS is managed via Cloudflare (free tier). Nameservers:
 - `server: cloudflare` + `cf-ray` header present ✅
 - `X-Powered-By` header stripped by Cloudflare transform rule ✅
 - HSTS header present ✅
+- Security headers present (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) via Cloudflare Transform Rule ✅
 
 ---
 
@@ -185,20 +192,27 @@ DNS is managed via Cloudflare (free tier). Nameservers:
 - [x] Configure custom domain (`beyondtomorrow.world`)
 - [x] Set up Cloudflare DNS with proxied CNAME records
 - [x] Configure SSL/TLS (Full Strict + HSTS + Always HTTPS)
-- [x] Add security headers via Ghost code injection
+- [x] Add security headers via Cloudflare Transform Rule (HTTP Response Headers: CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy)
 - [x] Set up Cloudflare WAF rate limiting rules
 - [x] Strip `X-Powered-By` header via Cloudflare transform rule
 - [x] Redirect www → root domain (301)
-- [x] Remove generator meta tag (client-side)
+- [x] Remove inline JS from Ghost footer injection (reduces XSS surface)
 - [x] Disable public database proxies
 - [x] Generate Ghost Admin API key
 - [x] Set up Ghost admin account
+- [x] Install Python agent packages (`openai-agents`, `asyncpg`, `trafilatura`, `duckduckgo-search`, etc.)
+- [x] Create `requirements.txt` (81 packages)
+- [x] Write all agent code: `pipeline/setup.py`, `pipeline/db.py`, `pipeline/definitions.py`, `pipeline/main.py`
+- [x] Write all tool modules: `pipeline/tools/search.py`, `pipeline/tools/corpus.py`, `pipeline/tools/ghost.py`, `pipeline/tools/files.py`, `pipeline/tools/quality.py`
+- [x] Create `.github/workflows/agents.yml` (scheduled + manual + repository_dispatch triggers)
+- [x] Note: app code lives in `pipeline/` not `agents/` — the `openai-agents` SDK uses the `agents` Python package name; `pipeline/` avoids the clash
 
 ## Next Steps
-- [ ] Create GitHub Actions workflow for agent automation
+- [ ] **REQUIRED: Enable TCP proxy on pgvector Railway service** → run `node scripts/db-test.js` to create schema, then `python scripts/migrate-embeddings.py` if migrating
+- [ ] **REQUIRED: Create GitHub PAT** with `models:read` scope → set as `GITHUB_TOKEN` in Railway Ghost service
+- [ ] **REQUIRED: Set GitHub Actions secrets** — `AGENT_GITHUB_TOKEN`, `DATABASE_URL`, `GHOST_URL`, `GHOST_ADMIN_KEY`
 - [ ] Configure Hostinger email IMAP for Railway worker
 - [ ] Set up Railway Object Storage for knowledge corpus
-- [ ] Build agent services (Orchestrator, Research, Writer, Editor, Publisher, Indexer)
 - [ ] Set up Slack webhook alerts
 - [ ] Upload initial PDFs to knowledge corpus
 - [ ] Upgrade DMARC policy from `p=none` to `p=quarantine` after monitoring

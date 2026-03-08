@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-migrate-embeddings.py — Migrate pgvector schema from 1536 to 384 dimensions
+migrate-embeddings.py — Migrate pgvector schema: 1536→384 dimensions + normalize
 
 This script:
   1. Drops the old HNSW index (built for 1536-dim vectors)
   2. Alters the embeddings column from vector(1536) to vector(384)
   3. Re-embeds any existing documents using the local all-MiniLM-L6-v2 model
   4. Recreates the HNSW index for 384-dim vectors
+  5. Backfills normalized schema: creates documents/chunks rows for existing flat rows
 
 Prerequisites:
   pip install psycopg2-binary sentence-transformers
@@ -138,14 +139,14 @@ def reembed_existing_chunks(cur, conn):
     """Re-embed any existing chunks that had embeddings.
 
     Only runs if there are rows in the embeddings table with NULL vectors
-    (cleared during migration).
+    (cleared during migration). Reads content directly from the flat
+    embeddings table (content column).
     """
     cur.execute("""
-        SELECT e.id, c.content
-        FROM embeddings e
-        JOIN chunks c ON c.id = e.chunk_id
-        WHERE e.embedding IS NULL AND c.content IS NOT NULL
-        ORDER BY e.id
+        SELECT id, content
+        FROM embeddings
+        WHERE embedding IS NULL AND content IS NOT NULL
+        ORDER BY id
     """)
     rows = cur.fetchall()
 
@@ -196,8 +197,9 @@ def recreate_hnsw_index(cur):
         CREATE INDEX IF NOT EXISTS idx_embeddings_vector
         ON embeddings
         USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 128)
     """)
-    print("✓ HNSW index created (384 dimensions, cosine similarity)")
+    print("\u2713 HNSW index created (384 dimensions, cosine similarity, ef_construction=128)")
 
 
 def update_model_column(cur):
@@ -209,6 +211,88 @@ def update_model_column(cur):
     updated = cur.rowcount
     if updated > 0:
         print(f"  Updated model name on {updated} rows → {MODEL_NAME}")
+
+
+def backfill_normalized_schema(cur, conn):
+    """Backfill documents/chunks rows for existing flat embeddings.
+
+    Flat embeddings (chunk_id IS NULL) were written before the normalized schema
+    was introduced. This step:
+      - Groups orphaned embedding rows by metadata->>'source'
+      - Creates one 'documents' row per unique source (or reuses existing)
+      - Creates one 'chunks' row per embedding row, linked to its document
+      - Sets chunk_id on each embedding row
+
+    Safe to re-run: skips embeddings that already have a chunk_id set.
+    """
+    cur.execute("SELECT COUNT(*) FROM embeddings WHERE chunk_id IS NULL")
+    orphan_count = cur.fetchone()[0]
+    if orphan_count == 0:
+        print("  No orphaned embeddings — backfill not needed")
+        return
+
+    print(f"  Backfilling {orphan_count} orphaned embedding rows into normalized schema...")
+
+    # Fetch all orphaned rows grouped so we can assign chunk_index per source
+    cur.execute("""
+        SELECT id, content, metadata
+        FROM embeddings
+        WHERE chunk_id IS NULL
+        ORDER BY metadata->>'source', id
+    """)
+    rows = cur.fetchall()
+
+    current_source = None
+    doc_id = None
+    chunk_index = 0
+    backfilled = 0
+
+    for emb_id, content, metadata in rows:
+        if isinstance(metadata, str):
+            import json as _json
+            meta = _json.loads(metadata) if metadata else {}
+        else:
+            meta = metadata or {}
+
+        source = meta.get("source") or f"unknown-{emb_id}"
+        source_type = meta.get("type", "unknown")
+
+        # Create or reuse the document row for this source
+        if source != current_source:
+            cur.execute("""
+                INSERT INTO documents (source, source_type, content, updated_at)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (source) DO UPDATE
+                    SET source_type = EXCLUDED.source_type,
+                        updated_at = NOW()
+                RETURNING id
+            """, (source, source_type, content))
+            doc_id = cur.fetchone()[0]
+            current_source = source
+            chunk_index = 0
+
+        # Create a chunks row for this embedding
+        cur.execute("""
+            INSERT INTO chunks (document_id, chunk_index, content)
+            VALUES (%s, %s, %s)
+            RETURNING id
+        """, (doc_id, chunk_index, content))
+        chunk_id = cur.fetchone()[0]
+
+        # Link the embedding to its chunk
+        cur.execute(
+            "UPDATE embeddings SET chunk_id = %s WHERE id = %s",
+            (chunk_id, emb_id),
+        )
+        chunk_index += 1
+        backfilled += 1
+
+        if backfilled % 100 == 0:
+            conn.commit()
+            print(f"  Backfilled {backfilled}/{orphan_count}...")
+
+    conn.commit()
+    print(f"✓ Backfilled {backfilled} embedding rows into normalized schema")
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +313,7 @@ def main():
 
     try:
         # 0. Check current state
-        print("[1/5] Checking current schema...")
+        print("[1/6] Checking current schema...")
         current_dim = check_current_schema(cur)
         existing_count = count_existing_embeddings(cur)
 
@@ -239,34 +323,38 @@ def main():
                 print("  No embeddings to re-embed. Ensuring HNSW index exists...")
                 recreate_hnsw_index(cur)
                 conn.commit()
-                print("\n✓ Migration not needed — schema is already up to date.")
-                return
-            # Check if there are NULL embeddings that need re-embedding
-            cur.execute("SELECT COUNT(*) FROM embeddings WHERE embedding IS NULL")
-            null_count = cur.fetchone()[0]
-            if null_count == 0:
-                print("  All embeddings present. Ensuring HNSW index exists...")
-                recreate_hnsw_index(cur)
-                conn.commit()
-                print("\n✓ Migration not needed — schema is already up to date.")
-                return
-            print(f"  {null_count} embeddings need re-embedding...")
+            else:
+                # Check if there are NULL embeddings that need re-embedding
+                cur.execute("SELECT COUNT(*) FROM embeddings WHERE embedding IS NULL")
+                null_count = cur.fetchone()[0]
+                if null_count > 0:
+                    print(f"  {null_count} embeddings need re-embedding...")
+                else:
+                    print("  All embeddings present. Ensuring HNSW index exists...")
+                    recreate_hnsw_index(cur)
+                    conn.commit()
+                    # Still run backfill in case normalization hasn't been done
+                    print("\n[6/6] Backfilling normalized schema...")
+                    backfill_normalized_schema(cur, conn)
+                    _record_migrations(cur, conn)
+                    print("\n✓ Migration not needed — schema is already up to date.")
+                    return
 
         # 1. Drop old HNSW index
-        print("\n[2/5] Dropping old HNSW index...")
+        print("\n[2/6] Dropping old HNSW index...")
         drop_hnsw_index(cur)
         conn.commit()
 
         # 2. Alter column dimensions
         if current_dim != NEW_DIMENSIONS:
-            print(f"\n[3/5] Altering column dimensions ({current_dim} → {NEW_DIMENSIONS})...")
+            print(f"\n[3/6] Altering column dimensions ({current_dim} → {NEW_DIMENSIONS})...")
             alter_column_dimensions(cur)
             conn.commit()
         else:
-            print(f"\n[3/5] Column already {NEW_DIMENSIONS} dimensions — skipping alter")
+            print(f"\n[3/6] Column already {NEW_DIMENSIONS} dimensions — skipping alter")
 
         # 3. Re-embed existing chunks
-        print("\n[4/5] Re-embedding existing chunks...")
+        print("\n[4/6] Re-embedding existing chunks...")
         start = time.time()
         reembed_existing_chunks(cur, conn)
         elapsed = time.time() - start
@@ -274,9 +362,16 @@ def main():
             print(f"  Re-embedding took {elapsed:.1f}s")
 
         # 4. Recreate HNSW index
-        print("\n[5/5] Recreating HNSW index...")
+        print("\n[5/6] Recreating HNSW index...")
         recreate_hnsw_index(cur)
         conn.commit()
+
+        # 5. Backfill normalized schema (documents/chunks rows for flat embeddings)
+        print("\n[6/6] Backfilling normalized schema (documents → chunks → embeddings)...")
+        backfill_normalized_schema(cur, conn)
+
+        # 6. Record migration versions
+        _record_migrations(cur, conn)
 
         # Done
         print()
@@ -284,7 +379,8 @@ def main():
         print("  ✓ Migration complete!")
         print(f"  Embedding column: vector({NEW_DIMENSIONS})")
         print(f"  Model: {MODEL_NAME}")
-        print(f"  HNSW index: active (cosine similarity)")
+        print(f"  HNSW index: active (cosine similarity, ef_construction=128)")
+        print(f"  Schema: normalized (documents → chunks → embeddings)")
         print("=" * 60)
 
     except Exception as e:
@@ -295,6 +391,22 @@ def main():
     finally:
         cur.close()
         conn.close()
+
+
+def _record_migrations(cur, conn):
+    """Record all applied migration versions in schema_migrations."""
+    try:
+        for version in ("002_vector_384_migration", "003_normalize_documents_chunks"):
+            cur.execute("""
+                INSERT INTO schema_migrations (version, applied_at)
+                VALUES (%s, NOW())
+                ON CONFLICT (version) DO NOTHING
+            """, (version,))
+        conn.commit()
+        print("✓ Migrations recorded in schema_migrations")
+    except Exception:
+        # schema_migrations may not exist if db-test.js hasn't been run yet
+        pass
 
 
 if __name__ == "__main__":

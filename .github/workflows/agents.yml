@@ -1,0 +1,83 @@
+name: Research Agent
+
+on:
+  # Scheduled runs — daily at 06:00 UTC and 18:00 UTC
+  schedule:
+    - cron: "0 6 * * *"
+    - cron: "0 18 * * *"
+
+  # Manual trigger with topic input
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Task to run (e.g. BLOG: topic, RESEARCH: topic, REPORT: topic)"
+        required: true
+        type: string
+      model:
+        description: "Override agent model (e.g. claude-haiku-3-5 for faster/cheaper runs)"
+        required: false
+        default: ""
+
+  # Trigger from repository_dispatch (for email-triggered runs via Railway webhook)
+  repository_dispatch:
+    types: [research-task]
+
+jobs:
+  run-agent:
+    name: Run Research Agent
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      GHOST_URL: ${{ secrets.GHOST_URL }}
+      GHOST_ADMIN_KEY: ${{ secrets.GHOST_ADMIN_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine task
+        id: task
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "task=${{ github.event.inputs.task }}" >> "$GITHUB_OUTPUT"
+            echo "model=${{ github.event.inputs.model }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "task=${{ github.event.client_payload.task }}" >> "$GITHUB_OUTPUT"
+            echo "model=" >> "$GITHUB_OUTPUT"
+          else
+            # Scheduled run — default research task
+            echo "task=RESEARCH: latest developments in AI safety and alignment" >> "$GITHUB_OUTPUT"
+            echo "model=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check agent status
+        run: python -m pipeline.main status
+
+      - name: Run agent
+        run: |
+          MODEL_FLAG=""
+          if [ -n "${{ steps.task.outputs.model }}" ]; then
+            MODEL_FLAG="--model ${{ steps.task.outputs.model }}"
+          fi
+          python -m pipeline.main $MODEL_FLAG "${{ steps.task.outputs.task }}"
+
+      - name: Upload research output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-output-${{ github.run_id }}
+          path: research/
+          retention-days: 30
+          if-no-files-found: ignore

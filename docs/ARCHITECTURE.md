@@ -301,21 +301,21 @@ CORPUS UPDATE FLOW
 | **Domain routing** | Primary domain: `beyondtomorrow.world` — www 301-redirects to root | ✅ Active |
 | **Database access** | MySQL and pgvector use Railway internal networking only — no public proxies | ✅ Active |
 
-### Application Security (Ghost Code Injection)
+### Application Security (Cloudflare HTTP Response Headers)
 
-Security headers are injected via Ghost's site-wide code injection (managed by `scripts/inject-code.js`):
+Security headers are delivered as real HTTP response headers via a **Cloudflare Transform Rule** ("Security Headers" rule, Rules → Transform Rules → HTTP Response Headers). This replaces the previous meta-tag approach, which was largely non-functional for most directives.
 
 | Header | Value | Purpose |
-|--------|-------|---------|
-| `Content-Security-Policy` | Restrictive CSP allowing only trusted sources | Prevents XSS and code injection |
+|--------|-------|------|
+| `Content-Security-Policy` | Restrictive CSP allowing only trusted sources | Prevents XSS and data injection |
 | `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
 | `X-Frame-Options` | `SAMEORIGIN` | Prevents clickjacking |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | Controls referrer leakage |
 | `Permissions-Policy` | Denies camera, microphone, geolocation, payment | Blocks unnecessary browser APIs |
 
-Additional client-side protections (via footer code injection):
-- `<meta name="generator">` tag removed from DOM (hides Ghost version)
-- Ghost social meta tags removed from DOM
+The CSP value and all header values are maintained in the Cloudflare dashboard. See [GHOST_PUBLISHING_GUIDE.md](GHOST_PUBLISHING_GUIDE.md#security-headers) for the current CSP value and verification command.
+
+**Ghost Code Injection** (`theme/header.txt`) contains only font `<link>` tags and the CSS theme — no security headers or JavaScript. The footer (`theme/footer.txt`) is intentionally empty to reduce XSS surface area. Pushed to Ghost via `scripts/inject-code.js`.
 
 ### Cloudflare Security Rules
 
@@ -323,6 +323,7 @@ Additional client-side protections (via footer code injection):
 |------|--------|--------|
 | **Rate limit Ghost admin login** | `/ghost/api/admin/session/` | Block after 5 req/10s per IP (60s ban) |
 | **Rate limit magic link** | `/members/api/send-magic-link/` | Block after 3 req/min per IP (300s ban) |
+| **Security Headers** | All responses | Transform rule injects CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy |
 | **Remove X-Powered-By** | All responses | Transform rule strips `X-Powered-By: Express` header |
 | **Redirect www to root** | `www.beyondtomorrow.world` | 301 redirect to `beyondtomorrow.world` |
 
@@ -349,8 +350,8 @@ Additional client-side protections (via footer code injection):
 - Log all agent actions for debugging
 - Use rate limits on external API calls
 - Validate file types before processing (PDFs only)
-- Ghost Admin API settings changes require session auth (email/password), not API keys
-- Use `scripts/inject-code.js` to push security header updates to Ghost
+- Ghost Admin API settings changes require session auth (email/password), not API keys — use `GHOST_ADMIN_PASSWORD` env var or `--password-stdin`, never `--password` flag
+- Use `scripts/inject-code.js` to push CSS theme updates to Ghost (security headers are managed in Cloudflare, not here)
 
 ---
 

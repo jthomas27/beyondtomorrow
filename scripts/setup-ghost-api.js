@@ -8,7 +8,9 @@
  * 4. Uses the key to push header.txt + footer.txt into Ghost Code Injection
  * 
  * Usage:
- *   node setup-ghost-api.js --email admin@beyondtomorrow.world --password <password>
+ *   node setup-ghost-api.js --email admin@beyondtomorrow.world
+ *   GHOST_ADMIN_EMAIL=<email> GHOST_ADMIN_PASSWORD=<password> node setup-ghost-api.js
+ *   printf '%s' '<password>' | node setup-ghost-api.js --email admin@beyondtomorrow.world --password-stdin
  * 
  * After first run, the API key is stored in Railway. Future code injection
  * updates can use:  node inject-code.js
@@ -17,7 +19,8 @@
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const readline = require('readline');
+const { spawnSync } = require('child_process');
 
 const GHOST_URL = 'https://beyondtomorrow.world';
 const INTEGRATION_NAME = 'Publisher Agent';
@@ -26,15 +29,133 @@ const INTEGRATION_NAME = 'Publisher Agent';
 function parseArgs() {
   const args = process.argv.slice(2);
   const parsed = {};
-  for (let i = 0; i < args.length; i += 2) {
+  for (let i = 0; i < args.length; i += 1) {
     const key = args[i].replace(/^--/, '');
+    if (key === 'password-stdin') {
+      parsed[key] = true;
+      continue;
+    }
+
     parsed[key] = args[i + 1];
+    i += 1;
   }
-  if (!parsed.email || !parsed.password) {
-    console.error('Usage: node setup-ghost-api.js --email <email> --password <password>');
+  if (parsed.password) {
+    console.error('Passing --password on the command line is disabled. Use GHOST_ADMIN_PASSWORD, --password-stdin, or the interactive prompt.');
     process.exit(1);
   }
   return parsed;
+}
+
+function promptLine(promptText) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    rl.question(promptText, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+function promptHidden(promptText) {
+  return new Promise((resolve, reject) => {
+    if (!process.stdin.isTTY) {
+      reject(new Error('Hidden password prompt requires a TTY. Use GHOST_ADMIN_PASSWORD or --password-stdin.'));
+      return;
+    }
+
+    const stdin = process.stdin;
+    let value = '';
+
+    function cleanup() {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.removeListener('data', onData);
+    }
+
+    function onData(chunk) {
+      const char = String(chunk);
+
+      if (char === '\u0003') {
+        cleanup();
+        reject(new Error('Input cancelled.'));
+        return;
+      }
+
+      if (char === '\r' || char === '\n') {
+        process.stdout.write('\n');
+        cleanup();
+        resolve(value.trim());
+        return;
+      }
+
+      if (char === '\u007f') {
+        value = value.slice(0, -1);
+        return;
+      }
+
+      value += char;
+    }
+
+    process.stdout.write(promptText);
+    stdin.resume();
+    stdin.setRawMode(true);
+    stdin.setEncoding('utf8');
+    stdin.on('data', onData);
+  });
+}
+
+function readPasswordFromStdin() {
+  return new Promise((resolve, reject) => {
+    if (process.stdin.isTTY) {
+      resolve('');
+      return;
+    }
+
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on('end', () => resolve(data.trim()));
+    process.stdin.on('error', reject);
+  });
+}
+
+async function resolveCredentials(parsed) {
+  const email = parsed.email || process.env.GHOST_ADMIN_EMAIL || await promptLine('Ghost admin email: ');
+
+  let password = process.env.GHOST_ADMIN_PASSWORD || '';
+  if (!password && parsed['password-stdin']) {
+    password = await readPasswordFromStdin();
+  }
+  if (!password) {
+    password = await promptHidden('Ghost admin password: ');
+  }
+
+  if (!email || !password) {
+    console.error('Ghost admin credentials are required. Provide GHOST_ADMIN_EMAIL and GHOST_ADMIN_PASSWORD, use --password-stdin, or answer the prompts.');
+    process.exit(1);
+  }
+
+  return { email, password };
+}
+
+function ensureRailwayCli() {
+  const versionCheck = spawnSync('railway', ['--version'], { encoding: 'utf8' });
+  if (versionCheck.error || versionCheck.status !== 0) {
+    console.error('Railway CLI is required before creating or rotating the Ghost Admin API key. Install it and run `railway login`, then retry.');
+    process.exit(1);
+  }
+
+  const loginCheck = spawnSync('railway', ['whoami'], { encoding: 'utf8' });
+  if (loginCheck.error || loginCheck.status !== 0) {
+    console.error('Railway CLI is not authenticated. Run `railway login`, then retry.');
+    process.exit(1);
+  }
 }
 
 // ── HTTP helper ──
@@ -86,8 +207,7 @@ async function login(email, password) {
 
   if (res.status === 403) {
     console.error('   ❌ 403 — Device verification required.');
-    console.error('   Check your email for a verification code, then run:');
-    console.error('   node setup-ghost-api.js --email <email> --password <password> --verify <code>');
+    console.error('   Check your email for a verification code, then retry after approving the device.');
     process.exit(1);
   }
 
@@ -140,7 +260,6 @@ async function createIntegration(cookie) {
     const adminKey = integration.api_keys.find(k => k.type === 'admin');
     const apiKey = `${adminKey.id}:${adminKey.secret}`;
     console.log(`   ✅ Integration created: "${INTEGRATION_NAME}"`);
-    console.log(`   Admin API Key: ${apiKey.substring(0, 30)}...`);
     return apiKey;
   }
 
@@ -151,16 +270,18 @@ async function createIntegration(cookie) {
 // ── Step 4: Save to Railway ──
 function saveToRailway(apiKey) {
   console.log('\n💾 Step 4: Saving API key to Railway...');
-  try {
-    execSync(`railway variables --set "GHOST_ADMIN_API_KEY=${apiKey}"`, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: process.cwd(),
-    });
-    console.log('   ✅ GHOST_ADMIN_API_KEY saved to Railway environment');
-  } catch (err) {
-    console.error('   ⚠️  Could not save to Railway. Set it manually:');
-    console.error(`   railway variables --set "GHOST_ADMIN_API_KEY=${apiKey}"`);
+  const result = spawnSync('railway', ['variables', '--set', `GHOST_ADMIN_API_KEY=${apiKey}`], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: process.cwd(),
+    encoding: 'utf8',
+  });
+
+  if (result.error || result.status !== 0) {
+    console.error('   Failed to save GHOST_ADMIN_API_KEY to Railway. The key was not printed for safety. Resolve the Railway CLI issue and re-run the setup script to rotate the key if needed.');
+    process.exit(1);
   }
+
+  console.log('   ✅ GHOST_ADMIN_API_KEY saved to Railway environment');
 }
 
 // ── Step 5: Push code injection ──
@@ -205,7 +326,10 @@ async function pushCodeInjection(cookie) {
 
 // ── Main ──
 async function main() {
-  const { email, password } = parseArgs();
+  ensureRailwayCli();
+
+  const parsed = parseArgs();
+  const { email, password } = await resolveCredentials(parsed);
 
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('  Ghost Admin API Setup — BeyondTomorrow.World');

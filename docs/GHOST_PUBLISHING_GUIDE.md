@@ -26,7 +26,7 @@ A custom integration called **"Publisher Agent"** is already configured in Ghost
 
 ```bash
 # One-time setup — logs in, creates integration, saves key to Railway, pushes code injection
-node setup-ghost-api.js --email admin@beyondtomorrow.world --password <password>
+node setup-ghost-api.js --email admin@beyondtomorrow.world
 ```
 
 This script (`setup-ghost-api.js`) does the following:
@@ -40,7 +40,7 @@ This script (`setup-ghost-api.js`) does the following:
 1. Go to `https://www.beyondtomorrow.world/ghost/#/settings/integrations`
 2. Click **Add Custom Integration** → name it "Publisher Agent"
 3. Copy the **Admin API Key** (format: `{id}:{secret}`)
-4. Save to Railway: `railway variables --set "GHOST_ADMIN_API_KEY={id}:{secret}"`
+4. Save to Railway in the dashboard or with a secure secret-management flow. Avoid putting the raw key directly in shell history.
 
 **Generating a JWT for API requests:**
 
@@ -557,12 +557,30 @@ Code Injection is how BeyondTomorrow's custom theme (dark UI, fonts, animations)
 
 **Direct URL:** `https://www.beyondtomorrow.world/ghost/#/settings/code-injection`
 
+### Security Headers
+
+Security response headers (`Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`) are **not** set through Ghost Code Injection. They are injected by a **Cloudflare Transform Rule** (Rules → Transform Rules → HTTP Response Headers → "Security Headers") so they are delivered as real HTTP response headers on every request.
+
+> **Do not add security `<meta http-equiv>` tags back to `header.txt`.** Meta-tag equivalents are largely non-functional: `frame-ancestors` is ignored in meta CSP by spec, and the other header names have no meta-tag equivalent in any browser.
+
+To update the CSP or other security headers, edit the Transform Rule value in the Cloudflare dashboard directly.
+
+**Current CSP value (as set in Cloudflare):**
+```
+default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https: http:; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://www.beyondtomorrow.world https://beyondtomorrow.world https://cdn.jsdelivr.net https://js.stripe.com https://api.stripe.com; frame-src https://js.stripe.com https://hooks.stripe.com; media-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests;
+```
+
+Verify headers are live with:
+```bash
+curl -sI https://beyondtomorrow.world | grep -i "content-security-policy\|x-frame\|x-content-type\|referrer\|permissions"
+```
+
 ### Source Files in This Repo
 
 | File | Purpose | Injected Into |
 |------|---------|---------------|
-| `header.txt` | Fonts + full CSS theme (~430 lines) | Site Header (`codeinjection_head`) |
-| `footer.txt` | Light-trail particle animation script | Site Footer (`codeinjection_foot`) |
+| `header.txt` | Font `<link>` tags + full CSS theme (~430 lines) | Site Header (`codeinjection_head`) |
+| `footer.txt` | Footer injection placeholder (kept empty by default) | Site Footer (`codeinjection_foot`) |
 | `ghost-code-injection.html` | Combined reference (header + footer in one file) | Reference only — not injected |
 | `inject-code.js` | Pushes header.txt + footer.txt to Ghost via API | Run locally |
 | `setup-ghost-api.js` | One-time setup: creates API key + saves to Railway + injects | Run once |
@@ -571,10 +589,10 @@ Code Injection is how BeyondTomorrow's custom theme (dark UI, fonts, animations)
 
 ### Update Protocol
 
-1. **Edit locally** — make changes in `header.txt` (CSS) or `footer.txt` (JS)
+1. **Edit locally** — make changes in `header.txt` (CSS) and keep `footer.txt` empty unless there is a reviewed reason to inject HTML there
 2. **Push to Ghost** — run the injection script:
    ```bash
-   node inject-code.js
+  node inject-code.js --email admin@beyondtomorrow.world
    ```
 3. **Verify** — check `https://www.beyondtomorrow.world` in a browser (hard-refresh with ⌘⇧R)
 4. **Commit** — save the working version to this repo
@@ -582,21 +600,21 @@ Code Injection is how BeyondTomorrow's custom theme (dark UI, fonts, animations)
 
 ### How `inject-code.js` Works
 
-1. Reads `GHOST_ADMIN_API_KEY` from Railway env vars (or `--key` flag)
-2. Generates a short-lived JWT (5 min expiry)
+1. Reads the admin email from `--email` or `GHOST_ADMIN_EMAIL`
+2. Reads the password from `GHOST_ADMIN_PASSWORD`, `--password-stdin`, or an interactive hidden prompt
 3. Reads `header.txt` and `footer.txt` from the repo
 4. `PUT /ghost/api/admin/settings/` with `codeinjection_head` and `codeinjection_foot`
 5. Verifies the update by reading settings back
 
 ```bash
-# Standard usage (key from Railway)
-node inject-code.js
+# Interactive password prompt
+node inject-code.js --email admin@beyondtomorrow.world
 
-# With explicit key override
-node inject-code.js --key "<id>:<secret>"
+# Environment variables for non-interactive use
+GHOST_ADMIN_EMAIL="admin@beyondtomorrow.world" GHOST_ADMIN_PASSWORD="<password>" node inject-code.js
 
-# With env var
-GHOST_ADMIN_API_KEY="<id>:<secret>" node inject-code.js
+# Read password from stdin
+printf '%s' '<password>' | node inject-code.js --email admin@beyondtomorrow.world --password-stdin
 ```
 
 ### What the Header Contains (CSS)
@@ -618,11 +636,9 @@ The `<style>` block in `header.txt` controls the entire visual theme:
 | Light trail glow | `::before` pseudo-element glow on card hover |
 | Animations | `fadeInUp` keyframe on page load |
 
-### What the Footer Contains (JS)
+### What the Footer Contains
 
-The `<script>` block in `footer.txt` runs one feature:
-
-- **Animated light-trail canvas** — creates a full-viewport `<canvas>` behind the page with 40 moving particles (lavender + amber). Fades out on scroll.
+`footer.txt` is intentionally empty. Custom JavaScript should not be injected through Ghost Code Injection because it forces a weaker CSP and increases XSS exposure.
 
 ### Design Tokens (CSS Variables)
 
@@ -661,9 +677,7 @@ Loaded via Google Fonts `<link>` at the top of `header.txt`:
 | Change accent color | `header.txt` → `:root` | `--bt-accent` and `--bt-accent-dim` |
 | Change background | `header.txt` → `:root` | `--bt-bg` |
 | Adjust card hover effect | `header.txt` → `.post-card:hover` | `transform`, `box-shadow` values |
-| Change particle count | `footer.txt` → `Array.from` | Number `40` → desired count |
-| Change particle colors | `footer.txt` → `LightParticle.reset()` | `this.hue` values (255=lavender, 40=amber) |
-| Disable particle animation | `footer.txt` | Remove or comment out the entire `<script>` |
+| Add reviewed custom footer HTML | `footer.txt` | Prefer static markup only; avoid `<script>` blocks |
 | Add a new font | `header.txt` | Add to `<link>` URL, then reference in CSS |
 
 ### Important Notes
@@ -675,4 +689,4 @@ Loaded via Google Fonts `<link>` at the top of `header.txt`:
 - **Never edit in Ghost Admin** — always edit `header.txt` / `footer.txt` locally and push via `node inject-code.js`. This keeps the repo as the single source of truth.
 - **Cache** — browsers may cache injected CSS. Hard-refresh (⌘⇧R) after pushing. Append a version comment (e.g. `/* v2.1 */`) for major changes.
 - **Inspect before pushing** — use browser DevTools to test CSS changes live before running `inject-code.js`.
-- **Rate limiting** — Ghost limits login attempts. If you get "Too many sign-in attempts", redeploy Ghost: `railway redeploy --yes`. This clears the in-memory rate counter. Token auth (inject-code.js) is not affected by this.
+- **Rate limiting** — Ghost limits login attempts. If you get "Too many sign-in attempts", wait for the limit to clear or redeploy Ghost if absolutely necessary. This script uses session auth, so repeated failures can trigger Ghost's rate limiter.

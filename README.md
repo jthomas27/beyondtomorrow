@@ -137,7 +137,7 @@ BeyondTomorrow.World/
 │
 ├── theme/                    # Ghost Code Injection source files
 │   ├── header.txt            # CSS → injected into Site Header
-│   └── footer.txt            # JS  → injected into Site Footer
+│   └── footer.txt            # Footer injection placeholder (empty by default)
 │
 ├── scripts/                  # Utility & maintenance scripts
 │   ├── inject-code.js        # Push theme to Ghost (reusable)
@@ -154,7 +154,7 @@ BeyondTomorrow.World/
 
 | Command | Description |
 |---------|-------------|
-| `npm run ghost:inject` | Push theme CSS/JS to Ghost |
+| `npm run ghost:inject` | Push theme CSS to Ghost (prompts for password; security headers are set in Cloudflare, not here) |
 | `npm run ghost:setup` | One-time Ghost API key setup |
 | `npm run db:test` | Test PostgreSQL connection |
 | `npm run db:connect` | Test via Railway (`railway run`) |

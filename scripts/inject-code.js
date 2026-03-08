@@ -6,7 +6,9 @@
  * via Ghost Admin session auth (email/password login).
  *
  * Usage:
- *   node inject-code.js --email <email> --password <password>
+ *   node inject-code.js --email <email>
+ *   GHOST_ADMIN_EMAIL=<email> GHOST_ADMIN_PASSWORD=<password> node inject-code.js
+ *   printf '%s' '<password>' | node inject-code.js --email <email> --password-stdin
  *
  * Ghost's settings API requires Owner/Admin session auth —
  * custom integration API keys cannot edit settings (returns 501).
@@ -15,6 +17,7 @@
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 
 const GHOST_URL = 'https://beyondtomorrow.world';
 
@@ -22,15 +25,119 @@ const GHOST_URL = 'https://beyondtomorrow.world';
 function parseArgs() {
   const args = process.argv.slice(2);
   const parsed = {};
-  for (let i = 0; i < args.length; i += 2) {
+  for (let i = 0; i < args.length; i += 1) {
     const key = args[i].replace(/^--/, '');
+    if (key === 'password-stdin') {
+      parsed[key] = true;
+      continue;
+    }
+
     parsed[key] = args[i + 1];
+    i += 1;
   }
-  if (!parsed.email || !parsed.password) {
-    console.error('Usage: node inject-code.js --email <email> --password <password>');
+  if (parsed.password) {
+    console.error('Passing --password on the command line is disabled. Use GHOST_ADMIN_PASSWORD, --password-stdin, or the interactive prompt.');
     process.exit(1);
   }
   return parsed;
+}
+
+function promptLine(promptText) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    rl.question(promptText, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+function promptHidden(promptText) {
+  return new Promise((resolve, reject) => {
+    if (!process.stdin.isTTY) {
+      reject(new Error('Hidden password prompt requires a TTY. Use GHOST_ADMIN_PASSWORD or --password-stdin.'));
+      return;
+    }
+
+    const stdin = process.stdin;
+    let value = '';
+
+    function cleanup() {
+      stdin.setRawMode(false);
+      stdin.pause();
+      stdin.removeListener('data', onData);
+    }
+
+    function onData(chunk) {
+      const char = String(chunk);
+
+      if (char === '\u0003') {
+        cleanup();
+        reject(new Error('Input cancelled.'));
+        return;
+      }
+
+      if (char === '\r' || char === '\n') {
+        process.stdout.write('\n');
+        cleanup();
+        resolve(value.trim());
+        return;
+      }
+
+      if (char === '\u007f') {
+        value = value.slice(0, -1);
+        return;
+      }
+
+      value += char;
+    }
+
+    process.stdout.write(promptText);
+    stdin.resume();
+    stdin.setRawMode(true);
+    stdin.setEncoding('utf8');
+    stdin.on('data', onData);
+  });
+}
+
+function readPasswordFromStdin() {
+  return new Promise((resolve, reject) => {
+    if (process.stdin.isTTY) {
+      resolve('');
+      return;
+    }
+
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on('end', () => resolve(data.trim()));
+    process.stdin.on('error', reject);
+  });
+}
+
+async function resolveCredentials(parsed) {
+  const email = parsed.email || process.env.GHOST_ADMIN_EMAIL || await promptLine('Ghost admin email: ');
+
+  let password = process.env.GHOST_ADMIN_PASSWORD || '';
+  if (!password && parsed['password-stdin']) {
+    password = await readPasswordFromStdin();
+  }
+  if (!password) {
+    password = await promptHidden('Ghost admin password: ');
+  }
+
+  if (!email || !password) {
+    console.error('Ghost admin credentials are required. Provide GHOST_ADMIN_EMAIL and GHOST_ADMIN_PASSWORD, use --password-stdin, or answer the prompts.');
+    process.exit(1);
+  }
+
+  return { email, password };
 }
 
 // ── HTTP helper (supports cookie auth) ──
@@ -101,7 +208,8 @@ async function main() {
   console.log('  Ghost Code Injection — BeyondTomorrow.World');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-  const { email, password } = parseArgs();
+  const parsed = parseArgs();
+  const { email, password } = await resolveCredentials(parsed);
 
   // 1. Login
   const cookie = await login(email, password);
