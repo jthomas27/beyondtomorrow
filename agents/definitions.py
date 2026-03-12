@@ -95,7 +95,7 @@ Save the draft using write_research_file with a BARE filename like YYYY-MM-DD-sl
 
 After saving the draft, report ONLY the bare filename you saved (e.g. "Saved: 2026-03-12-iran-ai-energy.md"). Your job is done.""",
     tools=[read_research_file, write_research_file],
-    model="openai/gpt-4.1",
+    model="openai/gpt-4.1-mini",
     model_settings=ModelSettings(temperature=0.7, max_tokens=4000),
     # Writer hands off to Editor
 )
@@ -124,7 +124,7 @@ Save the edited version using write_research_file (append -edited before .md ext
 
 After saving, report ONLY the bare filename you saved (e.g. "Saved: 2026-03-12-iran-ai-energy-edited.md"). Your job is done.""",
     tools=[read_research_file, write_research_file],
-    model="openai/gpt-4.1",
+    model="openai/gpt-4.1-mini",
     model_settings=ModelSettings(temperature=0.3, max_tokens=4000),
     # Editor hands off to Publisher
 )

@@ -58,7 +58,7 @@ async def _post_to_ghost(post_payload: dict) -> str:
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"{ghost_url}/ghost/api/admin/posts/",
+                f"{ghost_url}/ghost/api/admin/posts/?source=html",
                 json={"posts": [post_payload]},
                 headers={
                     "Authorization": f"Ghost {token}",

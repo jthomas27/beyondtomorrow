@@ -89,7 +89,7 @@ excerpt: One to two sentence summary for the preview card.
 
 Save the draft using write_research_file with a filename like YYYY-MM-DD-slug.md.""",
     tools=[read_research_file, write_research_file],
-    model="openai/gpt-4.1",
+    model="openai/gpt-4.1-mini",
     model_settings=ModelSettings(temperature=0.7, max_tokens=4000),
 )
 
@@ -114,7 +114,7 @@ Make targeted edits directly. Do NOT rewrite from scratch unless the draft is st
 Flag any claims you cannot verify against the provided research.
 Save the edited version using write_research_file (append -edited to the filename).""",
     tools=[read_research_file, write_research_file],
-    model="openai/gpt-4.1",
+    model="openai/gpt-4.1-mini",
     model_settings=ModelSettings(temperature=0.3, max_tokens=4000),
 )
 
