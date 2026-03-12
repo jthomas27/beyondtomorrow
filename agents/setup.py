@@ -35,3 +35,26 @@ def init_github_models() -> AsyncOpenAI:
     set_default_openai_client(client)
     set_default_openai_api("chat_completions")
     return client
+
+
+async def ensure_db_schema() -> None:
+    """Create any missing tables on first run. Safe to call on every startup."""
+    try:
+        from agents.db import get_pool
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS research_files (
+                    id          SERIAL PRIMARY KEY,
+                    filename    VARCHAR(500) UNIQUE NOT NULL,
+                    content     TEXT NOT NULL,
+                    created_at  TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at  TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE INDEX IF NOT EXISTS research_files_filename_idx
+                ON research_files (filename)
+            """)
+    except Exception:
+        pass  # Non-fatal: DB may not be available in all environments

@@ -57,7 +57,7 @@ Rules:
 - Prefer sources from the last 2 years but include older ones if highly relevant.
 - Output ONLY the structured JSON — no preamble.""",
     tools=[web_search, search_corpus, fetch_page, search_arxiv, score_credibility],
-    model="claude-sonnet-4-6",
+    model="openai/gpt-4.1",
     model_settings=ModelSettings(temperature=0.2, max_tokens=8000),
 )
 
@@ -89,7 +89,7 @@ excerpt: One to two sentence summary for the preview card.
 
 Save the draft using write_research_file with a filename like YYYY-MM-DD-slug.md.""",
     tools=[read_research_file, write_research_file],
-    model="claude-sonnet-4-6",
+    model="openai/gpt-4.1",
     model_settings=ModelSettings(temperature=0.7, max_tokens=4000),
 )
 
@@ -114,7 +114,7 @@ Make targeted edits directly. Do NOT rewrite from scratch unless the draft is st
 Flag any claims you cannot verify against the provided research.
 Save the edited version using write_research_file (append -edited to the filename).""",
     tools=[read_research_file, write_research_file],
-    model="claude-sonnet-4-6",
+    model="openai/gpt-4.1",
     model_settings=ModelSettings(temperature=0.3, max_tokens=4000),
 )
 
@@ -136,7 +136,7 @@ Given a final edited blog post:
 Only publish posts that have been through the Editor.
 If publishing fails, save the error details and report them.""",
     tools=[read_research_file, publish_to_ghost],
-    model="claude-haiku-4-5",
+    model="openai/gpt-4.1-mini",
     model_settings=ModelSettings(temperature=0.0, max_tokens=1000),
 )
 
@@ -158,7 +158,7 @@ Set the date to today's date in YYYY-MM-DD format if not known.
 
 Report the number of chunks stored and the source name.""",
     tools=[read_research_file, index_document, embed_and_store],
-    model="claude-haiku-4-5",
+    model="openai/gpt-4.1-mini",
     model_settings=ModelSettings(temperature=0.0, max_tokens=2000),
 )
 
@@ -197,6 +197,6 @@ When given a task, determine the type from the prefix and execute the appropriat
 Always log your decisions after each handoff.
 If any agent fails, log the error and continue with the remaining steps where possible.""",
     handoffs=[researcher, writer, editor, publisher, indexer],
-    model="claude-haiku-4-5",
+    model="openai/gpt-4.1-mini",
     model_settings=ModelSettings(temperature=0.1, max_tokens=2000),
 )

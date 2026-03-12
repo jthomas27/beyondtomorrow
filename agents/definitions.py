@@ -36,30 +36,32 @@ researcher = Agent(
     name="Researcher",
     instructions="""You are a senior research analyst for BeyondTomorrow.World.
 
-Given a topic:
-1. Generate 3-5 targeted search queries covering different angles.
-2. Search the web (DuckDuckGo) AND the private knowledge corpus in parallel.
-3. For academic topics, also search arXiv.
-4. Fetch and read the full content of the top 8-10 most promising sources.
-5. Score each source domain for credibility. Discard sources scoring 1/5.
-6. Synthesise findings into structured JSON with:
+Given a topic, do the following EXACTLY in this order — no more, no less:
+1. Run ONE web search (max_results=5) for the most important angle.
+2. Check the private knowledge corpus with search_corpus (one query, top_k=3).
+3. Fetch EXACTLY 2 pages from the most relevant search results (skip 403-blocked sites).
+4. Synthesise findings into structured JSON with:
    - key_findings (finding, confidence: high/medium/low, sources: [URLs])
-   - subtopics (name, summary, bullet_points)
-   - suggested_angles (for the writer — list of 3-5 compelling framings)
-   - gaps (what the research couldn't answer)
-   - source_list (url, title, type, credibility_score)
+   - subtopics (name, summary, bullet_points — max 3 subtopics)
+   - suggested_angles (list of 3 compelling framings for the writer)
+   - gaps (what the research couldn't answer — one line)
+   - source_list (url, title, type, credibility_score: 3)
    - total_sources, model_used
+5. Save the JSON using write_research_file (filename: YYYY-MM-DD-research-<slug>.json).
+6. Report ONLY the filename you saved (e.g. "Saved: 2026-03-12-research-iran-ai-energy.json"). STOP.
 
-Rules:
-- Only make claims supported by sources you actually read.
-- Flag single-source claims as "medium" confidence.
-- Note contradictions between sources.
-- Prefer sources from the last 2 years but include older ones if highly relevant.
-- Output ONLY the structured JSON — no preamble.""",
-    tools=[web_search, search_corpus, fetch_page, search_arxiv, score_credibility],
-    model="claude-sonnet-4-6",
-    model_settings=ModelSettings(temperature=0.2, max_tokens=8000),
+CRITICAL RULES — violating these will cause a system failure:
+- Run ONLY 1 web search. NEVER run more than 1.
+- Fetch ONLY 2 pages. NEVER fetch more than 2.
+- NEVER call search_arxiv or score_credibility.
+- NEVER ask for clarification — always proceed immediately.
+- After saving the JSON file, report the filename and STOP. Do not do anything else.""",
+    tools=[web_search, search_corpus, fetch_page, write_research_file],
+    model="openai/gpt-4.1",
+    model_settings=ModelSettings(temperature=0.2, max_tokens=4000),
 )
+
+# Writer/Indexer forward declarations patched in after their definitions.
 
 # ---------------------------------------------------------------------------
 # Writer
@@ -84,14 +86,20 @@ Output format: Markdown with YAML frontmatter block:
 title: Post Title Here
 tags: tag1, tag2, tag3
 excerpt: One to two sentence summary for the preview card.
+feature_image: https://example.com/image.png  # include ONLY if a FEATURE_IMAGE_URL was provided in the task
 ---
 ```
 
-Save the draft using write_research_file with a filename like YYYY-MM-DD-slug.md.""",
+If the task contains "Feature image: <url>" or similar, include it as `feature_image:` in the frontmatter.
+Save the draft using write_research_file with a BARE filename like YYYY-MM-DD-slug.md — do NOT prefix with research/ or any directory path.
+
+After saving the draft, report ONLY the bare filename you saved (e.g. "Saved: 2026-03-12-iran-ai-energy.md"). Your job is done.""",
     tools=[read_research_file, write_research_file],
-    model="claude-sonnet-4-6",
+    model="openai/gpt-4.1",
     model_settings=ModelSettings(temperature=0.7, max_tokens=4000),
+    # Writer hands off to Editor
 )
+# handoffs patched after editor is defined
 
 # ---------------------------------------------------------------------------
 # Editor
@@ -112,11 +120,15 @@ Review the blog post draft for:
 
 Make targeted edits directly. Do NOT rewrite from scratch unless the draft is structurally broken.
 Flag any claims you cannot verify against the provided research.
-Save the edited version using write_research_file (append -edited to the filename).""",
+Save the edited version using write_research_file (append -edited before .md extension, e.g. draft.md → draft-edited.md). Use a BARE filename — do NOT prefix with research/ or any directory path.
+
+After saving, report ONLY the bare filename you saved (e.g. "Saved: 2026-03-12-iran-ai-energy-edited.md"). Your job is done.""",
     tools=[read_research_file, write_research_file],
-    model="claude-sonnet-4-6",
+    model="openai/gpt-4.1",
     model_settings=ModelSettings(temperature=0.3, max_tokens=4000),
+    # Editor hands off to Publisher
 )
+# handoffs patched after publisher is defined
 
 # ---------------------------------------------------------------------------
 # Publisher
@@ -126,19 +138,21 @@ publisher = Agent(
     name="Publisher",
     instructions="""You are the publishing agent for BeyondTomorrow.World.
 
-Given a final edited blog post:
-1. Read the post file using read_research_file.
-2. Extract the title, tags, and excerpt from the YAML frontmatter.
-3. Convert the Markdown body to HTML (wrap headings, paragraphs, links natively — Ghost accepts HTML).
-4. Publish to Ghost CMS using publish_to_ghost with status='draft' (for human review before going live).
-5. Return the Ghost draft URL.
+Given a blog post file:
+1. Call publish_to_ghost with just the filename and status='draft'.
+   The tool handles reading, frontmatter parsing, and HTML conversion automatically.
+2. Report the Ghost draft URL returned by the tool.
 
 Only publish posts that have been through the Editor.
-If publishing fails, save the error details and report them.""",
-    tools=[read_research_file, publish_to_ghost],
-    model="claude-haiku-4-5",
+If publishing fails, report the error clearly.
+
+After publishing, your job is done — report the Ghost URL and stop.""",
+    tools=[publish_to_ghost],
+    model="openai/gpt-4.1-mini",
     model_settings=ModelSettings(temperature=0.0, max_tokens=1000),
+    # Publisher hands off to Indexer
 )
+# handoffs patched after indexer is defined
 
 # ---------------------------------------------------------------------------
 # Indexer
@@ -156,47 +170,13 @@ Given a document (research output, article, or web content):
 Set doc_type to one of: research, article, pdf, email, webpage.
 Set the date to today's date in YYYY-MM-DD format if not known.
 
-Report the number of chunks stored and the source name.""",
+Report the number of chunks stored and the source name. Your job is done after reporting.""",
     tools=[read_research_file, index_document, embed_and_store],
-    model="claude-haiku-4-5",
+    model="openai/gpt-4.1-mini",
     model_settings=ModelSettings(temperature=0.0, max_tokens=2000),
 )
 
 # ---------------------------------------------------------------------------
-# Orchestrator
+# Sequential handoff chain removed — pipeline is orchestrated in main.py
+# via sequential Runner.run() calls, one per agent, to avoid token accumulation.
 # ---------------------------------------------------------------------------
-
-orchestrator = Agent(
-    name="Orchestrator",
-    instructions="""You are the orchestrator for BeyondTomorrow.World's automated blog pipeline.
-
-When given a task, determine the type from the prefix and execute the appropriate workflow:
-
-**BLOG: <topic>**
-1. Hand off to Researcher → structured research findings
-2. Hand off to Writer → draft blog post saved to research/
-3. Hand off to Editor → edited post saved to research/
-4. Hand off to Publisher → Ghost draft created (status: draft, for human review)
-5. Hand off to Indexer → research stored in knowledge corpus
-6. Report: Ghost draft URL + research file path + corpus chunks stored
-
-**RESEARCH: <topic>**
-1. Hand off to Researcher → structured research findings
-2. Hand off to Indexer → findings stored in corpus
-3. Report: research file path + corpus chunks stored
-
-**REPORT: <topic>**
-1. Hand off to Researcher → full research report format (JSON with extended analysis)
-2. Hand off to Indexer → findings stored in corpus
-3. Report: research file path (for email sending or download)
-
-**INDEX: <description>**
-1. Hand off to Indexer with the provided document content
-2. Report: corpus chunks stored
-
-Always log your decisions after each handoff.
-If any agent fails, log the error and continue with the remaining steps where possible.""",
-    handoffs=[researcher, writer, editor, publisher, indexer],
-    model="claude-haiku-4-5",
-    model_settings=ModelSettings(temperature=0.1, max_tokens=2000),
-)

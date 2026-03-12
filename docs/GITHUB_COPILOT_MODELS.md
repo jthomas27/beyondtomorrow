@@ -5,6 +5,32 @@
 
 ---
 
+## ⚠️ Important: Chat UI vs Inference API
+
+| | Copilot Chat UI | `models.github.ai/inference` API |
+|---|---|---|
+| Claude (Anthropic) | ✅ Available | ❌ Not available |
+| GPT-4.1 / GPT-5 (OpenAI) | ✅ Available | ✅ Available |
+| Meta, Mistral, xAI, etc. | ✅ Available | ✅ Available |
+
+**Claude models can only be used interactively in the Copilot Chat UI.** For programmatic use via the GitHub Models API (e.g. the agent pipeline), use OpenAI or other supported models.
+
+### Available models via `models.github.ai/inference` API (as of March 2026)
+
+| Model ID | Tier | Notes |
+|----------|------|-------|
+| `openai/gpt-4.1` | high (50/day) | Best quality — researcher, writer, editor |
+| `openai/gpt-4o` | high (50/day) | GPT-4o fallback |
+| `openai/gpt-4.1-mini` | low (500/day) | Budget — orchestrator, publisher, indexer |
+| `openai/gpt-4.1-nano` | low (500/day) | Cheapest fallback |
+| `openai/gpt-5` | custom | Available but custom limits |
+| `openai/gpt-5-mini` | custom | Available but custom limits |
+| `meta/llama-4-maverick-17b-128e-instruct-fp8` | — | Open weights option |
+| `xai/grok-3` | custom | — |
+| `mistral-ai/mistral-medium-2505` | — | — |
+
+---
+
 ## OpenAI
 
 | Model | Status |

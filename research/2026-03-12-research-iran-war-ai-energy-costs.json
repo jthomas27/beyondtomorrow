@@ -1,0 +1,83 @@
+{
+  "key_findings": [
+    {
+      "finding": "The Iran war has sharply increased oil prices, which is tightening global energy markets and raising concerns about electricity costs for AI companies operating massive data centers.",
+      "confidence": "medium",
+      "sources": [
+        "https://decrypt.co/360059/big-tech-white-house-energy-pledge-iran-higher-costs",
+        "https://www.cnbc.com/2026/03/11/iran-war-hyperscalers-huge-middle-east-ai-data-center-plans.html"
+      ]
+    },
+    {
+      "finding": "Major AI companies (Amazon, Google, Meta, Microsoft, OpenAI, Oracle, xAI) have pledged to cover the full costs of electricity generation and grid upgrades for their data centers, aiming to prevent rising energy costs from impacting households and to address public concerns about infrastructure strain.",
+      "confidence": "medium",
+      "sources": [
+        "https://decrypt.co/360059/big-tech-white-house-energy-pledge-iran-higher-costs"
+      ]
+    },
+    {
+      "finding": "The conflict has disrupted some Middle Eastern data center operations (e.g., AWS facilities in UAE and Bahrain), leading to outages and prompting companies to reconsider future investments in the region. There is a potential shift toward building new capacity in more stable regions such as Northern Europe, India, or Southeast Asia.",
+      "confidence": "medium",
+      "sources": [
+        "https://www.cnbc.com/2026/03/11/iran-war-hyperscalers-huge-middle-east-ai-data-center-plans.html"
+      ]
+    }
+  ],
+  "subtopics": [
+    {
+      "name": "Oil Price Surge and Electricity Costs",
+      "summary": "The Iran war has caused oil prices to spike, tightening energy markets and raising electricity costs globally. AI companies, which rely on massive amounts of electricity for data centers, are directly affected.",
+      "bullet_points": [
+        "Oil prices rose to over $100 per barrel following the conflict.",
+        "Electricity costs for data centers are expected to rise as a result.",
+        "Energy infrastructure has become a strategic target in the conflict."
+      ]
+    },
+    {
+      "name": "AI Company Response Strategies",
+      "summary": "Major AI companies have responded to rising energy costs by pledging to cover the costs of power generation and grid upgrades for their data centers, aiming to prevent cost increases for consumers and address public concerns.",
+      "bullet_points": [
+        "White House Ratepayer Protection Pledge signed by leading AI companies.",
+        "Companies commit to building or buying new electricity supply and funding grid upgrades.",
+        "Efforts to prevent AI infrastructure from raising household electricity costs."
+      ]
+    },
+    {
+      "name": "Geopolitical Risk and Data Center Investment",
+      "summary": "The conflict has disrupted data center operations in the Middle East and may prompt AI companies to shift future investments to regions with more stable power supply and regulatory environments.",
+      "bullet_points": [
+        "AWS facilities in UAE and Bahrain experienced outages due to attacks.",
+        "Potential shift in investment toward Northern Europe, India, Southeast Asia.",
+        "Security and reliability of energy supply are key considerations."
+      ]
+    }
+  ],
+  "suggested_angles": [
+    "How the Iran war is reshaping the global energy landscape for AI companies",
+    "The energy cost squeeze: Will rising oil prices threaten AI innovation?",
+    "Big Tech’s pledge: Can AI companies shield consumers from higher electricity bills?",
+    "Geopolitical risk and the future of AI data center investment",
+    "Response strategies: How AI companies are adapting to the energy crisis"
+  ],
+  "gaps": [
+    "No detailed breakdown of how much electricity cost increases will impact AI company margins.",
+    "Limited information on specific operational changes or cost-cutting measures beyond pledges.",
+    "No quantitative data on the proportion of AI company expenses attributable to energy costs post-war."
+  ],
+  "source_list": [
+    {
+      "url": "https://decrypt.co/360059/big-tech-white-house-energy-pledge-iran-higher-costs",
+      "title": "Big Tech Joins White House Energy Pledge as Iran Tensions Threaten ...",
+      "type": "news article",
+      "credibility_score": 1
+    },
+    {
+      "url": "https://www.cnbc.com/2026/03/11/iran-war-hyperscalers-huge-middle-east-ai-data-center-plans.html",
+      "title": "How the Iran war could impact hyperscalers' huge Middle East AI plans",
+      "type": "news article",
+      "credibility_score": 1
+    }
+  ],
+  "total_sources": 2,
+  "model_used": "gpt-4-2024-06"
+}

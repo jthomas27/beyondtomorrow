@@ -91,32 +91,147 @@ async def _check_status() -> None:
 
 
 async def _run_agent(task: str, model_override: str | None = None, debug: bool = False) -> None:
-    """Initialise the SDK and run the orchestrator with the given task."""
+    """Initialise the SDK and run the pipeline agents sequentially."""
     from agents._sdk import Runner
-    from agents.setup import init_github_models
-    from agents.definitions import orchestrator
+    from agents.setup import init_github_models, ensure_db_schema
+    from agents.definitions import researcher, writer, editor, publisher, indexer
 
     # Initialise GitHub Models API client
     init_github_models()
-
-    # Apply model override if requested
-    if model_override:
-        from agents._sdk import ModelSettings
-        orchestrator.model = model_override
+    await ensure_db_schema()
 
     if debug:
-        from agents.tracing import set_tracing_export_api_enabled
-        set_tracing_export_api_enabled(False)  # local stdout tracing only
+        import logging
+        logging.basicConfig(level=logging.DEBUG)
 
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Starting: {task}")
     print("-" * 60)
 
-    result = await Runner.run(orchestrator, input=task)
+    task_upper = task.upper()
+    is_blog = "BLOG:" in task_upper
+
+    # Determine today's date prefix for filenames
+    date_prefix = datetime.now().strftime("%Y-%m-%d")
+
+    # --- Step 1: Researcher ---
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Running Researcher...")
+    research_task = (
+        f"{task}\n\n"
+        f"Save research as: {date_prefix}-research-<slug>.json"
+    )
+    researcher_result = await Runner.run(
+        researcher.clone(handoffs=[]),
+        input=research_task,
+        max_turns=20,
+    )
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Researcher done.")
+    research_filename = _extract_filename(researcher_result.final_output, ".json")
+    print(f"  Research file: {research_filename}")
+
+    if not is_blog:
+        # RESEARCH / REPORT task: just index the research file
+        print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Running Indexer...")
+        index_result = await Runner.run(
+            indexer.clone(handoffs=[]),
+            input=f"Index this research file into the knowledge corpus: {research_filename}",
+            max_turns=10,
+        )
+        print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Indexer done.")
+        print("-" * 60)
+        print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Complete")
+        print()
+        print(f"Research file: research/{research_filename}")
+        print(index_result.final_output)
+        return
+
+    # --- Step 2: Writer ---
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Running Writer...")
+    # Extract feature image URL if present in original task
+    feature_image = ""
+    if "feature image:" in task.lower() or "feature_image:" in task.lower():
+        import re
+        m = re.search(r'feature[_ ]image:\s*(https?://\S+)', task, re.IGNORECASE)
+        if m:
+            feature_image = f"\nFeature image URL: {m.group(1)}"
+    writer_result = await Runner.run(
+        writer.clone(handoffs=[]),
+        input=(
+            f"Write a blog post based on the following research.\n"
+            f"Research file: {research_filename}\n"
+            f"Original task: {task}{feature_image}\n\n"
+            f"Read the research file, write the post, and save it as "
+            f"{date_prefix}-<slug>.md in the research/ directory."
+        ),
+        max_turns=10,
+    )
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Writer done.")
+    draft_filename = _extract_filename(writer_result.final_output, ".md")
+    print(f"  Draft file: {draft_filename}")
+
+    # --- Step 3: Editor ---
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Running Editor...")
+    editor_result = await Runner.run(
+        editor.clone(handoffs=[]),
+        input=(
+            f"Edit and fact-check this blog post draft.\n"
+            f"Draft file: {draft_filename}\n"
+            f"Research file (for fact-checking): {research_filename}\n\n"
+            f"Save the edited version as {draft_filename.replace('.md', '-edited.md')} "
+            f"(append -edited before .md)."
+        ),
+        max_turns=10,
+    )
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Editor done.")
+    edited_filename = _extract_filename(editor_result.final_output, ".md")
+    if not edited_filename:
+        edited_filename = draft_filename.replace(".md", "-edited.md")
+    print(f"  Edited file: {edited_filename}")
+
+    # --- Step 4: Publisher ---
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Running Publisher...")
+    publisher_result = await Runner.run(
+        publisher.clone(handoffs=[]),
+        input=(
+            f"Publish this blog post to Ghost CMS as a draft.\n"
+            f"Post file: {edited_filename}\n"
+            f"Read the file, extract the frontmatter (title, tags, excerpt, feature_image), "
+            f"and publish to Ghost with status='draft'."
+        ),
+        max_turns=10,
+    )
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Publisher done.")
+    ghost_output = publisher_result.final_output
+
+    # --- Step 5: Indexer ---
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Running Indexer...")
+    index_result = await Runner.run(
+        indexer.clone(handoffs=[]),
+        input=f"Index this research file into the knowledge corpus: {research_filename}",
+        max_turns=10,
+    )
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Indexer done.")
 
     print("-" * 60)
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] Complete")
     print()
-    print(result.final_output)
+    print(ghost_output)
+    print(index_result.final_output)
+
+
+def _extract_filename(text: str, ext: str) -> str:
+    """Extract the first filename with the given extension from agent output text."""
+    import re
+    # Match bare filenames like 2026-03-12-something.json or research/2026-03-12-something.json
+    pattern = rf'[\w/.\-]+{re.escape(ext)}'
+    matches = re.findall(pattern, text)
+    for m in matches:
+        # Strip leading research/ prefix since tools expect just the filename
+        name = m.lstrip("/")
+        if name.startswith("research/"):
+            name = name[len("research/"):]
+        if ext in name:
+            return name
+    return ""
 
 
 def main() -> None:

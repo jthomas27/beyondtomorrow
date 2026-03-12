@@ -70,7 +70,12 @@ def _load_openai_agents_sdk():
     finally:
         # Restore sys.path
         sys.path.remove(sdk_parent)
-        # Restore our local modules (except 'agents' itself — keep SDK version)
+        # Restore our local modules.  The import above sets sys.modules["agents"]
+        # to the SDK package, which would make project submodules (agents.setup,
+        # agents.definitions, etc.) invisible.  Always restore the saved project
+        # "agents" entry; for other keys only restore if not already present.
+        if "agents" in saved_modules:
+            sys.modules["agents"] = saved_modules["agents"]
         for key, mod in saved_modules.items():
             if key != "agents" and key not in sys.modules:
                 sys.modules[key] = mod

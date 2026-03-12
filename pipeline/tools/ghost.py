@@ -22,6 +22,7 @@ async def publish_to_ghost(
     tags: str = "",
     excerpt: str = "",
     status: str = "draft",
+    feature_image: str = "",
 ) -> str:
     """Publish a blog post to Ghost CMS via the Admin API.
 
@@ -31,6 +32,7 @@ async def publish_to_ghost(
         tags: Comma-separated list of tag names (e.g. "technology, AI, quantum").
         excerpt: A short custom excerpt for the post (1-2 sentences).
         status: Publication status — 'draft' (default, for review) or 'published' (live immediately).
+        feature_image: Optional URL for the post thumbnail/feature image.
     """
     ghost_url = os.environ.get("GHOST_URL", "").rstrip("/")
     admin_key = os.environ.get("GHOST_ADMIN_KEY", "")
@@ -61,17 +63,17 @@ async def publish_to_ghost(
         if tags
         else []
     )
-    post_data = {
-        "posts": [
-            {
-                "title": title,
-                "html": html_content,
-                "tags": tag_list,
-                "custom_excerpt": excerpt,
-                "status": status,
-            }
-        ]
+    post_payload: dict = {
+        "title": title,
+        "html": html_content,
+        "tags": tag_list,
+        "custom_excerpt": excerpt,
+        "status": status,
     }
+    if feature_image:
+        post_payload["feature_image"] = feature_image
+
+    post_data = {"posts": [post_payload]}
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:

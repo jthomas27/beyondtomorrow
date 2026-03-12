@@ -27,10 +27,10 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 DAILY_LIMITS: dict[str, int] = {
-    "claude-opus-4-6": 50,
-    "claude-sonnet-4-6": 200,
-    "claude-sonnet-4": 200,
-    "claude-haiku-4-5": 3000,
+    "openai/gpt-4.1": 50,
+    "openai/gpt-4o": 50,
+    "openai/gpt-4.1-mini": 500,
+    "openai/gpt-4.1-nano": 500,
 }
 
 # Percentage thresholds for soft warning vs. hard block.

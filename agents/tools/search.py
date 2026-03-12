@@ -10,16 +10,16 @@ Tools:
 import httpx
 import trafilatura
 from agents._sdk import function_tool
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 
 @function_tool
-async def web_search(query: str, max_results: int = 10) -> str:
+async def web_search(query: str, max_results: int = 5) -> str:
     """Search the web using DuckDuckGo. Returns titles, URLs, and snippets.
 
     Args:
         query: The search query string.
-        max_results: Maximum number of results to return (default 10).
+        max_results: Maximum number of results to return (default 5).
     """
     with DDGS() as ddgs:
         results = list(ddgs.text(query, max_results=max_results))
@@ -85,8 +85,9 @@ async def fetch_page(url: str) -> str:
     if not text:
         return f"Could not extract text from {url}"
 
-    # Truncate to ~4000 tokens to stay within context budget
-    max_chars = 16_000
+    # Truncate very aggressively: GitHub Models has a hard 8000-token request
+    # body limit, and the Researcher accumulates many tool-call results.
+    max_chars = 1_000
     if len(text) > max_chars:
         text = text[:max_chars] + "\n\n[... truncated]"
 

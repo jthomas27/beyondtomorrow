@@ -23,10 +23,10 @@ from pipeline.guardrails import check_model_budget
 # ---------------------------------------------------------------------------
 
 FALLBACK_CHAIN: list[str] = [
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-    "claude-sonnet-4",
-    "claude-haiku-4-5",
+    "openai/gpt-4.1",
+    "openai/gpt-4o",
+    "openai/gpt-4.1-mini",
+    "openai/gpt-4.1-nano",
 ]
 
 

@@ -5,18 +5,19 @@
 # Edit this file to override which model handles each agent or task.
 # Changes take effect at agent startup — no code changes needed.
 #
-# Available models (GitHub Models API via Copilot Pro):
+# Available models (GitHub Models API — inference endpoint):
 #
-#   High-cost tier  (50 req/day,   multiplier 3x):  claude-opus-4-6
-#   Medium tier     (200 req/day,  multiplier 1x):  claude-sonnet-4-6, claude-sonnet-4
-#   Low-cost tier   (3000 req/day, multiplier 0.33x): claude-haiku-4-5
+#   NOTE: Claude/Anthropic models are only available in the Copilot Chat UI,
+#         NOT via the models.github.ai/inference API endpoint.
+#
+#   High tier  (50 req/day):   openai/gpt-4.1, openai/gpt-4o
+#   Low tier   (500 req/day):  openai/gpt-4.1-mini, openai/gpt-4.1-nano
 #
 # Model selection strategy:
-#   - claude-sonnet-4-6 : complex tasks (research, writing, editing) — best quality at 1x cost
-#   - claude-haiku-4-5  : simple/deterministic tasks (orchestrating, publishing, indexing) — 0.33x cost
-#   - claude-opus-4-6   : reserved for --deep flag only (3x cost)
+#   - openai/gpt-4.1       : complex tasks (research, writing, editing) — best quality
+#   - openai/gpt-4.1-mini  : simple/deterministic tasks (orchestrating, publishing, indexing)
 #
-# See docs/GITHUB_COPILOT_MODELS.md for the full model list.
+# See docs/GITHUB_COPILOT_MODELS.md for the full Copilot Chat model list.
 
 # ---------------------------------------------------------------------------
 # Agent model assignments
@@ -25,40 +26,40 @@
 
 agents:
   orchestrator:
-    model: claude-haiku-4-5
+    model: openai/gpt-4.1
     temperature: 0.1
     max_tokens: 2000
-    note: "Routes tasks to sub-agents — routing is deterministic, haiku saves 0.67x vs sonnet"
+    note: "Multi-step handoff chain requires strong instruction-following — gpt-4.1"
 
   researcher:
-    model: claude-sonnet-4-6
+    model: openai/gpt-4.1
     temperature: 0.2
     max_tokens: 8000
-    note: "Complex multi-tool research + structured JSON synthesis — best Sonnet at same 1x cost"
+    note: "Complex multi-tool research + structured JSON synthesis — best quality"
 
   writer:
-    model: claude-sonnet-4-6
+    model: openai/gpt-4.1
     temperature: 0.7
     max_tokens: 4000
-    note: "Best writing quality in Sonnet tier — higher temp for varied, engaging prose"
+    note: "Best writing quality — higher temp for varied, engaging prose"
 
   editor:
-    model: claude-sonnet-4-6
+    model: openai/gpt-4.1
     temperature: 0.3
     max_tokens: 4000
-    note: "Careful fact-check + editorial reasoning — sonnet-4-6 best for analytical tasks"
+    note: "Careful fact-check + editorial reasoning — gpt-4.1 best for analytical tasks"
 
   publisher:
-    model: claude-haiku-4-5
+    model: openai/gpt-4.1-mini
     temperature: 0.0
     max_tokens: 1000
-    note: "Deterministic metadata extraction + Ghost API call — haiku-4-5 sufficient, 0.33x cost"
+    note: "Deterministic metadata extraction + Ghost API call — mini sufficient"
 
   indexer:
-    model: claude-haiku-4-5
+    model: openai/gpt-4.1-mini
     temperature: 0.0
     max_tokens: 500
-    note: "Chunking + indexing decisions — minimal reasoning, haiku-4-5 at 0.33x cost"
+    note: "Chunking + indexing decisions — minimal reasoning, mini saves budget"
 
 # ---------------------------------------------------------------------------
 # Optional: deep synthesis override
@@ -69,7 +70,7 @@ agents:
 # ---------------------------------------------------------------------------
 
 # deep_synthesis:
-#   model: claude-opus-4-6
+#   model: openai/gpt-4.1
 #   temperature: 0.3
 #   max_tokens: 8000
 #   note: "Reserved for complex multi-source synthesis tasks only"
@@ -83,10 +84,10 @@ agents:
 # ---------------------------------------------------------------------------
 
 fallback_chain:
-  - claude-opus-4-6      # Deep synthesis only — 3x multiplier, 50/day
-  - claude-sonnet-4-6    # Primary workhorse — 1x multiplier, 200/day
-  - claude-sonnet-4      # Sonnet fallback — 1x multiplier, 200/day
-  - claude-haiku-4-5     # High-volume fallback — 0.33x multiplier, 3000/day
+  - openai/gpt-4.1        # Primary workhorse — high tier, 50/day
+  - openai/gpt-4o         # GPT-4o fallback — high tier, 50/day
+  - openai/gpt-4.1-mini   # Budget fallback — low tier, 500/day
+  - openai/gpt-4.1-nano   # Last resort — low tier, 500/day
 
 # ---------------------------------------------------------------------------
 # Degradation thresholds
