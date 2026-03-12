@@ -1,0 +1,71 @@
+# config/allowlist.yaml
+#
+# Approved email senders for the BeyondTomorrow.World research agent.
+#
+# Only emails from addresses listed here will trigger agent tasks.
+# All other senders are silently ignored — no error reply is sent.
+#
+# Edit this file to add or remove trusted senders.
+# Changes take effect on the next IMAP poll cycle (~5 minutes).
+
+# ---------------------------------------------------------------------------
+# Allowed senders
+# ---------------------------------------------------------------------------
+
+allowed_senders:
+  # Primary admin — the account owner
+  - address: admin@beyondtomorrow.world
+    name: "Site Admin"
+    note: "Primary trigger address — full task access"
+
+  # Add your personal email(s) here
+  # - address: you@youremail.com
+  #   name: "Your Name"
+  #   note: "Personal email — full task access"
+
+  # Add a backup address if needed
+  # - address: backup@yourdomain.com
+  #   name: "Backup"
+  #   note: "Fallback if primary is unavailable"
+
+# ---------------------------------------------------------------------------
+# Allowed task types per sender
+#
+# Use 'all' to allow every task type (BLOG, RESEARCH, REPORT, INDEX).
+# Or list specific types to restrict what a sender can trigger.
+#
+# Supported types:
+#   BLOG      — full pipeline: research → write → edit → publish (draft)
+#   RESEARCH  — research only → saves structured notes to corpus
+#   REPORT    — research only → full Markdown report emailed back
+#   INDEX     — index attached PDF(s) into knowledge corpus
+# ---------------------------------------------------------------------------
+
+permissions:
+  admin@beyondtomorrow.world:
+    allowed_tasks: all
+
+  # Example restricted sender:
+  # analyst@partner.com:
+  #   allowed_tasks:
+  #     - RESEARCH
+  #     - REPORT
+
+# ---------------------------------------------------------------------------
+# Security settings
+# ---------------------------------------------------------------------------
+
+security:
+  # Reject emails where the From header domain doesn't match the allowlist entry.
+  # Helps prevent spoofed sender addresses.
+  verify_sender_domain: true
+
+  # Maximum email body length to parse (characters).
+  # Prevents abuse via extremely large email bodies.
+  max_body_length: 5000
+
+  # Maximum number of PDF attachments to accept per email.
+  max_attachments: 3
+
+  # Maximum size of a single attachment (megabytes).
+  max_attachment_size_mb: 10

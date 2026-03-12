@@ -1,10 +1,13 @@
 name: Research Agent
 
 on:
-  # Scheduled runs — daily at 06:00 UTC and 18:00 UTC
+  # Scheduled run — Saturdays at 08:00 UK time (testing mode)
+  # GitHub Actions cron is UTC. UK time zones:
+  #   GMT (UTC+0): Oct–Mar  → 08:00 UK = 08:00 UTC  cron: "0 8 * * 6"
+  #   BST (UTC+1): Mar–Oct  → 08:00 UK = 07:00 UTC  cron: "0 7 * * 6"
+  # Clocks go forward 29 Mar 2026 — change to "0 7 * * 6" after that date.
   schedule:
-    - cron: "0 6 * * *"
-    - cron: "0 18 * * *"
+    - cron: "0 8 * * 6"
 
   # Manual trigger with topic input
   workflow_dispatch:
@@ -57,9 +60,10 @@ jobs:
             echo "task=${{ github.event.client_payload.task }}" >> "$GITHUB_OUTPUT"
             echo "model=" >> "$GITHUB_OUTPUT"
           else
-            # Scheduled run — default research task
+            # Scheduled weekly run — RESEARCH keeps cost within testing budget
+            # (avoids triggering the full BLOG: pipeline: Writer + Editor + Publisher)
             echo "task=RESEARCH: latest developments in AI safety and alignment" >> "$GITHUB_OUTPUT"
-            echo "model=" >> "$GITHUB_OUTPUT"
+            echo "model=claude-haiku-3-5" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check agent status

@@ -1,0 +1,126 @@
+# config/limits.yaml
+#
+# !! TESTING MODE — all values deliberately minimal !!
+#
+# These limits are intentionally low for local development and CI runs.
+# Raise them for production use (see commented production values).
+#
+# Edit this file to tune agent behaviour without touching Python code.
+# All values are read at agent startup.
+
+# ---------------------------------------------------------------------------
+# Daily budget — hard ceilings reset at midnight UTC
+# ---------------------------------------------------------------------------
+
+budget:
+  # Maximum number of LLM API calls allowed across all tasks in one day.
+  max_llm_calls_per_day: 20           # production: 500
+
+  # Maximum total input+output tokens (across all models) allowed per day.
+  # GitHub Models free tier: ~150k tokens/day; set headroom below that.
+  max_tokens_per_day: 10000           # production: 100000
+
+  # Maximum number of full pipeline tasks (BLOG:/RESEARCH:/etc.) per day.
+  max_tasks_per_day: 2                # production: 20
+
+  # Maximum number of web page fetches across all tasks in one day.
+  max_fetches_per_day: 10             # production: 200
+
+# ---------------------------------------------------------------------------
+# Fetch limits — controls how many pages are retrieved per research run
+# ---------------------------------------------------------------------------
+
+fetch:
+  # Maximum web pages fetched per query / topic.
+  max_pages_per_query: 2              # production: 8
+
+  # Hard ceiling on fetched pages for a single full task (across all queries).
+  max_pages_per_task: 4               # production: 25
+
+  # Maximum characters kept from a single page (~16k ≈ 4k tokens).
+  max_content_chars_per_page: 4000    # production: 16000
+
+  # HTTP request timeout per fetch_page() call (seconds).
+  request_timeout_seconds: 10        # production: 15
+
+  # Concurrent fetch_page() calls allowed at once.
+  max_concurrent_fetches: 1          # production: 5
+
+  # Delay between sequential fetches to the same domain (seconds).
+  per_domain_delay_seconds: 2.0      # production: 1.0
+
+# ---------------------------------------------------------------------------
+# Search limits — result caps for each search engine
+# ---------------------------------------------------------------------------
+
+search:
+  # Maximum web_search() calls the Researcher may make in one task.
+  max_search_calls_per_task: 2        # production: 10
+
+  duckduckgo:
+    default_max_results: 3            # production: 10
+    hard_max_results: 5               # production: 20
+
+  arxiv:
+    default_max_results: 2            # production: 5
+    hard_max_results: 3               # production: 10
+
+  corpus:
+    default_top_k: 3                  # production: 5
+    hard_max_top_k: 5                 # production: 20
+    # Minimum cosine similarity score (0.0–1.0).
+    min_similarity_threshold: 0.30   # production: 0.30
+
+# ---------------------------------------------------------------------------
+# Synthesis limits — controls Writer / Editor LLM output length
+# ---------------------------------------------------------------------------
+
+synthesis:
+  # Maximum tokens the Writer may generate for a draft blog post.
+  max_draft_tokens: 1000              # production: 4000
+
+  # Maximum tokens the Editor may generate for a polished post.
+  max_edit_tokens: 1000               # production: 4000
+
+  # Maximum tokens for the Researcher's structured JSON output.
+  max_research_output_tokens: 2000    # production: 8000
+
+  # Maximum number of key findings the Researcher may include in output JSON.
+  max_key_findings: 3                 # production: 10
+
+  # Maximum number of sources cited per task.
+  max_sources_cited: 5                # production: 20
+
+# ---------------------------------------------------------------------------
+# Task limits — guards against runaway agent loops
+# ---------------------------------------------------------------------------
+
+task:
+  # Maximum tool calls the Researcher may make in one task run.
+  max_tool_calls_per_run: 8           # production: 50
+
+  # Maximum LLM turns (request/response pairs) in one agent run.
+  max_turns: 5                        # production: 30
+
+  # Maximum number of agent handoffs in a single pipeline execution.
+  # e.g. Orchestrator → Researcher → Writer = 2 handoffs.
+  max_handoffs: 2                     # production: 5
+
+  # Seconds before a single agent task is cancelled as timed out.
+  task_timeout_seconds: 60            # production: 600
+
+# ---------------------------------------------------------------------------
+# Chunking limits
+# ---------------------------------------------------------------------------
+
+chunking:
+  max_words_per_chunk: 500           # unchanged — model constraint, not cost
+  overlap_words: 50
+
+# ---------------------------------------------------------------------------
+# Embedding limits
+# ---------------------------------------------------------------------------
+
+embeddings:
+  batch_size: 16                      # production: 64
+  model_max_input_tokens: 256        # model hard limit — do not increase

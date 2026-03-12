@@ -1,0 +1,324 @@
+# config/sources.yaml
+#
+# Approved research sources for BeyondTomorrow.World
+#
+# Edit this file to add/remove approved domains and API configurations.
+# Changes here are picked up at agent startup — no code changes needed.
+#
+# See docs/SOURCES.md for the full annotated reference table and API notes.
+
+# ---------------------------------------------------------------------------
+# Search engine backends
+# Each entry configures how the Researcher agent queries that engine.
+# ---------------------------------------------------------------------------
+
+search_engines:
+
+  duckduckgo:
+    enabled: true
+    # No API key required — uses the duckduckgo_search Python package
+    default_max_results: 10
+    # Restrict results to approved domains only (applied client-side)
+    safe_search: moderate    # off | moderate | strict
+
+  arxiv:
+    enabled: true
+    # No API key required — uses the arxiv Python package (arXiv public API)
+    default_max_results: 5
+    # arXiv subject categories to prioritise
+    categories:
+      - cs.AI        # Artificial Intelligence
+      - cs.LG        # Machine Learning
+      - cs.CY        # Computers and Society
+      - q-bio        # Quantitative Biology
+      - econ         # Economics
+      - physics.ao-ph  # Atmospheric & Oceanic Physics (climate)
+
+  pubmed:
+    enabled: false
+    # Free Entrez API — no auth key required for <3 req/sec
+    api_url: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+    default_max_results: 5
+    # Set NCBI_API_KEY env var for higher rate limits (10 req/sec)
+    api_key_env: NCBI_API_KEY
+
+  semantic_scholar:
+    enabled: false
+    api_url: "https://api.semanticscholar.org/graph/v1"
+    default_max_results: 5
+    # Optional — unauthenticated calls are rate-limited to 100 req/5min
+    api_key_env: SEMANTIC_SCHOLAR_API_KEY
+
+# ---------------------------------------------------------------------------
+# Approved domains
+#
+# Only URLs from these domains may be fetched by fetch_page().
+# Organised by category. Add new entries as needed.
+#
+# Format:
+#   - domain: <apex domain without www or https>
+#     category: <academic|climate|technology|policy|news|data>
+#     credibility: <1-5>      # 5 = highest (peer-reviewed / gov / major outlet)
+#     notes: <optional human-readable note>
+# ---------------------------------------------------------------------------
+
+approved_domains:
+
+  # --- Academic / peer-reviewed -------------------------------------------
+
+  - domain: arxiv.org
+    category: academic
+    credibility: 4
+    notes: "Open-access preprints; not yet peer-reviewed. Check for published version."
+
+  - domain: nature.com
+    category: academic
+    credibility: 5
+    notes: "Nature Portfolio journals — high-impact peer-reviewed research"
+
+  - domain: science.org
+    category: academic
+    credibility: 5
+    notes: "Science / AAAS family of journals"
+
+  - domain: pnas.org
+    category: academic
+    credibility: 5
+    notes: "Proceedings of the National Academy of Sciences"
+
+  - domain: cell.com
+    category: academic
+    credibility: 5
+    notes: "Cell Press portfolio — biology, medicine, sustainability"
+
+  - domain: thelancet.com
+    category: academic
+    credibility: 5
+    notes: "Lancet family — global health, climate-health nexus"
+
+  - domain: pubmed.ncbi.nlm.nih.gov
+    category: academic
+    credibility: 5
+    notes: "PubMed index — citations only, use DOI to fetch full text"
+
+  - domain: semanticscholar.org
+    category: academic
+    credibility: 4
+    notes: "AI-powered academic search index"
+
+  - domain: scholar.google.com
+    category: academic
+    credibility: 4
+    notes: "Google Scholar — use for finding papers, not for content extraction"
+
+  - domain: jstor.org
+    category: academic
+    credibility: 5
+    notes: "Academic journal archive — many articles open access"
+
+  - domain: ssrn.com
+    category: academic
+    credibility: 3
+    notes: "Social science preprints (not peer-reviewed)"
+
+  # --- Climate / environment -----------------------------------------------
+
+  - domain: ipcc.ch
+    category: climate
+    credibility: 5
+    notes: "UN IPCC assessment reports — authoritative climate science consensus"
+
+  - domain: climate.nasa.gov
+    category: climate
+    credibility: 5
+    notes: "NASA Climate portal — satellite data, explainers, datasets"
+
+  - domain: noaa.gov
+    category: climate
+    credibility: 5
+    notes: "NOAA — US weather, ocean and atmosphere data agency"
+
+  - domain: climate.gov
+    category: climate
+    credibility: 5
+    notes: "NOAA's public climate information portal"
+
+  - domain: carbonbrief.org
+    category: climate
+    credibility: 4
+    notes: "Specialist climate science & policy journalism"
+
+  - domain: climatecentral.org
+    category: climate
+    credibility: 4
+    notes: "Independent climate journalism and data communication"
+
+  - domain: globalforestwatch.org
+    category: climate
+    credibility: 4
+    notes: "Near-real-time forest monitoring platform"
+
+  - domain: iea.org
+    category: climate
+    credibility: 5
+    notes: "International Energy Agency — authoritative energy statistics and policy"
+
+  - domain: irena.org
+    category: climate
+    credibility: 5
+    notes: "International Renewable Energy Agency"
+
+  # --- Technology / AI / science -------------------------------------------
+
+  - domain: technologyreview.com
+    category: technology
+    credibility: 4
+    notes: "MIT Technology Review — rigorous tech journalism"
+
+  - domain: spectrum.ieee.org
+    category: technology
+    credibility: 4
+    notes: "IEEE Spectrum — engineering and applied science"
+
+  - domain: arstechnica.com
+    category: technology
+    credibility: 3
+    notes: "Ars Technica — broad tech coverage, good science section"
+
+  - domain: wired.com
+    category: technology
+    credibility: 3
+    notes: "Wired — digital culture and technology journalism"
+
+  - domain: theatlantic.com
+    category: technology
+    credibility: 3
+    notes: "The Atlantic — long-form on technology, society, climate"
+
+  - domain: quantamagazine.org
+    category: technology
+    credibility: 4
+    notes: "Quanta Magazine — excellent science and maths journalism"
+
+  - domain: deepmind.com
+    category: technology
+    credibility: 4
+    notes: "DeepMind research blog — primary source for their AI research"
+
+  - domain: openai.com
+    category: technology
+    credibility: 4
+    notes: "OpenAI research blog — primary source"
+
+  # --- Policy / geopolitics -------------------------------------------------
+
+  - domain: foreignaffairs.com
+    category: policy
+    credibility: 4
+    notes: "Foreign Affairs — leading journal on international relations"
+
+  - domain: rand.org
+    category: policy
+    credibility: 5
+    notes: "RAND Corporation — nonpartisan research and analysis"
+
+  - domain: carnegieendowment.org
+    category: policy
+    credibility: 4
+    notes: "Carnegie Endowment for International Peace"
+
+  - domain: chathamhouse.org
+    category: policy
+    credibility: 4
+    notes: "Chatham House — UK think tank, international affairs"
+
+  - domain: brookings.edu
+    category: policy
+    credibility: 4
+    notes: "Brookings Institution — centre-left US policy research"
+
+  - domain: un.org
+    category: policy
+    credibility: 5
+    notes: "United Nations official publications and reports"
+
+  - domain: worldbank.org
+    category: policy
+    credibility: 5
+    notes: "World Bank — development data and research"
+
+  - domain: imf.org
+    category: policy
+    credibility: 5
+    notes: "International Monetary Fund — economics and fiscal policy"
+
+  # --- News -----------------------------------------------------------------
+
+  - domain: theguardian.com
+    category: news
+    credibility: 3
+    notes: "The Guardian — strong environment and science desk"
+
+  - domain: reuters.com
+    category: news
+    credibility: 4
+    notes: "Reuters wire service — factual reporting"
+
+  - domain: apnews.com
+    category: news
+    credibility: 4
+    notes: "Associated Press — factual wire service"
+
+  - domain: bbc.com
+    category: news
+    credibility: 4
+    notes: "BBC — strong science and climate coverage"
+
+  - domain: ft.com
+    category: news
+    credibility: 4
+    notes: "Financial Times — economics, energy transition, geopolitics"
+
+  - domain: economist.com
+    category: news
+    credibility: 4
+    notes: "The Economist — data-driven analysis"
+
+  # --- Open data / datasets ------------------------------------------------
+
+  - domain: ourworldindata.org
+    category: data
+    credibility: 5
+    notes: "Our World in Data — citable, well-sourced visualisations"
+
+  - domain: data.worldbank.org
+    category: data
+    credibility: 5
+    notes: "World Bank Open Data"
+
+  - domain: stats.oecd.org
+    category: data
+    credibility: 5
+    notes: "OECD Statistics"
+
+  - domain: earthdata.nasa.gov
+    category: data
+    credibility: 5
+    notes: "NASA Earthdata — satellite and climate datasets"
+
+# ---------------------------------------------------------------------------
+# Domain blocklist
+# These domains are explicitly disallowed regardless of search results.
+# ---------------------------------------------------------------------------
+
+blocked_domains:
+  - facebook.com
+  - twitter.com
+  - x.com
+  - instagram.com
+  - tiktok.com
+  - reddit.com      # too noisy; can re-enable per-task if needed
+  - pinterest.com
+  - quora.com
+  - medium.com      # variable quality; use with caution
+  - substack.com    # variable quality; use with caution

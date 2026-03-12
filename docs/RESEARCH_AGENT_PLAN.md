@@ -107,7 +107,7 @@ A custom Python research agent for **BeyondTomorrow.World** that researches topi
 
 ### What This Is
 
-Your GitHub Copilot Pro subscription includes access to the **GitHub Models API** — a programmatic endpoint for calling Claude, GPT-4o, Mistral, and other models. The **OpenAI Agents SDK** (`openai-agents`) wraps this into a full agentic framework with tool use, handoffs, guardrails, and tracing — all at zero additional cost.
+Your GitHub Copilot Pro subscription includes access to the **GitHub Models API** — a programmatic endpoint for calling Claude, Gemini, Grok, and other models. The **OpenAI Agents SDK** (`openai-agents`) wraps this into a full agentic framework with tool use, handoffs, guardrails, and tracing — all at zero additional cost.
 
 ### How It Works
 
@@ -144,21 +144,21 @@ Each Agent in the SDK has its own `model` parameter. The Orchestrator uses hando
 
 | Agent | Default Model | Daily Budget (Copilot Pro) | Fallback |
 |---|---|---|---|
-| Orchestrator | `claude-sonnet-4` | 200 calls/day | `gpt-5.1` |
-| Researcher | `claude-sonnet-4` | 200 calls/day | `gpt-5.1` |
-| Writer | `claude-sonnet-4` | 200 calls/day | `gpt-5.1` |
-| Editor | `claude-sonnet-4` | 200 calls/day | `gpt-5.1` |
-| Publisher | `claude-haiku-3-5` | 3,000 calls/day | `gpt-5.1` |
-| Indexer | `claude-haiku-3-5` | 3,000 calls/day | `gpt-5.1` |
-| Deep synthesis (optional) | `claude-opus-4-6` | 50 calls/day | `claude-sonnet-4` |
+| Orchestrator | `claude-haiku-4-5` | 3,000 calls/day | `claude-sonnet-4` |
+| Researcher | `claude-sonnet-4-6` | 200 calls/day | `claude-sonnet-4` |
+| Writer | `claude-sonnet-4-6` | 200 calls/day | `claude-sonnet-4` |
+| Editor | `claude-sonnet-4-6` | 200 calls/day | `claude-sonnet-4` |
+| Publisher | `claude-haiku-4-5` | 3,000 calls/day | `claude-sonnet-4` |
+| Indexer | `claude-haiku-4-5` | 3,000 calls/day | `claude-sonnet-4` |
+| Deep synthesis (optional) | `claude-opus-4-6` | 50 calls/day | `claude-sonnet-4-6` |
 
 ### Copilot Pro Rate Limits
 
 | Model Tier | Models | Req/min | Tokens/min (in) | Tokens/min (out) | Req/day |
 |---|---|---|---|---|---|
-| **High-cost** | claude-opus-4-6, gpt-4o | 10 | 30,000 | 10,000 | 50 |
-| **Medium-cost** | claude-sonnet-4 | 10 | 60,000 | 10,000 | 200 |
-| **Low-cost** | claude-haiku-3-5, gpt-4o-mini | 150 | 200,000 | 100,000 | 3,000 |
+| **High-cost** | claude-opus-4-6 | 10 | 30,000 | 10,000 | 50 |
+| **Medium-cost** | claude-sonnet-4-6, claude-sonnet-4 | 10 | 60,000 | 10,000 | 200 |
+| **Low-cost** | claude-haiku-4-5 | 150 | 200,000 | 100,000 | 3,000 |
 
 ### User Controls
 
@@ -172,9 +172,9 @@ Each Agent in the SDK has its own `model` parameter. The Orchestrator uses hando
 The SDK's `InputGuardrail` system checks rate limits before each agent run:
 
 ```
-Normal:   Sonnet (research/writing) → Haiku (publish/index) → Opus (deep synthesis)
-Low:      Sonnet (research/writing) → Haiku (all other tasks)
-Critical: gpt-4o-mini (all tasks) or queue for next rate limit window
+Normal:   Sonnet-4-6 (research/writing/editing) → Haiku-4-5 (orchestrate/publish/index) → Opus (deep synthesis)
+Low:      Sonnet-4 (research/writing) → Haiku-4-5 (all other tasks)
+Critical: Haiku-4-5 (all tasks) or queue for next rate limit window
 ```
 
 The `agents/guardrails.py` module implements a `rate_limit_guardrail` that:
@@ -215,15 +215,6 @@ Start with **`all-MiniLM-L6-v2`**:
 - 384 dimensions is enough for a knowledge base under 100K chunks
 - Upgrade to `all-mpnet-base-v2` later if retrieval quality needs improvement
 
-### Migration Required
-
-Your current pgvector schema uses 1536 dimensions (OpenAI's size). Switching to a local model requires:
-
-1. Update `embeddings` table: `vector(1536)` → `vector(384)`
-2. Drop and recreate the HNSW index for the new dimension
-3. Re-embed any existing documents (if any have been indexed already)
-
-This is a one-time migration. A migration script will be provided.
 
 ### Module Interface
 
@@ -446,7 +437,7 @@ Topic: quantum computing cryptography
 Sources found: 12 (8 web, 4 corpus)
 Output: Structured notes saved to corpus
 Time: 3m 42s
-Model: claude-sonnet-4 (via OpenAI Agents SDK + GitHub Models)
+Model: claude-sonnet-4-6 (via OpenAI Agents SDK + GitHub Models)
 
 Key findings preview:
 - NIST finalised 4 post-quantum algorithms in August 2024...
@@ -535,7 +526,7 @@ The Researcher agent's instructions tell it to output structured JSON:
     {"url": "https://...", "title": "...", "type": "academic_paper", "credibility": 5}
   ],
   "total_sources": 12,
-  "model_used": "claude-sonnet-4"
+  "model_used": "claude-sonnet-4-6"
 }
 ```
 
@@ -634,7 +625,7 @@ Used when the research feeds into the Writer → Editor → Publisher chain.
   ],
   "gaps": ["Limited data on quantum computing costs for attackers"],
   "total_sources": 12,
-  "model_used": "claude-sonnet-4"
+  "model_used": "claude-sonnet-4-6"
 }
 ```
 
@@ -674,7 +665,7 @@ Used when triggered by a `REPORT:` email or `--report` CLI flag.
 2. [Title](URL) — accessed 2026-02-22
 
 ## Methodology
-- Models: claude-sonnet-4 (researcher/writer), claude-haiku (editor/publisher) via GitHub Models
+- Models: claude-sonnet-4-6 (researcher/writer/editor), claude-haiku-4-5 (orchestrator/publisher/indexer) via GitHub Models
 - Search: DuckDuckGo, Brave, arXiv
 - Corpus matches: 3 relevant documents
 - Time: 3m 42s
@@ -719,8 +710,9 @@ GitHub Models has rate limits per model (requests per minute, tokens per minute,
 # config/limits.yaml
 daily_budgets:
   claude-opus-4-6: 30          # Max Opus calls per day
-  claude-sonnet-4: 100         # Max Sonnet calls per day
-  claude-haiku-3-5: 200        # Max Haiku calls per day
+  claude-sonnet-4-6: 100       # Max Sonnet-4-6 calls per day
+  claude-sonnet-4: 100         # Max Sonnet-4 fallback calls per day
+  claude-haiku-4-5: 200        # Max Haiku calls per day
 
 search_limits:
   max_queries_per_task: 5       # Search queries generated per research task
@@ -880,21 +872,21 @@ All agent behaviour is controlled by YAML config files. Change behaviour without
 
 ```yaml
 # Which model to use for each task
-# Options: claude-opus-4-6, claude-sonnet-4, claude-haiku-3-5, gpt-4o, gpt-4o-mini
+# Options: claude-opus-4-6, claude-sonnet-4-6, claude-sonnet-4, claude-haiku-4-5
 
 task_models:
-  query_planning: claude-sonnet-4
-  relevance_filtering: claude-haiku-3-5
-  source_summarisation: claude-sonnet-4
+  query_planning: claude-sonnet-4-6
+  relevance_filtering: claude-haiku-4-5
+  source_summarisation: claude-sonnet-4-6
   deep_synthesis: claude-opus-4-6
-  metadata_tagging: claude-haiku-3-5
-  report_formatting: claude-sonnet-4
+  metadata_tagging: claude-haiku-4-5
+  report_formatting: claude-sonnet-4-6
 
 fallback_chain:
   - claude-opus-4-6
+  - claude-sonnet-4-6
   - claude-sonnet-4
-  - claude-haiku-3-5
-  - gpt-4o-mini
+  - claude-haiku-4-5
 ```
 
 ### Example: `config/prompts.yaml`
@@ -1182,8 +1174,8 @@ scripts/
 |---|---|---|
 | **Agent Framework** | OpenAI Agents SDK (`openai-agents`) | Provider-agnostic, Python-native, works with GitHub Models, MIT licence, $0 |
 | **LLM Provider** | GitHub Models API | Zero cost — included in Copilot Pro subscription |
-| **Primary Model** | `claude-sonnet-4` (orchestrator + researcher + writer) | Best balance of quality vs. rate limits (200 calls/day) |
-| **Light Model** | `claude-haiku` (editor, publisher, indexer) | 3000 calls/day; used for lower-complexity tasks |
+| **Primary Model** | `claude-sonnet-4-6` (researcher + writer + editor) | Best Sonnet quality at 1x cost, same 200 calls/day budget |
+| **Light Model** | `claude-haiku-4-5` (orchestrator, publisher, indexer) | 3000 calls/day at 0.33x cost; used for deterministic low-complexity tasks |
 | **Embeddings** | Local `all-MiniLM-L6-v2` | Free, runs on Railway CPU, no API calls |
 | **Embedding Dimensions** | 384 (down from 1536) | Requires pgvector migration; good enough for <100K chunks |
 | **Summariser** | Merged into Researcher agent | One fewer LLM call per pipeline run; researcher outputs structured JSON directly |

@@ -886,10 +886,5 @@ Your vector database on Railway needs to support hybrid search. Options include:
 
 ## Next Steps
 
-1. ~~Set up a Railway project~~ ✅ Done
-2. ~~Configure document storage~~ ✅ Done (Railway Object Storage)
-3. ~~Deploy a vector database~~ ✅ Done (PostgreSQL + pgvector on Railway)
-4. Install `sentence-transformers` and load `all-MiniLM-L6-v2` on Railway worker
-5. Migrate pgvector `embeddings` table from `vector(1536)` → `vector(384)`
 6. Build the embedding pipeline (chunk → embed → store)
 7. Build the retrieval logic (embed query → pgvector cosine search → return chunks)

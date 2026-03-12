@@ -1,3 +1,7 @@
+# Local secrets — never commit
+.env
+.railway_token
+
 # Dependencies
 node_modules/
 npm-cache/

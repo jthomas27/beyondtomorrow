@@ -42,12 +42,28 @@ async def get_pool() -> asyncpg.Pool:
                 "Enable the TCP proxy on the pgvector Railway service "
                 "to get a public connection URL."
             )
+        # Derive SSL setting from the URL:
+        #   - sslmode=require/verify-ca/verify-full  → ssl="require"
+        #   - sslmode=disable or internal Railway URL → ssl=False
+        #   - no sslmode param                       → ssl=False (TCP proxy default)
+        from urllib.parse import urlparse, parse_qs
+        _parsed = urlparse(database_url)
+        _qs = parse_qs(_parsed.query)
+        _sslmode = (_qs.get("sslmode") or [""])[0].lower()
+        _internal = ".railway.internal" in (_parsed.hostname or "")
+        if _sslmode in ("require", "verify-ca", "verify-full"):
+            _ssl: object = "require"
+        elif _sslmode == "disable" or _internal or not _sslmode:
+            _ssl = False
+        else:
+            _ssl = False
+
         _pool = await asyncpg.create_pool(
             database_url,
             min_size=1,
             max_size=5,
             command_timeout=30,
-            ssl="require",
+            ssl=_ssl,
             init=_setup_vector_codec,
         )
     return _pool

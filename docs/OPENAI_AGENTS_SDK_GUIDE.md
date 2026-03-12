@@ -2,7 +2,7 @@
 
 > **Framework:** [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) (`openai-agents` v0.9+)
 > **LLM Provider:** GitHub Models API (zero cost via Copilot Pro)
-> **Orchestrator Model:** claude-sonnet-4 | **Plan:** Copilot Pro (10 req/min high-cost, 150 req/min low-cost)
+> **Orchestrator Model:** claude-haiku-4-5 | **Plan:** Copilot Pro (10 req/min high-cost, 150 req/min low-cost)
 
 ---
 
@@ -46,9 +46,8 @@ The Claude Agent SDK requires an Anthropic API key (pay-per-token) and wraps the
 │   GitHub Models API      │
 │   models.github.ai       │
 │                          │
-│   claude-sonnet-4        │
-│   claude-haiku-3-5       │
-│   gpt-4o-mini            │
+│   claude-sonnet-4-6      │
+│   claude-haiku-4-5       │
 │   claude-opus-4-6        │
 └──────────────────────────┘
 ```
@@ -77,11 +76,11 @@ def init_github_models():
 
 | Model Tier | Models | Requests/min | Tokens/min (input) | Tokens/min (output) | Requests/day |
 |---|---|---|---|---|---|
-| **High-cost** | claude-opus-4-6, gpt-4o | 10 | 30,000 | 10,000 | 50 |
-| **Medium-cost** | claude-sonnet-4 | 10 | 60,000 | 10,000 | 200 |
-| **Low-cost** | claude-haiku-3-5, gpt-4o-mini | 150 | 200,000 | 100,000 | 3,000 |
+| **High-cost** | claude-opus-4-6 | 10 | 30,000 | 10,000 | 50 |
+| **Medium-cost** | claude-sonnet-4-6, claude-sonnet-4 | 10 | 60,000 | 10,000 | 200 |
+| **Low-cost** | claude-haiku-4-5 | 150 | 200,000 | 100,000 | 3,000 |
 
-**Architecture implication:** Use haiku/gpt-4o-mini for tool-heavy loops (many short calls). Reserve sonnet for orchestration and writing. Use opus only for final deep synthesis.
+**Architecture implication:** Use haiku-4-5 for orchestration and tool-heavy loops (many short calls). Reserve sonnet-4-6 for research, writing, and editing. Use opus only for deep synthesis.
 
 ---
 
@@ -94,13 +93,13 @@ Each agent in the pipeline is an `Agent` object with its own model, tools, and i
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                       ORCHESTRATOR AGENT                                │
-│                       (claude-sonnet-4)                                 │
+│                       (claude-haiku-4-5)                                │
 │                                                                         │
 │   Receives task → decides which agent to invoke via handoff             │
 │                                                                         │
 │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                │
 │   │  Researcher   │  │   Writer     │  │   Editor     │                │
-│   │  (sonnet-4)   │  │  (sonnet-4)  │  │  (sonnet-4)  │                │
+│   │  (sonnet-4-6)  │  │  (sonnet-4-6) │  │  (sonnet-4-6) │                │
 │   │              │  │              │  │              │                │
 │   │  Tools:       │  │  Tools:       │  │  Tools:       │                │
 │   │  - web_search │  │  - read_file  │  │  - read_file  │                │
@@ -115,7 +114,7 @@ Each agent in the pipeline is an `Agent` object with its own model, tools, and i
 │                            ▼                                            │
 │                  ┌──────────────┐  ┌──────────────┐                    │
 │                  │  Publisher   │  │   Indexer    │                    │
-│                  │  (haiku-3.5) │  │  (haiku-3.5) │                    │
+│                  │  (haiku-4-5) │  │  (haiku-4-5) │                    │
 │                  │              │  │              │                    │
 │                  │  Tools:       │  │  Tools:       │                    │
 │                  │  - publish_   │  │  - index_     │                    │
@@ -164,7 +163,7 @@ Rules:
 - Cite specific URLs for every key finding
 - Prefer recent sources (last 2 years) but include older ones if highly relevant""",
     tools=[web_search, search_corpus, fetch_page, search_arxiv, score_credibility],
-    model="claude-sonnet-4",
+    model="claude-sonnet-4-6",
     model_settings=ModelSettings(temperature=0.2, max_tokens=8000),
 )
 
@@ -184,7 +183,7 @@ Given research findings (structured JSON from the Researcher):
 Output format: Markdown with frontmatter (title, tags, excerpt).
 Save the draft using write_research_file.""",
     tools=[read_research_file, write_research_file],
-    model="claude-sonnet-4",
+    model="claude-sonnet-4-6",
     model_settings=ModelSettings(temperature=0.7, max_tokens=4000),
 )
 
@@ -205,7 +204,7 @@ Make targeted edits directly. Do NOT rewrite from scratch.
 Flag any claims you cannot verify against the provided research.
 Save the edited version using write_research_file.""",
     tools=[read_research_file, write_research_file],
-    model="claude-sonnet-4",
+    model="claude-sonnet-4-6",
     model_settings=ModelSettings(temperature=0.3, max_tokens=4000),
 )
 
@@ -222,7 +221,7 @@ Given a final edited blog post:
 Only publish posts that have been through the Editor.
 If publishing fails, save the error and report it.""",
     tools=[read_research_file, publish_to_ghost],
-    model="claude-haiku-3-5",
+    model="claude-haiku-4-5",
     model_settings=ModelSettings(temperature=0.0, max_tokens=1000),
 )
 
@@ -238,7 +237,7 @@ Given a document (PDF text, research output, or web content):
 
 For research outputs, also extract key findings as separate high-priority chunks.""",
     tools=[read_research_file, index_document, embed_and_store],
-    model="claude-haiku-3-5",
+    model="claude-haiku-4-5",
     model_settings=ModelSettings(temperature=0.0, max_tokens=2000),
 )
 
@@ -273,7 +272,7 @@ When given a task, determine the type and execute the appropriate workflow:
 Always log your decisions and report progress after each handoff.
 If any agent fails, log the error and continue with the remaining steps.""",
     handoffs=[researcher, writer, editor, publisher, indexer],
-    model="claude-sonnet-4",
+    model="claude-haiku-4-5",
     model_settings=ModelSettings(temperature=0.1, max_tokens=2000),
 )
 ```
@@ -728,15 +727,14 @@ from agents.db import get_daily_usage
 # Daily budget limits (Copilot Pro)
 DAILY_LIMITS = {
     "claude-opus-4-6": {"calls": 40, "tokens_in": 200_000},
+    "claude-sonnet-4-6": {"calls": 150, "tokens_in": 500_000},
     "claude-sonnet-4": {"calls": 150, "tokens_in": 500_000},
-    "claude-haiku-3-5": {"calls": 2000, "tokens_in": 1_000_000},
-    "gpt-4o": {"calls": 40, "tokens_in": 200_000},
-    "gpt-4o-mini": {"calls": 2000, "tokens_in": 1_000_000},
+    "claude-haiku-4-5": {"calls": 2000, "tokens_in": 1_000_000},
 }
 
 async def check_rate_limits(ctx, agent, input_text):
     """Block agent runs if daily rate limits are approaching."""
-    model = agent.model or "claude-sonnet-4"
+    model = agent.model or "claude-haiku-4-5"
     usage = await get_daily_usage(model)
     limits = DAILY_LIMITS.get(model, {"calls": 100, "tokens_in": 500_000})
 
@@ -773,9 +771,9 @@ from agents.guardrails import DAILY_LIMITS
 
 FALLBACK_CHAIN = [
     "claude-opus-4-6",
+    "claude-sonnet-4-6",
     "claude-sonnet-4",
-    "claude-haiku-3-5",
-    "gpt-4o-mini",
+    "claude-haiku-4-5",
 ]
 
 async def select_model(preferred: str) -> str:
@@ -788,7 +786,7 @@ async def select_model(preferred: str) -> str:
         if usage["calls"] < limits["calls"] * 0.9:
             return model
 
-    return FALLBACK_CHAIN[-1]  # gpt-4o-mini as last resort
+    return FALLBACK_CHAIN[-1]  # claude-haiku-4-5 as last resort
 ```
 
 ---
@@ -998,9 +996,9 @@ scripts/
 |---|---|---|
 | **Agent Framework** | OpenAI Agents SDK (`openai-agents`) | Provider-agnostic, works with GitHub Models, built-in agent loop + handoffs + guardrails |
 | **LLM Provider** | GitHub Models API | Zero cost — included in Copilot Pro |
-| **Orchestrator Model** | claude-sonnet-4 | Best reasoning per rate-limit token; 200 calls/day budget |
-| **Heavy Tasks Model** | claude-sonnet-4 (writing, editing, research) | Good quality; 200 calls/day |
-| **Light Tasks Model** | claude-haiku-3-5 | Publishing, indexing; 3,000 calls/day budget |
+| **Orchestrator Model** | claude-haiku-4-5 | Routing is deterministic; saves 0.67x vs sonnet per pipeline run |
+| **Heavy Tasks Model** | claude-sonnet-4-6 (research, writing, editing) | Best Sonnet quality at same 1x cost; 200 calls/day |
+| **Light Tasks Model** | claude-haiku-4-5 | Orchestrator, publisher, indexer; 0.33x cost, 3,000 calls/day |
 | **Synthesis Model** | claude-opus-4-6 (when needed) | Reserved for complex multi-source research; 50 calls/day |
 | **Embeddings** | Local all-MiniLM-L6-v2 | Free, runs on Railway CPU, no API calls |
 | **Async Driver** | asyncpg | Native async PostgreSQL, works with asyncio agent loop |
