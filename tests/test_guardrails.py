@@ -115,7 +115,9 @@ async def test_check_model_budget_exactly_at_hard_threshold_is_blocked(
 ):
     """Usage exactly at HARD_THRESHOLD_PCT is blocked (< not <=)."""
     limit = DAILY_LIMITS["openai/gpt-4.1-mini"]
-    used = int(limit * HARD_THRESHOLD_PCT / 100)
+    # Use ceil to ensure the percentage is at or above the threshold
+    import math
+    used = math.ceil(limit * HARD_THRESHOLD_PCT / 100)
     mocker.patch(
         "pipeline.guardrails.get_daily_usage", new=AsyncMock(return_value=used)
     )
@@ -173,9 +175,9 @@ async def test_log_model_call_defaults_tokens_to_zero(mock_pool, mock_conn):
     """tokens_in and tokens_out default to 0 when not supplied."""
     await log_model_call(mock_pool, model="claude-sonnet-4")
     args = mock_conn.execute.call_args[0]
-    # SQL + model + tokens_in + tokens_out + run_id + phase
-    assert args[2] == 0  # tokens_in
-    assert args[3] == 0  # tokens_out
+    # SQL + phase + model + tokens_in + tokens_out + run_id + request_type
+    assert args[3] == 0  # tokens_in
+    assert args[4] == 0  # tokens_out
 
 
 async def test_log_model_call_passes_run_id_and_phase(mock_pool, mock_conn):

@@ -1,9 +1,6 @@
 # config/limits.yaml
 #
-# !! TESTING MODE — all values deliberately minimal !!
-#
-# These limits are intentionally low for local development and CI runs.
-# Raise them for production use (see commented production values).
+# Production limits — Copilot Pro+ (unlimited premium requests)
 #
 # Edit this file to tune agent behaviour without touching Python code.
 # All values are read at agent startup.
@@ -14,17 +11,17 @@
 
 budget:
   # Maximum number of LLM API calls allowed across all tasks in one day.
-  max_llm_calls_per_day: 20           # production: 500
+  max_llm_calls_per_day: 500
 
   # Maximum total input+output tokens (across all models) allowed per day.
-  # GitHub Models free tier: ~150k tokens/day; set headroom below that.
-  max_tokens_per_day: 10000           # production: 100000
+  # Pro+ has no hard token cap; this is a safety net.
+  max_tokens_per_day: 500000
 
   # Maximum number of full pipeline tasks (BLOG:/RESEARCH:/etc.) per day.
-  max_tasks_per_day: 2                # production: 20
+  max_tasks_per_day: 20
 
   # Maximum number of web page fetches across all tasks in one day.
-  max_fetches_per_day: 10             # production: 200
+  max_fetches_per_day: 200
 
 # ---------------------------------------------------------------------------
 # Fetch limits — controls how many pages are retrieved per research run
@@ -32,22 +29,22 @@ budget:
 
 fetch:
   # Maximum web pages fetched per query / topic.
-  max_pages_per_query: 2              # production: 8
+  max_pages_per_query: 8
 
   # Hard ceiling on fetched pages for a single full task (across all queries).
-  max_pages_per_task: 4               # production: 25
+  max_pages_per_task: 25
 
   # Maximum characters kept from a single page (~16k ≈ 4k tokens).
-  max_content_chars_per_page: 4000    # production: 16000
+  max_content_chars_per_page: 16000
 
   # HTTP request timeout per fetch_page() call (seconds).
-  request_timeout_seconds: 10        # production: 15
+  request_timeout_seconds: 15
 
   # Concurrent fetch_page() calls allowed at once.
-  max_concurrent_fetches: 1          # production: 5
+  max_concurrent_fetches: 5
 
   # Delay between sequential fetches to the same domain (seconds).
-  per_domain_delay_seconds: 2.0      # production: 1.0
+  per_domain_delay_seconds: 1.0
 
 # ---------------------------------------------------------------------------
 # Search limits — result caps for each search engine

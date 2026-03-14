@@ -72,8 +72,9 @@ _MODEL_DEFAULTS: dict[str, Any] = {
     "agents": {},
     "fallback_chain": [
         "openai/gpt-5",
-        "openai/gpt-4.1",
         "openai/gpt-5-mini",
+        "openai/gpt-5-nano",
+        "openai/gpt-4.1",
         "openai/gpt-4.1-mini",
         "openai/gpt-4.1-nano",
     ],

@@ -1,7 +1,9 @@
-# GitHub Copilot Pro — Available AI Models
+# GitHub Copilot Pro+ — Available AI Models
 
-> Source: [GitHub Docs — Supported AI models in GitHub Copilot](https://docs.github.com/en/copilot/reference/ai-models/supported-models)
-> Last verified: March 12, 2026
+> Source: Live catalog via `https://models.github.ai/catalog/models`
+> Last verified: March 14, 2026
+
+**Copilot Pro+ gives unlimited premium requests across all tiers.**
 
 ---
 
@@ -11,87 +13,98 @@
 |---|---|---|
 | Claude (Anthropic) | ✅ Available | ❌ Not available |
 | GPT-4.1 / GPT-5 (OpenAI) | ✅ Available | ✅ Available |
-| Meta, Mistral, xAI, etc. | ✅ Available | ✅ Available |
+| Meta, Mistral, xAI, DeepSeek, etc. | ✅ Available | ✅ Available |
 
 **Claude models can only be used interactively in the Copilot Chat UI.** For programmatic use via the GitHub Models API (e.g. the agent pipeline), use OpenAI or other supported models.
 
-### Available models via `models.github.ai/inference` API (as of March 2026)
+---
 
-| Model ID | Tier | Notes |
-|----------|------|-------|
-| `openai/gpt-4.1` | high (50/day) | Best quality — researcher, writer, editor |
-| `openai/gpt-4o` | high (50/day) | GPT-4o fallback |
-| `openai/gpt-4.1-mini` | low (500/day) | Budget — orchestrator, publisher, indexer |
-| `openai/gpt-4.1-nano` | low (500/day) | Cheapest fallback |
-| `openai/gpt-5` | custom | Available but custom limits |
-| `openai/gpt-5-mini` | custom | Available but custom limits |
-| `meta/llama-4-maverick-17b-128e-instruct-fp8` | — | Open weights option |
-| `xai/grok-3` | custom | — |
-| `mistral-ai/mistral-medium-2505` | — | — |
+## API Models — Live Catalog
+
+Token limits are per-request. With Pro+, there are no daily request caps. The tier labels are legacy from the free/Pro plans.
+
+### CUSTOM TIER (flagship + reasoning models)
+
+| Model ID | Max Input | Max Output | Modalities | Capabilities |
+|----------|-----------|------------|------------|--------------|
+| `openai/gpt-5` | 200,000 | 100,000 | text+image → text | agents, agentsV2, reasoning, tool-calling, streaming |
+| `openai/gpt-5-chat` | 200,000 | 100,000 | text+image → text | agents, agentsV2, reasoning, tool-calling, streaming |
+| `openai/gpt-5-mini` | 200,000 | 100,000 | text+image → text | agents, agentsV2, reasoning, tool-calling, streaming |
+| `openai/gpt-5-nano` | 200,000 | 100,000 | text+image → text | agents, agentsV2, reasoning, tool-calling, streaming |
+| `openai/o1` | 200,000 | 100,000 | text+image → text | agents, agentsV2, reasoning, tool-calling |
+| `openai/o1-mini` | 128,000 | 65,536 | text → text | reasoning, streaming, agentsV2 |
+| `openai/o1-preview` | 128,000 | 32,768 | text → text | agentsV2, reasoning |
+| `openai/o3` | 200,000 | 100,000 | text+image → text | agents, agentsV2, reasoning, tool-calling, streaming |
+| `openai/o3-mini` | 200,000 | 100,000 | text → text | agents, agentsV2, reasoning, tool-calling, streaming |
+| `openai/o4-mini` | 200,000 | 100,000 | text+image → text | agents, agentsV2, reasoning, tool-calling, streaming |
+| `deepseek/deepseek-r1` | 128,000 | 4,096 | text → text | reasoning, streaming, tool-calling |
+| `deepseek/deepseek-r1-0528` | 128,000 | 4,096 | text → text | agentsV2, reasoning, streaming, tool-calling |
+| `xai/grok-3` | 131,072 | 4,096 | text → text | agentsV2 |
+| `xai/grok-3-mini` | 131,072 | 4,096 | text → text | agentsV2 |
+| `microsoft/mai-ds-r1` | 128,000 | 4,096 | text → text | agentsV2, reasoning, streaming |
+
+### HIGH TIER
+
+| Model ID | Max Input | Max Output | Modalities | Capabilities |
+|----------|-----------|------------|------------|--------------|
+| `openai/gpt-4.1` | 1,048,576 | 32,768 | text+image → text | agents, agentsV2, tool-calling, streaming |
+| `openai/gpt-4o` | 131,072 | 16,384 | text+image+audio → text | agents, agentsV2, assistants, tool-calling, streaming |
+| `meta/llama-4-maverick-17b-128e-instruct-fp8` | 1,000,000 | 4,096 | text+image → text | agents, agentsV2, assistants, tool-calling, streaming |
+| `meta/llama-4-scout-17b-16e-instruct` | 10,000,000 | 4,096 | text+image → text | agents, assistants, tool-calling, streaming |
+| `meta/llama-3.3-70b-instruct` | 128,000 | 4,096 | text → text | agentsV2, streaming |
+| `meta/llama-3.2-90b-vision-instruct` | 128,000 | 4,096 | text+image+audio → text | streaming |
+| `meta/meta-llama-3.1-405b-instruct` | 131,072 | 4,096 | text → text | agents |
+| `deepseek/deepseek-v3-0324` | 128,000 | 4,096 | text → text | agentsV2, streaming, tool-calling |
+| `ai21-labs/ai21-jamba-1.5-large` | 262,144 | 4,096 | text → text | streaming, tool-calling |
+| `cohere/cohere-command-r-plus-08-2024` | 131,072 | 4,096 | text → text | streaming, tool-calling |
+
+### LOW TIER
+
+| Model ID | Max Input | Max Output | Modalities | Capabilities |
+|----------|-----------|------------|------------|--------------|
+| `openai/gpt-4.1-mini` | 1,048,576 | 32,768 | text+image → text | agents, agentsV2, tool-calling, streaming |
+| `openai/gpt-4.1-nano` | 1,048,576 | 32,768 | text+image → text | agents, agentsV2, tool-calling, streaming |
+| `openai/gpt-4o-mini` | 131,072 | 4,096 | text+image+audio → text | agents, agentsV2, assistants, tool-calling, streaming |
+| `mistral-ai/mistral-medium-2505` | 128,000 | 4,096 | text+image → text | streaming, tool-calling |
+| `mistral-ai/mistral-small-2503` | 128,000 | 4,096 | text+image → text | agents, assistants, tool-calling, streaming |
+| `mistral-ai/codestral-2501` | 256,000 | 4,096 | text → text | streaming |
+| `mistral-ai/ministral-3b` | 131,072 | 4,096 | text → text | streaming, tool-calling |
+| `meta/llama-3.2-11b-vision-instruct` | 128,000 | 4,096 | text+image+audio → text | streaming |
+| `meta/meta-llama-3.1-8b-instruct` | 131,072 | 4,096 | text → text | streaming |
+| `cohere/cohere-command-a` | 131,072 | 4,096 | text → text | — |
+| `cohere/cohere-command-r-08-2024` | 131,072 | 4,096 | text → text | streaming |
+| `microsoft/phi-4` | 16,384 | 16,384 | text → text | — |
+| `microsoft/phi-4-mini-instruct` | 128,000 | 4,096 | text → text | — |
+| `microsoft/phi-4-mini-reasoning` | 128,000 | 4,096 | text → text | reasoning |
+| `microsoft/phi-4-multimodal-instruct` | 128,000 | 4,096 | audio+image+text → text | streaming |
+| `microsoft/phi-4-reasoning` | 32,768 | 4,096 | text → text | reasoning, streaming |
+
+### EMBEDDINGS TIER
+
+| Model ID | Max Input | Output | Modalities |
+|----------|-----------|--------|------------|
+| `openai/text-embedding-3-large` | 8,191 | — | text → embeddings |
+| `openai/text-embedding-3-small` | 8,191 | — | text → embeddings |
 
 ---
 
-## OpenAI
+## Pipeline Model Assignments (recommended)
 
-| Model | Status |
-|-------|--------|
-| GPT-4.1 | GA |
-| GPT-5 mini | GA |
-| GPT-5.1 | GA |
-| GPT-5.1-Codex | GA |
-| GPT-5.1-Codex-Mini | Public Preview |
-| GPT-5.1-Codex-Max | GA |
-| GPT-5.2 | GA |
-| GPT-5.2-Codex | GA |
-| GPT-5.3-Codex | GA |
-| GPT-5.4 | GA |
-
-## Anthropic
-
-| Model | Status |
-|-------|--------|
-| Claude Haiku 4.5 | GA |
-| Claude Sonnet 4 | GA |
-| Claude Sonnet 4.5 | GA |
-| Claude Sonnet 4.6 | GA |
-| Claude Opus 4.5 | GA |
-| Claude Opus 4.6 | GA |
-
-## Google
-
-| Model | Status |
-|-------|--------|
-| Gemini 2.5 Pro | GA |
-| Gemini 3 Flash | Public Preview |
-| Gemini 3 Pro | Public Preview |
-| Gemini 3.1 Pro | Public Preview |
-
-## xAI
-
-| Model | Status |
-|-------|--------|
-| Grok Code Fast 1 | GA |
-
-## Fine-tuned
-
-| Model | Base | Status |
-|-------|------|--------|
-| Raptor mini | GPT-5 mini | Public Preview |
-
----
-
-## Not included in Pro
-
-| Model | Available In |
-|-------|-------------|
-| Claude Opus 4.6 (fast mode) | Pro+ only |
-| Goldeneye | Free tier experiment only |
+| Agent | Model | Reason |
+|-------|-------|--------|
+| Researcher | `openai/gpt-5` | 200k context, reasoning, tool-calling |
+| Writer | `openai/gpt-5` | Best prose quality |
+| Editor | `openai/gpt-5` | Reasoning for fact-check |
+| Orchestrator | `openai/gpt-5-mini` | Fast routing, 200k context |
+| Publisher | `openai/gpt-5-mini` | Deterministic metadata extraction + Ghost API call |
+| Indexer | `openai/gpt-5-mini` | Minimal reasoning needed |
 
 ---
 
 ## Notes
 
-- **GA (Generally Available)** — stable and production-ready.
-- **Public Preview** — available to use but may change; not recommended for production.
-- Models consume **premium requests** at different multipliers. Zero-multiplier models (GPT-4.1, GPT-5 mini, Grok Code Fast 1, Raptor mini) do not count against your monthly allowance.
-- Pro plan includes **300 premium requests/month**. Additional requests available at $0.04/request.
+- **Copilot Pro+** — unlimited premium requests. No daily caps apply.
+- **Copilot Pro** — 300 premium requests/month; custom-tier models counted at higher multiplier.
+- Claude models (Haiku/Sonnet/Opus) are available in the **Copilot Chat UI only** — not via the inference API.
+- The `gpt-5-chat` variant is the conversational-optimised version of `gpt-5` (same token limits).
+- `meta/llama-4-scout-17b-16e-instruct` has a 10M token context window — largest available.

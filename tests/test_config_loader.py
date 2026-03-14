@@ -125,7 +125,8 @@ def test_missing_models_file_returns_defaults(tmp_path):
     config = load_config(config_dir=tmp_path)
     assert "fallback_chain" in config["models"]
     chain = config["models"]["fallback_chain"]
-    assert "claude-sonnet-4" in chain
+    assert "openai/gpt-5" in chain
+    assert "openai/gpt-5-nano" in chain
 
 
 def test_missing_sources_file_returns_empty_dict(tmp_path):

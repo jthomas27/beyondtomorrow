@@ -24,8 +24,9 @@ from pipeline.guardrails import check_model_budget
 
 FALLBACK_CHAIN: list[str] = [
     "openai/gpt-5",
-    "openai/gpt-4.1",
     "openai/gpt-5-mini",
+    "openai/gpt-5-nano",
+    "openai/gpt-4.1",
     "openai/gpt-4.1-mini",
     "openai/gpt-4.1-nano",
 ]

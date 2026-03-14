@@ -13,7 +13,7 @@ Quick reference for understanding and working on RAG agent publish requests.
 | Blog DB | MySQL (Railway) | Ghost owns all writes — agents never touch it directly |
 | Vector DB | PostgreSQL + pgvector (Railway) | Stores 384-dim embeddings for semantic search |
 | Object Storage | Railway Object Storage | Raw PDFs, emails, images, knowledge corpus |
-| AI Framework | OpenAI Agents SDK + GitHub Models API | `gpt-4o` for orch/research/write/edit; `gpt-4o-mini` for publish/index |
+| AI Framework | OpenAI Agents SDK + GitHub Models API | `gpt-5` for research/write/edit; `gpt-5-mini` for orch/publish/index |
 | Embeddings | `all-MiniLM-L6-v2` (sentence-transformers, local) | Runs on Railway compute; zero API cost |
 | Trigger | GitHub Actions (cron or manual dispatch) | Also triggered by inbound email via IMAP |
 | Email | Hostinger Business Email (`admin@beyondtomorrow.world`) | IMAP-polled by `email_listener.py` |
@@ -153,4 +153,4 @@ railway variables --service 0daf496c-e14f-41d4-b89b-3624a778c99d
 - Agents **never write to MySQL directly** — Ghost is the only service that touches the blog DB
 - Always use `.venv/bin/python3` — system Python 3.14 has SSL cert issues on macOS
 - `DATABASE_URL` uses the **external proxy** (`caboose.proxy.rlwy.net:21688`) — do not overwrite with Railway internal URL
-- GitHub Models API does **not** include Claude/Anthropic models — use `openai/gpt-4o` or `openai/gpt-4o-mini`
+- GitHub Models API does **not** include Claude/Anthropic models — use `openai/gpt-5`, `openai/gpt-5-mini`, or other supported OpenAI models

@@ -15,14 +15,14 @@ Usage:
     python -m agents.main "INDEX: path/to/document.txt"
 
     # Override the model for a run
-    python -m agents.main --model gpt-4o-mini "RESEARCH: quick topic"
+    python -m agents.main --model openai/gpt-5-mini "RESEARCH: quick topic"
 
     # Check status (env vars, db connection, rate limits)
     python -m agents.main status
 
 Options:
     --model MODEL   Override the orchestrator model for this run
-                    (e.g. gpt-4o-mini, claude-haiku-3-5, claude-opus-4-6)
+                    (e.g. openai/gpt-5-mini, openai/gpt-5-nano, openai/gpt-4.1)
     --dry-run       Print what the agent would do without executing LLM calls
     --debug         Enable verbose SDK tracing output
 
@@ -183,6 +183,10 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
 
     init_github_models()
 
+    # Disable tracing — GitHub token is not a valid OpenAI key
+    import os as _os
+    _os.environ["OPENAI_AGENTS_DISABLE_TRACING"] = "1"
+
     topic = task.partition(":")[2].strip() if ":" in task else task
     research_dir = Path(__file__).parent.parent / "research"
     research_dir.mkdir(exist_ok=True)
@@ -206,31 +210,44 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
             logger.info("Draft already exists — skipping research step.")
             research_output = "{}"
         else:
-            # Apply guardrails: pick best available model
-            research_model = await select_model(researcher.model, pool=pool)
-            if research_model != researcher.model:
-                logger.warning("Researcher degraded: %s → %s", researcher.model, research_model)
-                researcher.model = research_model
+            from openai import RateLimitError
+            from pipeline.degradation import get_fallback
 
-            research_result = await asyncio.wait_for(
-                Runner.run(
-                    researcher,
-                    max_turns=15,
-                    input=(
-                        f"Research this topic thoroughly for a blog post: {topic}\n\n"
-                        f"REQUIRED STEPS:\n"
-                        f"1. Generate 3-5 search queries covering different angles.\n"
-                        f"2. For each query call search_and_index — this fetches full pages and "
-                        f"stores text + embeddings directly in the knowledge database (not temp files).\n"
-                        f"3. Call search_corpus after indexing to retrieve the stored knowledge.\n"
-                        f"4. Call search_arxiv for scientific papers on this topic.\n"
-                        f"5. Return structured research JSON with key_findings, subtopics, "
-                        f"suggested_angles, gaps, source_list, total_sources, model_used."
-                    ),
-                ),
-                timeout=_AGENT_TIMEOUT,
+            research_input = (
+                f"Research this topic thoroughly for a blog post: {topic}\n\n"
+                f"REQUIRED STEPS:\n"
+                f"1. Generate 3-5 search queries covering different angles.\n"
+                f"2. For each query call search_and_index — this fetches full pages and "
+                f"stores text + embeddings directly in the knowledge database (not temp files).\n"
+                f"3. Call search_corpus after indexing to retrieve the stored knowledge.\n"
+                f"4. Call search_arxiv for scientific papers on this topic.\n"
+                f"5. Return structured research JSON with key_findings, subtopics, "
+                f"suggested_angles, gaps, source_list, total_sources, model_used."
             )
-            research_output = research_result.final_output
+
+            research_model = await select_model(researcher.model, pool=pool)
+            research_output = None
+            for _attempt in range(3):
+                if research_model != researcher.model:
+                    logger.warning("Researcher degraded: %s → %s", researcher.model, research_model)
+                researcher.model = research_model
+                try:
+                    research_result = await asyncio.wait_for(
+                        Runner.run(researcher, max_turns=15, input=research_input),
+                        timeout=_AGENT_TIMEOUT,
+                    )
+                    research_output = research_result.final_output
+                    break
+                except RateLimitError:
+                    fallback = get_fallback(research_model)
+                    if fallback:
+                        logger.warning("Rate limited on %s — falling back to %s", research_model, fallback)
+                        research_model = fallback
+                    else:
+                        raise
+
+            if research_output is None:
+                raise RuntimeError("Research step failed after all retries")
             await log_model_call(pool, research_model, phase="research")
             logger.info("Research complete")
 

@@ -5,7 +5,7 @@ _Last updated: 2026-03-14_
 ---
 
 ## Researcher
-`openai/gpt-4.1-mini` · temp 0.2 · max_tokens 4000
+`openai/gpt-5` · temp 0.2 · max_tokens 16000
 
 - Generate 3–5 targeted search queries covering different angles
 - Call `search_and_index` (not `web_search`) for every query — fetches full pages and stores embeddings permanently in pgvector
@@ -21,7 +21,7 @@ _Last updated: 2026-03-14_
 ---
 
 ## Writer
-`openai/gpt-4.1` · temp 0.7 · max_tokens 4000
+`openai/gpt-5` · temp 0.7 · max_tokens 8000
 
 **Title rules (applied first, before writing anything):**
 - 5–10 words — short and punchy
@@ -48,7 +48,7 @@ _Last updated: 2026-03-14_
 ---
 
 ## Editor
-`openai/gpt-4.1` · temp 0.3 · max_tokens 4000
+`openai/gpt-5` · temp 0.3 · max_tokens 8000
 
 Review checklist in this strict order:
 
@@ -68,7 +68,7 @@ Additional rules:
 ---
 
 ## Publisher
-`openai/gpt-4.1-mini` · temp 0.0 · max_tokens 500
+`openai/gpt-5-mini` · temp 0.0 · max_tokens 1000
 
 Strict 4-step sequence — no deviations:
 
@@ -89,7 +89,7 @@ Hard constraints:
 ---
 
 ## Indexer
-`openai/gpt-4.1-mini` · temp 0.0 · max_tokens 2000
+`openai/gpt-5-mini` · temp 0.0 · max_tokens 2000
 
 - Read the document using `read_research_file`
 - Call `index_document` to chunk and embed the full document into pgvector
@@ -101,7 +101,7 @@ Hard constraints:
 ---
 
 ## Orchestrator
-`openai/gpt-4.1-mini` · temp 0.1 · max_tokens 2000
+`openai/gpt-5-mini` · temp 0.1 · max_tokens 4000
 
 Routes by prefix:
 - **`BLOG:`** → Researcher → Writer → Editor → Publisher → Indexer; return live URL + file path + chunk count

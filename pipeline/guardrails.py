@@ -22,17 +22,19 @@ from datetime import date
 from typing import Optional
 
 # ---------------------------------------------------------------------------
-# Daily budget limits (GitHub Models API, Copilot Pro tier)
-# These are the *hard* per-model call limits imposed by GitHub.
+# Daily budget limits (GitHub Models API, Copilot Pro+ tier)
+# Pro+ has unlimited premium requests — no daily caps.
+# These limits are set high as a safety net; not expected to be hit.
 # ---------------------------------------------------------------------------
 
 DAILY_LIMITS: dict[str, int] = {
-    "openai/gpt-5": 50,        # GA — treat as high tier; adjust if custom limits differ
-    "openai/gpt-5-mini": 9999, # Zero-premium — no quota cost against monthly allowance
-    "openai/gpt-4.1": 50,
-    "openai/gpt-4o": 50,
-    "openai/gpt-4.1-mini": 500,
-    "openai/gpt-4.1-nano": 500,
+    "openai/gpt-5": 9999,
+    "openai/gpt-5-mini": 9999,
+    "openai/gpt-5-nano": 9999,
+    "openai/gpt-4.1": 9999,
+    "openai/gpt-4o": 9999,
+    "openai/gpt-4.1-mini": 9999,
+    "openai/gpt-4.1-nano": 9999,
 }
 
 # Percentage thresholds for soft warning vs. hard block.

@@ -306,17 +306,18 @@ Uses `gpt-5-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_research_
 
 ## Model Assignments
 
-| Agent | Model | Temperature | Notes |
-|---|---|---|---|
-| Orchestrator | `openai/gpt-5-mini` | 0.1 | Zero-premium; sufficient for multi-step routing |
-| Researcher | `openai/gpt-5` | 0.2 | Complex multi-tool research + structured JSON synthesis |
-| Writer | `openai/gpt-5` | 0.7 | Best writing quality; higher temp for varied prose |
-| Editor | `openai/gpt-5` | 0.3 | Careful fact-check + editorial reasoning |
-| Publisher | `openai/gpt-5-mini` | 0.0 | Deterministic metadata extraction + API call; zero-premium |
-| Indexer | `openai/gpt-5-mini` | 0.0 | Minimal reasoning; zero-premium saves daily budget |
+| Agent | Model | Temperature | Max Tokens | Notes |
+|---|---|---|---|---|
+| Orchestrator | `openai/gpt-5-mini` | 0.1 | 4,000 | Fast routing; 200k context |
+| Researcher | `openai/gpt-5` | 0.2 | 16,000 | Reasoning + tool-calling + 200k context |
+| Writer | `openai/gpt-5` | 0.7 | 8,000 | Best prose quality; higher temp for varied writing |
+| Editor | `openai/gpt-5` | 0.3 | 8,000 | Reasoning for fact-check + editorial accuracy |
+| Publisher | `openai/gpt-5-mini` | 0.0 | 1,000 | Deterministic metadata extraction + Ghost API call |
+| Indexer | `openai/gpt-5-mini` | 0.0 | 2,000 | Minimal reasoning; chunking + indexing |
 
+> **Plan: Copilot Pro+** — unlimited premium requests; no daily caps.  
 > **GitHub Models API does NOT have Claude/Anthropic models.** Use `openai/gpt-5`, `openai/gpt-5-mini`, or other supported OpenAI models.  
-> `gpt-5` and `gpt-4.1` are high-tier (50 req/day). `gpt-5-mini` and `gpt-4.1-nano` are **zero-premium** (no quota cost). `gpt-4.1-mini` is low-tier (500 req/day).
+> **Fallback chain**: `gpt-5` → `gpt-5-mini` → `gpt-5-nano` → `gpt-4.1` → `gpt-4.1-mini` → `gpt-4.1-nano`
 
 ---
 
