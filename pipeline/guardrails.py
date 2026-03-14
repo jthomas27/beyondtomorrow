@@ -49,11 +49,11 @@ async def get_daily_usage(pool, model: str) -> int:
 
     Queries the ``rate_limit_log`` table. Returns 0 if no records exist.
     """
-    today = date.today().isoformat()
+    today = date.today()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             "SELECT COUNT(*) AS cnt FROM rate_limit_log "
-            "WHERE model = $1 AND created_at::date = $2::date",
+            "WHERE model = $1 AND created_at::date = $2",
             model,
             today,
         )
@@ -109,22 +109,13 @@ async def log_model_call(
     run_id: Optional[str] = None,
     phase: str = "",
 ) -> None:
-    """Insert one record into ``rate_limit_log`` for an API call.
-
-    Args:
-        pool:      asyncpg connection pool.
-        model:     Model identifier string (e.g. ``"claude-sonnet-4"``).
-        tokens_in: Input token count for this call.
-        tokens_out: Output token count for this call.
-        run_id:    Optional research-run identifier (foreign key to
-                   ``research_runs.id``).
-        phase:     Optional label for the pipeline phase (e.g. ``"research"``).
-    """
+    """Insert one record into ``rate_limit_log`` for an API call."""
     async with pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO rate_limit_log "
-            "(model, tokens_in, tokens_out, run_id, phase) "
-            "VALUES ($1, $2, $3, $4, $5)",
+            "(agent_name, model, tokens_input, tokens_output, session_id, request_type) "
+            "VALUES ($1, $2, $3, $4, $5, $6)",
+            phase or "unknown",
             model,
             tokens_in,
             tokens_out,

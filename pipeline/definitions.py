@@ -71,7 +71,7 @@ Rules:
 - Prefer sources from the last 2 years; include older ones if highly relevant.
 - Output ONLY the structured JSON — no preamble.""",
     tools=[search_and_index, search_corpus, fetch_page, search_arxiv, score_credibility],
-    model="openai/gpt-5",
+    model="openai/gpt-4.1",
     model_settings=ModelSettings(temperature=0.2, max_tokens=8000),
 )
 
@@ -126,13 +126,9 @@ Save the draft using write_research_file with a filename like YYYY-MM-DD-slug.md
 Once the file is saved, hand off to the Editor by calling transfer_to_editor.
 Include the filename you used so the Editor can find the draft.""",
     tools=[read_research_file, write_research_file],
-    model="openai/gpt-5",
+    model="openai/gpt-4.1",
     model_settings=ModelSettings(temperature=0.7, max_tokens=4000),
 )
-
-# ---------------------------------------------------------------------------
-# Editor
-# ---------------------------------------------------------------------------
 
 editor = Agent(
     name="Editor",
@@ -162,13 +158,9 @@ Save the edited version using write_research_file (append -edited to the filenam
 Once the edited file is saved, hand off to the Publisher by calling
 transfer_to_publisher. Include the filename of the edited file.""",
     tools=[read_research_file, write_research_file],
-    model="openai/gpt-5",
+    model="openai/gpt-4.1",
     model_settings=ModelSettings(temperature=0.3, max_tokens=4000),
 )
-
-# ---------------------------------------------------------------------------
-# Publisher
-# ---------------------------------------------------------------------------
 
 publisher = Agent(
     name="Publisher",
@@ -211,7 +203,7 @@ IMPORTANT:
 - Always use status='published' (never 'draft').""",
     tools=[pick_random_asset_image, upload_image_to_ghost, publish_file_to_ghost],
     model="openai/gpt-5-mini",
-    model_settings=ModelSettings(temperature=0.0, max_tokens=500),
+    model_settings=ModelSettings(extra_body={"max_completion_tokens": 500}),
 )
 
 # ---------------------------------------------------------------------------
@@ -235,7 +227,7 @@ After indexing, return a final summary: the live post URL (if provided), the
 filename stored, and the number of chunks indexed.""",
     tools=[read_research_file, index_document, embed_and_store],
     model="openai/gpt-5-mini",
-    model_settings=ModelSettings(temperature=0.0, max_tokens=2000),
+    model_settings=ModelSettings(extra_body={"max_completion_tokens": 2000}),
 )
 
 # ---------------------------------------------------------------------------
@@ -285,5 +277,5 @@ Always log your decisions after each handoff.
 If any agent fails, log the error and continue with the remaining steps where possible.""",
     handoffs=[researcher, writer, editor, publisher, indexer],
     model="openai/gpt-5-mini",
-    model_settings=ModelSettings(temperature=0.1, max_tokens=2000),
+    model_settings=ModelSettings(extra_body={"max_completion_tokens": 2000}),
 )

@@ -200,33 +200,39 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
 
         # --- Step 1: Research ---
         logger.info("[1/5] Researching and indexing sources to DB...")
-        # Apply guardrails: pick best available model
-        research_model = await select_model(researcher.model, pool=pool)
-        if research_model != researcher.model:
-            logger.warning("Researcher degraded: %s → %s", researcher.model, research_model)
-            researcher.model = research_model
 
-        research_result = await asyncio.wait_for(
-            Runner.run(
-                researcher,
-                max_turns=15,
-                input=(
-                    f"Research this topic thoroughly for a blog post: {topic}\n\n"
-                    f"REQUIRED STEPS:\n"
-                    f"1. Generate 3-5 search queries covering different angles.\n"
-                    f"2. For each query call search_and_index — this fetches full pages and "
-                    f"stores text + embeddings directly in the knowledge database (not temp files).\n"
-                    f"3. Call search_corpus after indexing to retrieve the stored knowledge.\n"
-                    f"4. Call search_arxiv for scientific papers on this topic.\n"
-                    f"5. Return structured research JSON with key_findings, subtopics, "
-                    f"suggested_angles, gaps, source_list, total_sources, model_used."
+        # Skip research if the draft already exists (e.g. pipeline resumed after failure)
+        if (research_dir / draft_filename).exists() or (research_dir / edited_filename).exists():
+            logger.info("Draft already exists — skipping research step.")
+            research_output = "{}"
+        else:
+            # Apply guardrails: pick best available model
+            research_model = await select_model(researcher.model, pool=pool)
+            if research_model != researcher.model:
+                logger.warning("Researcher degraded: %s → %s", researcher.model, research_model)
+                researcher.model = research_model
+
+            research_result = await asyncio.wait_for(
+                Runner.run(
+                    researcher,
+                    max_turns=15,
+                    input=(
+                        f"Research this topic thoroughly for a blog post: {topic}\n\n"
+                        f"REQUIRED STEPS:\n"
+                        f"1. Generate 3-5 search queries covering different angles.\n"
+                        f"2. For each query call search_and_index — this fetches full pages and "
+                        f"stores text + embeddings directly in the knowledge database (not temp files).\n"
+                        f"3. Call search_corpus after indexing to retrieve the stored knowledge.\n"
+                        f"4. Call search_arxiv for scientific papers on this topic.\n"
+                        f"5. Return structured research JSON with key_findings, subtopics, "
+                        f"suggested_angles, gaps, source_list, total_sources, model_used."
+                    ),
                 ),
-            ),
-            timeout=_AGENT_TIMEOUT,
-        )
-        research_output = research_result.final_output
-        await log_model_call(pool, research_model, phase="research")
-        logger.info("Research complete")
+                timeout=_AGENT_TIMEOUT,
+            )
+            research_output = research_result.final_output
+            await log_model_call(pool, research_model, phase="research")
+            logger.info("Research complete")
 
         research_doc_name = f"{today_str}-{slug}-research"
         try:
@@ -330,10 +336,11 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                     edited_filename = draft_filename
             except Exception as _edit_err:
                 _is_token_err = "413" in str(_edit_err) or "tokens_limit_reached" in str(_edit_err)
-                if _is_token_err and (research_dir / edited_filename).exists():
-                    logger.warning("Editor hit token limit after saving — proceeding with saved file.")
-                elif _is_token_err:
-                    logger.warning("Editor hit token limit and file was not saved. Using original draft.")
+                _is_rate_err = "429" in str(_edit_err) or "RateLimitError" in type(_edit_err).__name__ or "Too many requests" in str(_edit_err)
+                if (_is_token_err or _is_rate_err) and (research_dir / edited_filename).exists():
+                    logger.warning("Editor hit API limit after saving — proceeding with saved file.")
+                elif _is_token_err or _is_rate_err:
+                    logger.warning("Editor hit API limit, file not saved. Using original draft.")
                     edited_filename = draft_filename
                 else:
                     raise

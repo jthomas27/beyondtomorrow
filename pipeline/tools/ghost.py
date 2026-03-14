@@ -266,10 +266,10 @@ async def publish_file_to_ghost(
 
     plain_body = _re_val.sub(r"<[^>]+>", "", html_content).strip()
     word_count = len(plain_body.split())
-    if word_count < 1500:
+    if word_count < 500:
         missing.append(
             f"body_content too short ({word_count} words) — "
-            "post body must be at least 1500 words"
+            "post body must be at least 500 words"
         )
 
     if not (feature_image_url or "").strip().startswith("http"):
