@@ -20,6 +20,16 @@ def init_github_models() -> AsyncOpenAI:
     Returns the AsyncOpenAI client so callers can inspect it if needed.
     Raises RuntimeError if GITHUB_TOKEN is not set.
     """
+    # Disable the SDK's built-in trace exporter. It tries to POST to
+    # https://api.openai.com/v1/traces using OPENAI_API_KEY, which is not set
+    # on this project (we use GITHUB_TOKEN for GitHub Models). Without this,
+    # every pipeline run logs "[non-fatal] Tracing client error 401" repeatedly.
+    try:
+        from agents.tracing import set_tracing_export_api_enabled
+        set_tracing_export_api_enabled(False)
+    except ImportError:
+        pass
+
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
         raise RuntimeError(

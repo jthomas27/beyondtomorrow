@@ -11,10 +11,16 @@ Tools:
 
 import os
 import pathlib
+import random
 from pipeline._sdk import function_tool
 
 # Resolve research/ directory relative to this file's location
 _RESEARCH_DIR = pathlib.Path(__file__).parents[2] / "research"
+
+# Resolve assets/images/ directory relative to this file's location
+_ASSETS_IMAGES_DIR = pathlib.Path(__file__).parents[2] / "assets" / "images"
+
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
 
 def _safe_path(filename: str) -> pathlib.Path:
@@ -62,3 +68,25 @@ async def write_research_file(filename: str, content: str) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     return f"Written {len(content):,} characters to research/{filename}"
+
+
+@function_tool
+async def pick_random_asset_image() -> str:
+    """Pick a random image file from the assets/images/ directory.
+
+    Returns the absolute path to the selected image, or an error message
+    if the directory is missing or contains no supported images.
+    """
+    if not _ASSETS_IMAGES_DIR.exists():
+        return f"Error: assets/images/ directory not found at {_ASSETS_IMAGES_DIR}"
+
+    images = [
+        f for f in _ASSETS_IMAGES_DIR.iterdir()
+        if f.is_file() and f.suffix.lower() in _IMAGE_EXTENSIONS
+    ]
+
+    if not images:
+        return "Error: No image files found in assets/images/"
+
+    chosen = random.choice(images)
+    return str(chosen)

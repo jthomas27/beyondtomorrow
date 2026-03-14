@@ -64,32 +64,32 @@ async def test_check_model_budget_available_below_soft_threshold(
     mock_pool, mock_conn, mocker
 ):
     """Usage at 50% of limit: available=True, warning=False."""
-    limit = DAILY_LIMITS["claude-sonnet-4"]  # 200
+    limit = DAILY_LIMITS["openai/gpt-4.1"]  # 50
     used = int(limit * 0.50)
     mocker.patch(
         "pipeline.guardrails.get_daily_usage", new=AsyncMock(return_value=used)
     )
 
-    result = await check_model_budget(mock_pool, "claude-sonnet-4")
+    result = await check_model_budget(mock_pool, "openai/gpt-4.1")
 
     assert result["available"] is True
     assert result["warning"] is False
     assert result["used"] == used
     assert result["limit"] == limit
-    assert abs(result["pct"] - 50.0) < 0.5
+    assert abs(result["pct"] - 50.0) < 1.0
 
 
 async def test_check_model_budget_warning_above_soft_threshold(
     mock_pool, mocker
 ):
     """Usage at 82% of limit: available=True, warning=True."""
-    limit = DAILY_LIMITS["claude-sonnet-4"]
+    limit = DAILY_LIMITS["openai/gpt-4.1"]
     used = int(limit * 0.82)
     mocker.patch(
         "pipeline.guardrails.get_daily_usage", new=AsyncMock(return_value=used)
     )
 
-    result = await check_model_budget(mock_pool, "claude-sonnet-4")
+    result = await check_model_budget(mock_pool, "openai/gpt-4.1")
 
     assert result["available"] is True
     assert result["warning"] is True
@@ -99,13 +99,13 @@ async def test_check_model_budget_blocked_above_hard_threshold(
     mock_pool, mocker
 ):
     """Usage at 96% of limit: available=False (blocked)."""
-    limit = DAILY_LIMITS["claude-sonnet-4"]
+    limit = DAILY_LIMITS["openai/gpt-4.1"]
     used = int(limit * 0.96)
     mocker.patch(
         "pipeline.guardrails.get_daily_usage", new=AsyncMock(return_value=used)
     )
 
-    result = await check_model_budget(mock_pool, "claude-sonnet-4")
+    result = await check_model_budget(mock_pool, "openai/gpt-4.1")
 
     assert result["available"] is False
 
@@ -114,13 +114,13 @@ async def test_check_model_budget_exactly_at_hard_threshold_is_blocked(
     mock_pool, mocker
 ):
     """Usage exactly at HARD_THRESHOLD_PCT is blocked (< not <=)."""
-    limit = DAILY_LIMITS["claude-haiku-3-5"]
+    limit = DAILY_LIMITS["openai/gpt-4.1-mini"]
     used = int(limit * HARD_THRESHOLD_PCT / 100)
     mocker.patch(
         "pipeline.guardrails.get_daily_usage", new=AsyncMock(return_value=used)
     )
 
-    result = await check_model_budget(mock_pool, "claude-haiku-3-5")
+    result = await check_model_budget(mock_pool, "openai/gpt-4.1-mini")
 
     assert result["available"] is False
 

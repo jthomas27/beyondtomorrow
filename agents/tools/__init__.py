@@ -9,8 +9,8 @@ from a single location:
 
 from agents.tools.search import web_search, search_arxiv, fetch_page
 from agents.tools.corpus import search_corpus, index_document, embed_and_store
-from agents.tools.ghost import publish_to_ghost
-from agents.tools.files import read_research_file, write_research_file
+from agents.tools.ghost import publish_to_ghost, upload_image_to_ghost
+from agents.tools.files import read_research_file, write_research_file, pick_random_asset_image
 from agents.tools.quality import score_credibility
 
 __all__ = [
@@ -21,7 +21,9 @@ __all__ = [
     "index_document",
     "embed_and_store",
     "publish_to_ghost",
+    "upload_image_to_ghost",
     "read_research_file",
     "write_research_file",
+    "pick_random_asset_image",
     "score_credibility",
 ]

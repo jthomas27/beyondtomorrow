@@ -46,7 +46,7 @@ _LIMIT_DEFAULTS: dict[str, Any] = {
         "corpus": {
             "default_top_k": 5,
             "hard_max_top_k": 20,
-            "min_similarity_threshold": 0.30,
+            "min_similarity_threshold": 0.40,
         },
     },
     "synthesis": {
@@ -63,17 +63,19 @@ _LIMIT_DEFAULTS: dict[str, Any] = {
         "task_timeout_seconds": 600,
     },
     "chunking": {
-        "max_words_per_chunk": 500,
-        "overlap_words": 50,
+        "max_words_per_chunk": 200,
+        "overlap_words": 30,
     },
 }
 
 _MODEL_DEFAULTS: dict[str, Any] = {
     "agents": {},
     "fallback_chain": [
-        "claude-sonnet-4",
-        "claude-haiku-3-5",
-        "gpt-4o-mini",
+        "openai/gpt-5",
+        "openai/gpt-4.1",
+        "openai/gpt-5-mini",
+        "openai/gpt-4.1-mini",
+        "openai/gpt-4.1-nano",
     ],
     "degradation": {
         "soft_threshold_pct": 80,

@@ -12,10 +12,17 @@ Schema:
 Tools:
     read_research_file(filename)           — Read from DB (fallback: local cache)
     write_research_file(filename, content) — Write to DB + local cache
+    pick_random_asset_image()              — Return a random image path from assets/images/
 """
 
 import pathlib
+import random
 from agents._sdk import function_tool
+
+# Resolve assets/images/ directory relative to this file's location
+_ASSETS_IMAGES_DIR = pathlib.Path(__file__).parents[2] / "assets" / "images"
+
+_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
 # Local cache directory alongside this file's project root
 _RESEARCH_DIR = pathlib.Path(__file__).parents[2] / "research"
@@ -114,3 +121,25 @@ async def write_research_file(filename: str, content: str) -> str:
         return f"Saved: {filename}"
     else:
         return f"Saved locally (DB error: {db_error}): {filename}"
+
+
+@function_tool
+async def pick_random_asset_image() -> str:
+    """Pick a random image file from the assets/images/ directory.
+
+    Returns the absolute path to the selected image, or an error message
+    if the directory is missing or contains no supported images.
+    """
+    if not _ASSETS_IMAGES_DIR.exists():
+        return f"Error: assets/images/ directory not found at {_ASSETS_IMAGES_DIR}"
+
+    images = [
+        f for f in _ASSETS_IMAGES_DIR.iterdir()
+        if f.is_file() and f.suffix.lower() in _IMAGE_EXTENSIONS
+    ]
+
+    if not images:
+        return "Error: No image files found in assets/images/"
+
+    chosen = random.choice(images)
+    return str(chosen)

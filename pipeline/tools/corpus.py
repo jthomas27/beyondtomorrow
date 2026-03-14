@@ -34,10 +34,42 @@ Tools:
 """
 
 import json
+import logging
+import re as _re
 from datetime import date as _date
 from pipeline._sdk import function_tool
 from pipeline.embeddings import embed, embed_batch
 from pipeline.db import get_pool
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Cached config — loaded once per process, not on every tool call
+# ---------------------------------------------------------------------------
+
+_cached_limits: dict | None = None
+
+
+def _get_limits() -> dict:
+    """Return the limits config, caching after first load."""
+    global _cached_limits
+    if _cached_limits is None:
+        try:
+            from pipeline.config_loader import get_limits
+            _cached_limits = get_limits()
+        except Exception:
+            _cached_limits = {}
+    return _cached_limits
+
+
+def _get_chunk_params() -> tuple[int, int]:
+    """Return (max_words, overlap_words) from config."""
+    limits = _get_limits()
+    chunking = limits.get("chunking", {})
+    return (
+        chunking.get("max_words_per_chunk", 200),
+        chunking.get("overlap_words", 30),
+    )
 
 
 @function_tool
@@ -49,6 +81,13 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
         top_k: Number of most similar results to return (default 5).
     """
     query_vector = embed(query)  # list[float] — codec encodes automatically
+
+    # Read limits from cached config
+    limits = _get_limits()
+    corpus_cfg = limits.get("search", {}).get("corpus", {})
+    hard_max = corpus_cfg.get("hard_max_top_k", 20)
+    sim_threshold = corpus_cfg.get("min_similarity_threshold", 0.40)
+    top_k = min(top_k, hard_max)
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -64,13 +103,41 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
             FROM embeddings e
             LEFT JOIN chunks c ON e.chunk_id = c.id
             LEFT JOIN documents d ON c.document_id = d.id
-            WHERE 1 - (e.embedding <=> $1::vector) > 0.3
+            WHERE 1 - (e.embedding <=> $1::vector) > $3
             ORDER BY e.embedding <=> $1::vector
             LIMIT $2
             """,
             query_vector,
             top_k,
+            sim_threshold,
         )
+
+    # ---------- Keyword fallback when vector search returns nothing ----------
+    if not rows:
+        logger.info("Vector search returned no results — trying keyword fallback")
+        keywords = [w for w in query.split() if len(w) > 3][:5]
+        if keywords:
+            like_pattern = "%" + "%".join(keywords) + "%"
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT
+                        e.content,
+                        e.metadata,
+                        c.chunk_index,
+                        d.source,
+                        d.source_type,
+                        0.0::float AS similarity
+                    FROM embeddings e
+                    LEFT JOIN chunks c ON e.chunk_id = c.id
+                    LEFT JOIN documents d ON c.document_id = d.id
+                    WHERE e.content ILIKE $1
+                    ORDER BY d.updated_at DESC
+                    LIMIT $2
+                    """,
+                    like_pattern,
+                    top_k,
+                )
 
     if not rows:
         return "No relevant documents found in the knowledge corpus."
@@ -84,12 +151,14 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
         source = row["source"] or meta.get("source", "unknown")
         doc_type = row["source_type"] or meta.get("type", "unknown")
         chunk_label = f" (chunk {row['chunk_index']}" + ")" if row["chunk_index"] is not None else ""
+        # Truncate content to 400 chars to stay within GitHub Models' 8k input limit
+        snippet = row["content"][:400].rstrip() + ("..." if len(row["content"]) > 400 else "")
         results.append(
-            f"**[Corpus match — similarity: {row['similarity']:.3f}]**\n"
+            f"**[Corpus match \u2014 similarity: {row['similarity']:.3f}]**\n"
             f"Source: {source}{chunk_label}\n"
             f"Type: {doc_type}\n"
             f"Date: {meta.get('date', 'unknown')}\n\n"
-            f"{row['content'][:2000]}"
+            f"{snippet}"
         )
     return "\n\n---\n\n".join(results)
 
@@ -107,7 +176,8 @@ async def index_document(content: str, source: str, doc_type: str, date: str = "
         doc_type: Type of document — one of: research, article, pdf, email, webpage.
         date: ISO date string (YYYY-MM-DD) when the document was created or retrieved.
     """
-    chunks = _chunk_text(content, max_words=500, overlap_words=50)
+    max_w, overlap_w = _get_chunk_params()
+    chunks = _chunk_text(content, max_words=max_w, overlap_words=overlap_w)
     if not chunks:
         return "No content to index."
 
@@ -134,10 +204,14 @@ async def index_document(content: str, source: str, doc_type: str, date: str = "
             )
 
             # 2. Delete old chunks (cascades to their embeddings automatically).
+            # Note: aggregate functions are not allowed in RETURNING, so we
+            # count first then delete separately.
             deleted = await conn.fetchval(
-                "DELETE FROM chunks WHERE document_id = $1 RETURNING COUNT(*)",
-                doc_id,
+                "SELECT COUNT(*) FROM chunks WHERE document_id = $1", doc_id
             ) or 0
+            await conn.execute(
+                "DELETE FROM chunks WHERE document_id = $1", doc_id
+            )
 
             # 3. Insert new chunks and their embeddings in one batch.
             metadata = json.dumps({"source": source, "type": doc_type, "date": doc_date})
@@ -169,6 +243,9 @@ async def embed_and_store(text: str, source: str, metadata_json: str = "{}") -> 
     Use this for individual chunks rather than full documents. For full
     documents, use index_document instead.
 
+    Creates a proper document → chunk → embedding chain so the record is
+    traceable via search_corpus.
+
     Args:
         text: The text chunk to embed and store.
         source: Source identifier for this chunk.
@@ -182,25 +259,60 @@ async def embed_and_store(text: str, source: str, metadata_json: str = "{}") -> 
         meta = {}
     meta.setdefault("source", source)
     meta.setdefault("date", str(_date.today()))
+    doc_type = meta.get("type", "chunk")
 
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO embeddings (content, embedding, metadata)
-            VALUES ($1, $2::vector, $3)
-            """,
-            text,
-            vector,
-            json.dumps(meta),
-        )
+        async with conn.transaction():
+            # Upsert a document record so this chunk is traceable
+            doc_id = await conn.fetchval(
+                """
+                INSERT INTO documents (source, source_type, content, updated_at)
+                VALUES ($1, $2, $3, NOW())
+                ON CONFLICT (source) DO UPDATE
+                    SET content = EXCLUDED.content,
+                        updated_at = NOW()
+                RETURNING id
+                """,
+                source, doc_type, text,
+            )
+            # Delete old chunks to avoid duplicates on re-run
+            await conn.execute(
+                "DELETE FROM chunks WHERE document_id = $1", doc_id
+            )
+            chunk_id = await conn.fetchval(
+                """
+                INSERT INTO chunks (document_id, chunk_index, content)
+                VALUES ($1, 0, $2)
+                RETURNING id
+                """,
+                doc_id, text,
+            )
+            await conn.execute(
+                """
+                INSERT INTO embeddings (chunk_id, content, embedding, metadata)
+                VALUES ($1, $2, $3::vector, $4)
+                """,
+                chunk_id,
+                text,
+                vector,
+                json.dumps(meta),
+            )
 
     return f"Stored 1 chunk from '{source}'."
 
 
-def _chunk_text(text: str, max_words: int = 500, overlap_words: int = 50) -> list[str]:
-    """Split text into overlapping chunks at paragraph boundaries."""
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+def _chunk_text(text: str, max_words: int = 200, overlap_words: int = 30) -> list[str]:
+    """Split text into overlapping chunks at paragraph and section boundaries.
+
+    Default max_words=200 matches the ~256-token input limit of
+    all-MiniLM-L6-v2 so every chunk is fully represented by its embedding.
+    """
+    # Normalise section breaks (--- dividers, markdown headings) into
+    # double-newlines so they act as split points
+    normalised = _re.sub(r'\n---+\n', '\n\n', text)
+    normalised = _re.sub(r'\n(#{1,3} )', r'\n\n\1', normalised)
+    paragraphs = [p.strip() for p in normalised.split("\n\n") if p.strip()]
     chunks: list[str] = []
     current: list[str] = []
     current_words = 0
@@ -209,9 +321,26 @@ def _chunk_text(text: str, max_words: int = 500, overlap_words: int = 50) -> lis
         para_words = len(para.split())
         if current_words + para_words > max_words and current:
             chunks.append("\n\n".join(current))
-            # Keep last paragraph as overlap
-            current = [current[-1]] if overlap_words > 0 else []
-            current_words = len(current[0].split()) if current else 0
+            # Build overlap: keep trailing text up to overlap_words
+            if overlap_words > 0:
+                overlap_paras: list[str] = []
+                overlap_count = 0
+                for p in reversed(current):
+                    p_words = len(p.split())
+                    if overlap_count + p_words > overlap_words and overlap_paras:
+                        break
+                    overlap_paras.insert(0, p)
+                    overlap_count += p_words
+                # If the last paragraph alone exceeds overlap_words, truncate it
+                if len(overlap_paras) == 1 and overlap_count > overlap_words:
+                    words = overlap_paras[0].split()
+                    overlap_paras = [" ".join(words[-overlap_words:])]
+                    overlap_count = overlap_words
+                current = overlap_paras
+                current_words = overlap_count
+            else:
+                current = []
+                current_words = 0
 
         current.append(para)
         current_words += para_words

@@ -7,21 +7,25 @@ from a single location:
     from pipeline.tools import web_search, search_corpus, publish_to_ghost, ...
 """
 
-from pipeline.tools.search import web_search, search_arxiv, fetch_page
+from pipeline.tools.search import web_search, search_arxiv, fetch_page, search_and_index
 from pipeline.tools.corpus import search_corpus, index_document, embed_and_store
-from pipeline.tools.ghost import publish_to_ghost
-from pipeline.tools.files import read_research_file, write_research_file
+from pipeline.tools.ghost import publish_to_ghost, upload_image_to_ghost, publish_file_to_ghost
+from pipeline.tools.files import read_research_file, write_research_file, pick_random_asset_image
 from pipeline.tools.quality import score_credibility
 
 __all__ = [
     "web_search",
     "search_arxiv",
     "fetch_page",
+    "search_and_index",
     "search_corpus",
     "index_document",
     "embed_and_store",
     "publish_to_ghost",
+    "upload_image_to_ghost",
+    "publish_file_to_ghost",
     "read_research_file",
     "write_research_file",
+    "pick_random_asset_image",
     "score_credibility",
 ]

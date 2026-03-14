@@ -186,7 +186,23 @@ async def test_search_arxiv_returns_formatted_papers():
     mock_arxiv = MagicMock()
     mock_arxiv.Client.return_value.results.return_value = [fake_paper]
 
-    with patch.dict(sys.modules, {"arxiv": mock_arxiv}):
+    # Mock DB for corpus indexing (arXiv now stores abstracts)
+    mock_conn = AsyncMock()
+    mock_conn.fetchval = AsyncMock(side_effect=[42, 10])  # doc_id, chunk_id
+    mock_conn.execute = AsyncMock()
+    txn_cm = MagicMock()
+    txn_cm.__aenter__ = AsyncMock(return_value=None)
+    txn_cm.__aexit__ = AsyncMock(return_value=False)
+    mock_conn.transaction = MagicMock(return_value=txn_cm)
+    pool = MagicMock()
+    acq_cm = MagicMock()
+    acq_cm.__aenter__ = AsyncMock(return_value=mock_conn)
+    acq_cm.__aexit__ = AsyncMock(return_value=False)
+    pool.acquire = MagicMock(return_value=acq_cm)
+
+    with patch.dict(sys.modules, {"arxiv": mock_arxiv}), \
+         patch("pipeline.db.get_pool", AsyncMock(return_value=pool)), \
+         patch("pipeline.embeddings.embed_batch", return_value=[[0.0] * 384]):
         result = await call_tool(search_arxiv, query="quantum ML", max_results=3)
 
     assert "Quantum Machine Learning Survey" in result

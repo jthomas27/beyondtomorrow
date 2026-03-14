@@ -13,6 +13,8 @@ import re
 import time
 import httpx
 import jwt
+import mimetypes
+import pathlib
 import markdown as md_lib
 from agents._sdk import function_tool
 
@@ -138,3 +140,64 @@ async def publish_to_ghost(
         post_payload["feature_image"] = feature_image
 
     return await _post_to_ghost(post_payload)
+
+
+@function_tool
+async def upload_image_to_ghost(image_path: str) -> str:
+    """Upload a local image file to Ghost CMS and return the hosted URL.
+
+    Verifies the file exists locally before attempting the upload.
+
+    Args:
+        image_path: Absolute path to the image file to upload.
+
+    Returns:
+        The hosted URL of the uploaded image, or an error message.
+    """
+    ghost_url = os.environ.get("GHOST_URL", "").rstrip("/")
+    admin_key = os.environ.get("GHOST_ADMIN_KEY", "")
+
+    if not ghost_url or not admin_key:
+        return "Error: GHOST_URL and GHOST_ADMIN_KEY environment variables must be set."
+
+    if ":" not in admin_key:
+        return "Error: GHOST_ADMIN_KEY must be in 'id:secret' format."
+
+    path = pathlib.Path(image_path)
+    if not path.exists():
+        return f"Error: Image file not found: {image_path}"
+
+    key_id, secret = admin_key.split(":", 1)
+    iat = int(time.time())
+    header = {"alg": "HS256", "typ": "JWT", "kid": key_id}
+    payload = {"iat": iat, "exp": iat + 300, "aud": "/admin/"}
+
+    try:
+        token = jwt.encode(
+            payload,
+            bytes.fromhex(secret),
+            algorithm="HS256",
+            headers=header,
+        )
+    except Exception as exc:
+        return f"Error generating Ghost JWT: {exc}"
+
+    mime_type = mimetypes.guess_type(str(path))[0] or "image/jpeg"
+
+    try:
+        with open(path, "rb") as f:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    f"{ghost_url}/ghost/api/admin/images/upload/",
+                    headers={"Authorization": f"Ghost {token}"},
+                    files={"file": (path.name, f, mime_type)},
+                    data={"purpose": "image"},
+                )
+                resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        return f"Failed to upload image to Ghost: {exc}"
+
+    data = resp.json()
+    if "images" in data and data["images"]:
+        return data["images"][0]["url"]
+    return f"Error: Unexpected response from Ghost image upload: {data}"

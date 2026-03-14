@@ -44,17 +44,17 @@ def test_get_fallback_returns_first_for_unknown_model():
 
 def test_get_fallback_chain_starts_with_opus():
     """The chain must start with the most capable model."""
-    assert FALLBACK_CHAIN[0] == "claude-opus-4-6"
+    assert FALLBACK_CHAIN[0] == "openai/gpt-4.1"
 
 
 def test_get_fallback_chain_ends_with_cheap_model():
     """The chain must end with a high-volume / low-cost model."""
-    assert FALLBACK_CHAIN[-1] == "gpt-4o-mini"
+    assert FALLBACK_CHAIN[-1] == "openai/gpt-4.1-nano"
 
 
-def test_get_fallback_sonnet_returns_haiku():
-    """claude-sonnet-4 falls back to claude-haiku-3-5."""
-    assert get_fallback("claude-sonnet-4") == "claude-haiku-3-5"
+def test_get_fallback_gpt41_returns_gpt4o():
+    """openai/gpt-4.1 falls back to openai/gpt-4o."""
+    assert get_fallback("openai/gpt-4.1") == "openai/gpt-4o"
 
 
 # ---------------------------------------------------------------------------
@@ -63,8 +63,8 @@ def test_get_fallback_sonnet_returns_haiku():
 
 async def test_select_model_returns_preferred_when_pool_is_none():
     """Without a pool (dry-run mode), the preferred model is returned as-is."""
-    result = await select_model("claude-sonnet-4", pool=None)
-    assert result == "claude-sonnet-4"
+    result = await select_model("openai/gpt-4.1", pool=None)
+    assert result == "openai/gpt-4.1"
 
 
 async def test_select_model_returns_preferred_when_available(mocker):
@@ -75,26 +75,26 @@ async def test_select_model_returns_preferred_when_available(mocker):
             return_value={"available": True, "warning": False, "pct": 30.0}
         ),
     )
-    result = await select_model("claude-sonnet-4", pool=object())
-    assert result == "claude-sonnet-4"
+    result = await select_model("openai/gpt-4.1", pool=object())
+    assert result == "openai/gpt-4.1"
 
 
 async def test_select_model_falls_back_when_preferred_exhausted(mocker):
     """When preferred is exhausted the next available model is returned."""
 
     async def mock_check(pool, model):
-        if model == "claude-sonnet-4":
+        if model == "openai/gpt-4.1":
             return {"available": False, "warning": True, "pct": 97.0}
         return {"available": True, "warning": False, "pct": 10.0}
 
     mocker.patch("pipeline.degradation.check_model_budget", side_effect=mock_check)
-    result = await select_model("claude-sonnet-4", pool=object())
-    assert result == "claude-haiku-3-5"
+    result = await select_model("openai/gpt-4.1", pool=object())
+    assert result == "openai/gpt-4o"
 
 
 async def test_select_model_skips_multiple_exhausted_models(mocker):
     """Falls back past multiple exhausted models to find the first available."""
-    exhausted = {"claude-opus-4-6", "claude-sonnet-4", "claude-haiku-3-5"}
+    exhausted = {"openai/gpt-4.1", "openai/gpt-4o", "openai/gpt-4.1-mini"}
 
     async def mock_check(pool, model):
         return {
@@ -104,8 +104,8 @@ async def test_select_model_skips_multiple_exhausted_models(mocker):
         }
 
     mocker.patch("pipeline.degradation.check_model_budget", side_effect=mock_check)
-    result = await select_model("claude-opus-4-6", pool=object())
-    assert result == "gpt-4o-mini"
+    result = await select_model("openai/gpt-4.1", pool=object())
+    assert result == "openai/gpt-4.1-nano"
 
 
 async def test_select_model_returns_last_resort_when_all_exhausted(mocker):
@@ -116,12 +116,12 @@ async def test_select_model_returns_last_resort_when_all_exhausted(mocker):
             return_value={"available": False, "warning": True, "pct": 99.0}
         ),
     )
-    result = await select_model("claude-opus-4-6", pool=object())
+    result = await select_model("openai/gpt-4.1", pool=object())
     assert result == FALLBACK_CHAIN[-1]
 
 
 async def test_select_model_starts_at_preferred_not_chain_start(mocker):
-    """Selecting from an mid-chain model does not check models before it."""
+    """Selecting from a mid-chain model does not check models before it."""
     checked_models: list[str] = []
 
     async def mock_check(pool, model):
@@ -129,13 +129,13 @@ async def test_select_model_starts_at_preferred_not_chain_start(mocker):
         return {"available": True, "warning": False, "pct": 10.0}
 
     mocker.patch("pipeline.degradation.check_model_budget", side_effect=mock_check)
-    await select_model("claude-haiku-3-5", pool=object())
+    await select_model("openai/gpt-4.1-mini", pool=object())
 
-    # Should only check haiku (and possibly gpt-4o-mini), not opus or sonnet
+    # Should only check mini (and possibly nano), not gpt-4.1 or gpt-4o
     for model in checked_models:
         idx_checked = FALLBACK_CHAIN.index(model) if model in FALLBACK_CHAIN else -1
-        idx_haiku = FALLBACK_CHAIN.index("claude-haiku-3-5")
-        assert idx_checked >= idx_haiku
+        idx_mini = FALLBACK_CHAIN.index("openai/gpt-4.1-mini")
+        assert idx_checked >= idx_mini
 
 
 async def test_select_model_with_unknown_preferred_defaults_to_opus(mocker):

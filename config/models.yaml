@@ -10,12 +10,13 @@
 #   NOTE: Claude/Anthropic models are only available in the Copilot Chat UI,
 #         NOT via the models.github.ai/inference API endpoint.
 #
-#   High tier  (50 req/day):   openai/gpt-4.1, openai/gpt-4o
-#   Low tier   (500 req/day):  openai/gpt-4.1-mini, openai/gpt-4.1-nano
+#   Zero-premium (no quota cost): openai/gpt-5-mini, openai/gpt-4.1-nano
+#   High tier  (50 req/day):      openai/gpt-5, openai/gpt-4.1, openai/gpt-4o
+#   Low tier   (500 req/day):     openai/gpt-4.1-mini
 #
 # Model selection strategy:
-#   - openai/gpt-4.1       : complex tasks (research, writing, editing) — best quality
-#   - openai/gpt-4.1-mini  : simple/deterministic tasks (orchestrating, publishing, indexing)
+#   - openai/gpt-5       : complex tasks (research, writing, editing) — best quality
+#   - openai/gpt-5-mini  : simple/deterministic tasks (orchestrating, publishing, indexing) — zero-premium
 #
 # See docs/GITHUB_COPILOT_MODELS.md for the full Copilot Chat model list.
 
@@ -26,40 +27,40 @@
 
 agents:
   orchestrator:
-    model: openai/gpt-4.1
+    model: openai/gpt-5-mini
     temperature: 0.1
     max_tokens: 2000
-    note: "Multi-step handoff chain requires strong instruction-following — gpt-4.1"
+    note: "Multi-step handoff chain — gpt-5-mini is zero-premium and sufficient for routing"
 
   researcher:
-    model: openai/gpt-4.1
+    model: openai/gpt-5
     temperature: 0.2
     max_tokens: 8000
-    note: "Complex multi-tool research + structured JSON synthesis — best quality"
+    note: "Complex multi-tool research + structured JSON synthesis — gpt-5 best quality"
 
   writer:
-    model: openai/gpt-4.1
+    model: openai/gpt-5
     temperature: 0.7
     max_tokens: 4000
-    note: "Best writing quality — higher temp for varied, engaging prose"
+    note: "Best writing quality — gpt-5 with higher temp for varied, engaging prose"
 
   editor:
-    model: openai/gpt-4.1
+    model: openai/gpt-5
     temperature: 0.3
     max_tokens: 4000
-    note: "Careful fact-check + editorial reasoning — gpt-4.1 best for analytical tasks"
+    note: "Careful fact-check + editorial reasoning — gpt-5 best for analytical tasks"
 
   publisher:
-    model: openai/gpt-4.1-mini
+    model: openai/gpt-5-mini
     temperature: 0.0
     max_tokens: 1000
-    note: "Deterministic metadata extraction + Ghost API call — mini sufficient"
+    note: "Deterministic metadata extraction + Ghost API call — gpt-5-mini is zero-premium"
 
   indexer:
-    model: openai/gpt-4.1-mini
+    model: openai/gpt-5-mini
     temperature: 0.0
     max_tokens: 500
-    note: "Chunking + indexing decisions — minimal reasoning, mini saves budget"
+    note: "Chunking + indexing decisions — gpt-5-mini is zero-premium, saves budget"
 
 # ---------------------------------------------------------------------------
 # Optional: deep synthesis override
@@ -84,9 +85,10 @@ agents:
 # ---------------------------------------------------------------------------
 
 fallback_chain:
-  - openai/gpt-4.1        # Primary workhorse — high tier, 50/day
-  - openai/gpt-4o         # GPT-4o fallback — high tier, 50/day
-  - openai/gpt-4.1-mini   # Budget fallback — low tier, 500/day
+  - openai/gpt-5          # Primary — GA, high quality
+  - openai/gpt-4.1        # Previous gen fallback — high tier, 50/day
+  - openai/gpt-5-mini     # Zero-premium budget fallback
+  - openai/gpt-4.1-mini   # Low tier fallback — 500/day
   - openai/gpt-4.1-nano   # Last resort — low tier, 500/day
 
 # ---------------------------------------------------------------------------

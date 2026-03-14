@@ -27,6 +27,8 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 DAILY_LIMITS: dict[str, int] = {
+    "openai/gpt-5": 50,        # GA — treat as high tier; adjust if custom limits differ
+    "openai/gpt-5-mini": 9999, # Zero-premium — no quota cost against monthly allowance
     "openai/gpt-4.1": 50,
     "openai/gpt-4o": 50,
     "openai/gpt-4.1-mini": 500,

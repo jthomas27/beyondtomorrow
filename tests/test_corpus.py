@@ -129,13 +129,22 @@ def _make_pool_mock(mocker, conn):
     acquire_cm.__aenter__ = mocker.AsyncMock(return_value=conn)
     acquire_cm.__aexit__ = mocker.AsyncMock(return_value=False)
     pool.acquire = mocker.MagicMock(return_value=acquire_cm)
+
+    # conn.transaction() must also be an async context manager
+    txn_cm = mocker.MagicMock()
+    txn_cm.__aenter__ = mocker.AsyncMock(return_value=None)
+    txn_cm.__aexit__ = mocker.AsyncMock(return_value=False)
+    conn.transaction = mocker.MagicMock(return_value=txn_cm)
+
     return pool
 
 
 @pytest.mark.asyncio
 async def test_search_corpus_no_results_returns_informative_message(mocker):
-    """When no rows match the similarity threshold the tool says so."""
+    """When no rows match the similarity threshold (and keyword fallback also
+    returns nothing) the tool says so."""
     mock_conn = mocker.AsyncMock()
+    # First call: vector search returns empty; second call: keyword fallback also empty
     mock_conn.fetch = mocker.AsyncMock(return_value=[])
     pool = _make_pool_mock(mocker, mock_conn)
 
@@ -236,8 +245,9 @@ async def test_index_document_empty_content_returns_early(mocker):
 
 @pytest.mark.asyncio
 async def test_embed_and_store_inserts_one_row(mocker):
-    """embed_and_store must execute exactly one INSERT into embeddings."""
+    """embed_and_store must create a document, chunk, and embedding record."""
     mock_conn = mocker.AsyncMock()
+    mock_conn.fetchval = mocker.AsyncMock(side_effect=[1, 10])  # doc_id=1, chunk_id=10
     pool = _make_pool_mock(mocker, mock_conn)
 
     with patch("pipeline.tools.corpus.get_pool", mocker.AsyncMock(return_value=pool)), \
@@ -250,8 +260,14 @@ async def test_embed_and_store_inserts_one_row(mocker):
         )
 
     assert "Stored 1 chunk" in result
-    mock_conn.execute.assert_called_once()
-    insert_sql = mock_conn.execute.call_args[0][0]
+    # Should have 2 fetchval calls (document + chunk) and 2 execute calls (DELETE old chunks + INSERT embedding)
+    assert mock_conn.fetchval.call_count == 2
+    assert mock_conn.execute.call_count == 2
+    # First execute: DELETE FROM chunks
+    delete_sql = mock_conn.execute.call_args_list[0][0][0]
+    assert "delete" in delete_sql.lower()
+    # Second execute: INSERT INTO embeddings
+    insert_sql = mock_conn.execute.call_args_list[1][0][0]
     assert "embeddings" in insert_sql.lower()
 
 
@@ -259,6 +275,7 @@ async def test_embed_and_store_inserts_one_row(mocker):
 async def test_embed_and_store_handles_invalid_metadata_json(mocker):
     """Malformed metadata_json should not raise — defaults to empty dict."""
     mock_conn = mocker.AsyncMock()
+    mock_conn.fetchval = mocker.AsyncMock(side_effect=[1, 10])  # doc_id=1, chunk_id=10
     pool = _make_pool_mock(mocker, mock_conn)
 
     with patch("pipeline.tools.corpus.get_pool", mocker.AsyncMock(return_value=pool)), \
