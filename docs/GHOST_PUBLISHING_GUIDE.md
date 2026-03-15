@@ -567,7 +567,7 @@ To update the CSP or other security headers, edit the Transform Rule value in th
 
 **Current CSP value (as set in Cloudflare):**
 ```
-default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https: http:; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://www.beyondtomorrow.world https://beyondtomorrow.world https://cdn.jsdelivr.net https://js.stripe.com https://api.stripe.com; frame-src https://js.stripe.com https://hooks.stripe.com; media-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests;
+default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https: http:; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://www.beyondtomorrow.world https://beyondtomorrow.world https://cdn.jsdelivr.net https://js.stripe.com https://api.stripe.com; frame-src 'self' https://js.stripe.com https://hooks.stripe.com; media-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests;
 ```
 
 Verify headers are live with:

@@ -322,7 +322,7 @@ The CSP value and all header values are maintained in the Cloudflare dashboard. 
 | Rule | Target | Action |
 |------|--------|--------|
 | **Rate limit Ghost admin login** | `/ghost/api/admin/session/` | Block after 5 req/10s per IP (60s ban) |
-| **Rate limit magic link** | `/members/api/send-magic-link/` | Block after 3 req/min per IP (300s ban) |
+| **Rate limit magic link** | `/members/api/send-magic-link/` | **Rate Limit** (not Block) — 3 req/min per IP, 300s ban. Must be created under Security → WAF → Rate limiting rules. A Custom Rule with Block action will hard-block all subscribe requests. |
 | **Security Headers** | All responses | Transform rule injects CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy |
 | **Remove X-Powered-By** | All responses | Transform rule strips `X-Powered-By: Express` header |
 | **Redirect www to root** | `www.beyondtomorrow.world` | 301 redirect to `beyondtomorrow.world` |

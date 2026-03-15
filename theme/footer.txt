@@ -1,1 +1,89 @@
-<!-- Custom footer injection intentionally left empty. Keep JavaScript out of Ghost code injection to reduce XSS exposure. -->
+<!-- Confetti celebration on successful subscribe -->
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+<script>
+(function () {
+  var celebrated = false;
+
+  function celebrate() {
+    if (celebrated) return;
+    celebrated = true;
+    confetti({ particleCount: 80, angle: 60, spread: 60, origin: { x: 0, y: 0.65 }, colors: ['#c8b8ff', '#a78bfa', '#818cf8', '#6366f1', '#ffd6a5'] });
+    confetti({ particleCount: 80, angle: 120, spread: 60, origin: { x: 1, y: 0.65 }, colors: ['#c8b8ff', '#a78bfa', '#818cf8', '#6366f1', '#ffd6a5'] });
+    setTimeout(function () { celebrated = false; }, 15000);
+  }
+
+  /* Detect signup success by watching the Portal iframe DOM for the success
+     notification. This approach is read-only — it does NOT override window.fetch
+     or any other global, so it cannot interfere with Portal. */
+  function scanIframeForSuccess(iframe) {
+    try {
+      var doc = iframe.contentDocument;
+      if (!doc || !doc.body) return false;
+      var el = doc.querySelector('.gh-portal-notification-icon.success');
+      if (el) return true;
+      var ps = doc.querySelectorAll('.gh-portal-notification p');
+      for (var i = 0; i < ps.length; i++) {
+        if (ps[i].textContent.indexOf('Check your email') !== -1) return true;
+      }
+    } catch (e) { /* cross-origin or not ready */ }
+    return false;
+  }
+
+  function checkPortal() {
+    var root = document.getElementById('ghost-portal-root');
+    if (!root) return;
+    var iframes = root.querySelectorAll('iframe');
+    for (var i = 0; i < iframes.length; i++) {
+      if (scanIframeForSuccess(iframes[i])) {
+        celebrate();
+        return;
+      }
+    }
+  }
+
+  /* Observe DOM mutations on the portal root and its iframe contents.
+     This fires whenever Portal updates its UI (e.g. showing the success
+     notification after a successful magic-link request). */
+  var iframeObservers = [];
+
+  function watchIframe(iframe) {
+    if (iframe._btWatched) return;
+    iframe._btWatched = true;
+    function attach() {
+      try {
+        var doc = iframe.contentDocument;
+        if (!doc) return;
+        var target = doc.body || doc.documentElement;
+        if (!target) return;
+        var obs = new MutationObserver(checkPortal);
+        obs.observe(target, { childList: true, subtree: true });
+        iframeObservers.push(obs);
+      } catch (e) { /* cross-origin */ }
+    }
+    attach();
+    iframe.addEventListener('load', attach);
+  }
+
+  function watchPortalRoot() {
+    var root = document.getElementById('ghost-portal-root');
+    if (!root || root._btRootWatched) return;
+    root._btRootWatched = true;
+
+    new MutationObserver(function () {
+      var iframes = root.querySelectorAll('iframe');
+      for (var j = 0; j < iframes.length; j++) watchIframe(iframes[j]);
+      checkPortal();
+    }).observe(root, { childList: true, subtree: true });
+  }
+
+  /* Watch document.body for the portal root div to appear. */
+  function init() {
+    watchPortalRoot();
+    new MutationObserver(watchPortalRoot)
+      .observe(document.body, { childList: true, subtree: false });
+  }
+
+  if (document.body) init();
+  else document.addEventListener('DOMContentLoaded', init);
+})();
+</script>
