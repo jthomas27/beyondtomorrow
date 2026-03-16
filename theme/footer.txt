@@ -91,6 +91,9 @@
     close.addEventListener('click', hide);
     dismiss.addEventListener('click', hide);
     overlay.addEventListener('click', function (e) { if (e.target === overlay) hide(); });
+    document.addEventListener('keydown', function onKey(e) {
+      if (e.key === 'Escape') { hide(); document.removeEventListener('keydown', onKey); }
+    });
   }
 
   function celebrate() {
@@ -126,7 +129,8 @@
       }
 
       // 2. Broader heading scan in case Ghost changes the title class
-      var headings = doc.querySelectorAll('h2, h3');
+      // h1 included — Ghost Portal main-title is typically an h1
+      var headings = doc.querySelectorAll('h1, h2, h3');
       for (var h = 0; h < headings.length; h++) {
         var ht = headings[h].textContent.toLowerCase();
         if (ht.indexOf('inbox') !== -1 || ht.indexOf('check your email') !== -1) return true;
