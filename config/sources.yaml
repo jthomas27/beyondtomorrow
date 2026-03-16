@@ -128,6 +128,11 @@ approved_domains:
     credibility: 5
     notes: "UN IPCC assessment reports — authoritative climate science consensus"
 
+  - domain: unfccc.int
+    category: climate
+    credibility: 5
+    notes: "UN Framework Convention on Climate Change — official treaty body, NDCs, COP reports"
+
   - domain: climate.nasa.gov
     category: climate
     credibility: 5
@@ -167,6 +172,16 @@ approved_domains:
     category: climate
     credibility: 5
     notes: "International Renewable Energy Agency"
+
+  - domain: wri.org
+    category: climate
+    credibility: 5
+    notes: "World Resources Institute — authoritative climate, land, ocean and energy research"
+
+  - domain: carbontracker.org
+    category: climate
+    credibility: 5
+    notes: "Carbon Tracker Initiative — financial analysis of fossil fuel risk and carbon budgets"
 
   # --- Technology / AI / science -------------------------------------------
 
@@ -251,6 +266,21 @@ approved_domains:
     category: policy
     credibility: 5
     notes: "International Monetary Fund — economics and fiscal policy"
+
+  - domain: ifrs.org
+    category: policy
+    credibility: 5
+    notes: "IFRS Foundation / ISSB — international sustainability and financial reporting standards"
+
+  - domain: bankofengland.co.uk
+    category: policy
+    credibility: 5
+    notes: "Bank of England — monetary policy, financial stability reports and climate risk research"
+
+  - domain: ngfs.net
+    category: policy
+    credibility: 5
+    notes: "Network for Greening the Financial System — central bank coalition on climate financial risk"
 
   # --- News -----------------------------------------------------------------
 

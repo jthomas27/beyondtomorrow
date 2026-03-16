@@ -19,8 +19,8 @@ A custom integration called **"Publisher Agent"** is already configured in Ghost
 **Current setup:**
 - Integration: `Publisher Agent` (created 2026-02-10)
 - Admin API Key format: `{id}:{secret}` (64-char hex secret)
-- Stored in Railway as: `GHOST_ADMIN_API_KEY`
-- View in Ghost Admin: `https://www.beyondtomorrow.world/ghost/#/settings/integrations`
+- Stored in Railway as: `GHOST_ADMIN_KEY` — retrieve with `railway variables --service 0daf496c-e14f-41d4-b89b-3624a778c99d --json`
+- View in Ghost Admin: `https://beyondtomorrow.world/ghost/#/settings/integrations`
 
 **If the key is lost or needs to be recreated:**
 
@@ -82,7 +82,7 @@ Origin: https://www.beyondtomorrow.world
 { "username": "admin@beyondtomorrow.world", "password": "..." }
 ```
 
-- Admin email: `admin@beyondtomorrow.world` (password in Railway env: `mail__options__auth__pass`)
+- Admin email: Railway → `GHOST_ADMIN_EMAIL`; password: Railway → `GHOST_ADMIN_PASSWORD`
 - Returns `201` with `set-cookie` header
 - Returns `403` if device verification is enabled → requires email code via `PUT /ghost/api/admin/session/verify/`
 - Returns `429` if rate-limited → redeploy Ghost to clear: `railway redeploy --yes`
