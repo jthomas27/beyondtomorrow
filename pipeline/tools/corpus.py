@@ -163,9 +163,8 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
     return "\n\n---\n\n".join(results)
 
 
-@function_tool
-async def index_document(content: str, source: str, doc_type: str, date: str = "") -> str:
-    """Index a document into the knowledge corpus.
+async def _index_document_impl(content: str, source: str, doc_type: str, date: str = "") -> str:
+    """Raw implementation of index_document (callable directly without FunctionTool wrapper).
 
     Upserts the document record, replaces all existing chunks and embeddings
     for this source (safe to re-run), then stores new chunks and embeddings.
@@ -234,6 +233,22 @@ async def index_document(content: str, source: str, doc_type: str, date: str = "
 
     notice = f" (replaced {deleted} stale chunks)" if deleted else ""
     return f"Indexed {len(chunks)} chunks from '{source}' into the knowledge corpus{notice}."
+
+
+@function_tool
+async def index_document(content: str, source: str, doc_type: str, date: str = "") -> str:
+    """Index a document into the knowledge corpus.
+
+    Upserts the document record, replaces all existing chunks and embeddings
+    for this source (safe to re-run), then stores new chunks and embeddings.
+
+    Args:
+        content: The full text content to index.
+        source: Unique identifier for this document (URL, filename, or path).
+        doc_type: Type of document — one of: research, article, pdf, email, webpage.
+        date: ISO date string (YYYY-MM-DD) when the document was created or retrieved.
+    """
+    return await _index_document_impl(content, source, doc_type, date)
 
 
 @function_tool

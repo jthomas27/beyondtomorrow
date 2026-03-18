@@ -176,12 +176,15 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
 
     from pipeline._sdk import Runner
     from pipeline.setup import init_github_models
-    from pipeline.definitions import researcher, writer, editor, publisher, indexer
+    from pipeline.definitions import researcher, writer, editor, publisher, indexer, model_settings_for
     from pipeline.db import get_pool, close_pool
     from pipeline.degradation import select_model
     from pipeline.guardrails import log_model_call
 
     init_github_models()
+
+    # Cooldown between pipeline stages to respect per-minute rate limits
+    _STAGE_COOLDOWN = 8  # seconds
 
     # Disable tracing — GitHub token is not a valid OpenAI key
     import os as _os
@@ -210,8 +213,26 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
             logger.info("Draft already exists — skipping research step.")
             research_output = "{}"
         else:
-            from openai import RateLimitError
+            from openai import RateLimitError, APIStatusError, BadRequestError
             from pipeline.degradation import get_fallback
+
+            def _is_model_limit_error(exc: Exception) -> bool:
+                """Return True for errors that warrant falling back to a different model.
+
+                Covers:
+                - 429 RateLimitError (quota / RPM exceeded)
+                - 413 APIStatusError (request body too large)
+                - 400 BadRequestError for unsupported params (model-family mismatch)
+                """
+                if isinstance(exc, RateLimitError):
+                    return True
+                if isinstance(exc, BadRequestError):
+                    msg = str(exc).lower()
+                    return "unsupported parameter" in msg or "unsupported value" in msg
+                if isinstance(exc, APIStatusError) and exc.status_code in (413, 429):
+                    return True
+                msg = str(exc)
+                return "tokens_limit_reached" in msg or "Request body too large" in msg
 
             research_input = (
                 f"Research this topic thoroughly for a blog post: {topic}\n\n"
@@ -227,10 +248,11 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
 
             research_model = await select_model(researcher.model, pool=pool)
             research_output = None
-            for _attempt in range(3):
+            for _attempt in range(6):  # enough for the full fallback chain
                 if research_model != researcher.model:
                     logger.warning("Researcher degraded: %s → %s", researcher.model, research_model)
                 researcher.model = research_model
+                researcher.model_settings = model_settings_for("researcher", model_override=research_model)
                 try:
                     research_result = await asyncio.wait_for(
                         Runner.run(researcher, max_turns=15, input=research_input),
@@ -238,11 +260,17 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                     )
                     research_output = research_result.final_output
                     break
-                except RateLimitError:
-                    fallback = get_fallback(research_model)
-                    if fallback:
-                        logger.warning("Rate limited on %s — falling back to %s", research_model, fallback)
-                        research_model = fallback
+                except Exception as _research_err:
+                    if _is_model_limit_error(_research_err):
+                        fallback = get_fallback(research_model)
+                        if fallback:
+                            logger.warning(
+                                "Researcher hit model limit on %s (%s) — falling back to %s",
+                                research_model, type(_research_err).__name__, fallback,
+                            )
+                            research_model = fallback
+                        else:
+                            raise
                     else:
                         raise
 
@@ -253,8 +281,8 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
 
         research_doc_name = f"{today_str}-{slug}-research"
         try:
-            from pipeline.tools.corpus import index_document
-            await index_document(
+            from pipeline.tools.corpus import _index_document_impl
+            await _index_document_impl(
                 content=research_output,
                 source=research_doc_name,
                 doc_type="research",
@@ -264,13 +292,29 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
             logger.warning("Could not save research to DB: %s", _idx_err)
 
         # --- Step 2: Write draft ---
-        logger.info("[2/5] Writing draft...")
+        logger.info("[2/5] Writing draft (cooldown %ds)...", _STAGE_COOLDOWN)
+        await asyncio.sleep(_STAGE_COOLDOWN)
         research_compact = _compact_research(research_output)
+
+        from openai import RateLimitError as _RateLimitError, APIStatusError as _APIStatusError, BadRequestError as _BadRequestError
+        from pipeline.degradation import get_fallback as _get_fallback
+
+        def _is_writer_limit_error(exc: Exception) -> bool:
+            if isinstance(exc, _RateLimitError):
+                return True
+            if isinstance(exc, _BadRequestError):
+                msg = str(exc).lower()
+                return "unsupported parameter" in msg or "unsupported value" in msg
+            if isinstance(exc, _APIStatusError) and exc.status_code in (413, 429):
+                return True
+            msg = str(exc)
+            return "tokens_limit_reached" in msg or "Request body too large" in msg
 
         writer_model = await select_model(writer.model, pool=pool)
         if writer_model != writer.model:
             logger.warning("Writer degraded: %s → %s", writer.model, writer_model)
             writer.model = writer_model
+            writer.model_settings = model_settings_for("writer", model_override=writer_model)
 
         if (research_dir / draft_filename).exists():
             write_output = f"(skipped — draft already exists: {draft_filename})"
@@ -295,7 +339,29 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                 )
                 return result.final_output
 
-            write_output = await _run_writer()
+            write_output = None
+            for _w_attempt in range(6):  # enough for full fallback chain
+                try:
+                    write_output = await _run_writer()
+                    break
+                except Exception as _w_err:
+                    if _is_writer_limit_error(_w_err):
+                        _fallback = _get_fallback(writer_model)
+                        if _fallback:
+                            logger.warning(
+                                "Writer hit model limit on %s (%s) — falling back to %s",
+                                writer_model, type(_w_err).__name__, _fallback,
+                            )
+                            writer_model = _fallback
+                            writer.model = writer_model
+                            writer.model_settings = model_settings_for("writer", model_override=writer_model)
+                        else:
+                            raise
+                    else:
+                        raise
+            if write_output is None:
+                raise RuntimeError("Writer step failed after all retries")
+
             await log_model_call(pool, writer_model, phase="writer")
             new_drafts = [
                 f for f in research_dir.glob("*.md")
@@ -303,10 +369,28 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
             ]
             if not new_drafts:
                 logger.warning("Writer did not save a file — retrying with explicit instruction...")
-                write_output = await _run_writer(
-                    f"CRITICAL: You MUST call write_research_file('{draft_filename}', ...) "
-                    f"as your very first action. Do not respond without saving the file first.\n\n"
-                )
+                for _w_attempt in range(6):
+                    try:
+                        write_output = await _run_writer(
+                            f"CRITICAL: You MUST call write_research_file('{draft_filename}', ...) "
+                            f"as your very first action. Do not respond without saving the file first.\n\n"
+                        )
+                        break
+                    except Exception as _w_err:
+                        if _is_writer_limit_error(_w_err):
+                            _fallback = _get_fallback(writer_model)
+                            if _fallback:
+                                logger.warning(
+                                    "Writer hit model limit on %s (%s) — falling back to %s",
+                                    writer_model, type(_w_err).__name__, _fallback,
+                                )
+                                writer_model = _fallback
+                                writer.model = writer_model
+                                writer.model_settings = model_settings_for("writer", model_override=writer_model)
+                            else:
+                                raise
+                        else:
+                            raise
                 await log_model_call(pool, writer_model, phase="writer-retry")
                 new_drafts = [
                     f for f in research_dir.glob("*.md")
@@ -319,11 +403,13 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
         logger.info("Draft saved: %s", draft_filename)
 
         # --- Step 3: Edit ---
-        logger.info("[3/5] Editing...")
+        logger.info("[3/5] Editing (cooldown %ds)...", _STAGE_COOLDOWN)
+        await asyncio.sleep(_STAGE_COOLDOWN)
         editor_model = await select_model(editor.model, pool=pool)
         if editor_model != editor.model:
             logger.warning("Editor degraded: %s → %s", editor.model, editor_model)
             editor.model = editor_model
+            editor.model_settings = model_settings_for("editor", model_override=editor_model)
 
         if (research_dir / edited_filename).exists():
             logger.info("Edited file already exists, skipping editor: %s", edited_filename)
@@ -352,11 +438,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                     logger.warning("Editor timed out without saving. Using original draft.")
                     edited_filename = draft_filename
             except Exception as _edit_err:
-                _is_token_err = "413" in str(_edit_err) or "tokens_limit_reached" in str(_edit_err)
-                _is_rate_err = "429" in str(_edit_err) or "RateLimitError" in type(_edit_err).__name__ or "Too many requests" in str(_edit_err)
-                if (_is_token_err or _is_rate_err) and (research_dir / edited_filename).exists():
+                _err_msg = str(_edit_err).lower()
+                _is_token_err = "413" in str(_edit_err) or "tokens_limit_reached" in _err_msg
+                _is_rate_err = "429" in str(_edit_err) or "RateLimitError" in type(_edit_err).__name__ or "too many requests" in _err_msg
+                _is_param_err = "unsupported parameter" in _err_msg or "unsupported value" in _err_msg
+                _is_recoverable = _is_token_err or _is_rate_err or _is_param_err
+                if _is_recoverable and (research_dir / edited_filename).exists():
                     logger.warning("Editor hit API limit after saving — proceeding with saved file.")
-                elif _is_token_err or _is_rate_err:
+                elif _is_recoverable:
                     logger.warning("Editor hit API limit, file not saved. Using original draft.")
                     edited_filename = draft_filename
                 else:
@@ -368,7 +457,8 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
         logger.info("Edit complete: %s", edited_filename)
 
         # --- Step 4: Publish ---
-        logger.info("[4/5] Publishing to Ghost...")
+        logger.info("[4/5] Publishing to Ghost (cooldown %ds)...", _STAGE_COOLDOWN)
+        await asyncio.sleep(_STAGE_COOLDOWN)
         publish_result = await asyncio.wait_for(
             Runner.run(
                 publisher,
@@ -442,7 +532,8 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
         logger.info("Published: %s", publish_output)
 
         # --- Step 5: Index research to corpus ---
-        logger.info("[5/5] Indexing edited post to corpus...")
+        logger.info("[5/5] Indexing edited post to corpus (cooldown %ds)...", _STAGE_COOLDOWN)
+        await asyncio.sleep(_STAGE_COOLDOWN)
         index_result = await asyncio.wait_for(
             Runner.run(
                 indexer,

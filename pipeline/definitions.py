@@ -32,9 +32,45 @@ from pipeline.tools import (
     score_credibility,
 )
 
-# Load prompts from config/prompts.yaml (falls back to hardcoded defaults below)
+# Load prompts and model assignments from config/
 _config = load_config()
 _prompts = _config.get("prompts", {})
+_models = _config.get("models", {}).get("agents", {})
+
+
+def model_settings_for(
+    agent_name: str,
+    default_temp: float = 0.0,
+    default_tokens: int = 2000,
+    model_override: str | None = None,
+) -> ModelSettings:
+    """Build ModelSettings from config, using the right token param for the model family.
+
+    gpt-5 family and o-series:
+    - Reject 'max_tokens' — must use 'max_completion_tokens' via extra_body
+    - Reject non-default temperature — only temperature=1 (the default) is supported
+    All other models: use standard max_tokens and temperature fields.
+
+    Args:
+        agent_name: Key in config/models.yaml agents section.
+        default_temp: Fallback temperature if not in config.
+        default_tokens: Fallback max tokens if not in config.
+        model_override: If set, use this model name for parameter selection
+                        instead of the one in config (used during runtime fallback).
+    """
+    cfg = _models.get(agent_name, {})
+    model = model_override or cfg.get("model", "")
+    temperature = cfg.get("temperature", default_temp)
+    max_tokens = cfg.get("max_tokens", default_tokens)
+
+    if model.startswith("openai/gpt-5") or model.startswith("openai/o"):
+        # gpt-5/o-series: no temperature override, max_completion_tokens via extra_body
+        return ModelSettings(extra_body={"max_completion_tokens": max_tokens})
+    return ModelSettings(temperature=temperature, max_tokens=max_tokens)
+
+
+# Alias for backward compat within this module
+_model_settings = model_settings_for
 
 # ---------------------------------------------------------------------------
 # Researcher
@@ -71,8 +107,8 @@ Rules:
 - Prefer sources from the last 2 years; include older ones if highly relevant.
 - Output ONLY the structured JSON — no preamble.""",
     tools=[search_and_index, search_corpus, fetch_page, search_arxiv, score_credibility],
-    model="openai/gpt-4.1",
-    model_settings=ModelSettings(temperature=0.2, max_tokens=16000),
+    model=_models.get("researcher", {}).get("model", "openai/gpt-4.1"),
+    model_settings=_model_settings("researcher", default_temp=0.2, default_tokens=16000),
 )
 
 # ---------------------------------------------------------------------------
@@ -126,8 +162,8 @@ Save the draft using write_research_file with a filename like YYYY-MM-DD-slug.md
 Once the file is saved, hand off to the Editor by calling transfer_to_editor.
 Include the filename you used so the Editor can find the draft.""",
     tools=[read_research_file, write_research_file],
-    model="openai/gpt-4.1",
-    model_settings=ModelSettings(temperature=0.7, max_tokens=8000),
+    model=_models.get("writer", {}).get("model", "openai/gpt-4.1"),
+    model_settings=_model_settings("writer", default_temp=0.7, default_tokens=8000),
 )
 
 editor = Agent(
@@ -158,8 +194,8 @@ Save the edited version using write_research_file (append -edited to the filenam
 Once the edited file is saved, hand off to the Publisher by calling
 transfer_to_publisher. Include the filename of the edited file.""",
     tools=[read_research_file, write_research_file],
-    model="openai/gpt-4.1",
-    model_settings=ModelSettings(temperature=0.3, max_tokens=8000),
+    model=_models.get("editor", {}).get("model", "openai/gpt-4.1"),
+    model_settings=_model_settings("editor", default_temp=0.3, default_tokens=8000),
 )
 
 publisher = Agent(
@@ -202,8 +238,8 @@ IMPORTANT:
 - If publish_file_to_ghost returns an error or MISSING message, report it verbatim.
 - Always use status='published' (never 'draft').""",
     tools=[pick_random_asset_image, upload_image_to_ghost, publish_file_to_ghost],
-    model="openai/gpt-4.1-mini",
-    model_settings=ModelSettings(max_tokens=500),
+    model=_models.get("publisher", {}).get("model", "openai/gpt-4.1-mini"),
+    model_settings=_model_settings("publisher", default_temp=0.0, default_tokens=500),
 )
 
 # ---------------------------------------------------------------------------
@@ -226,8 +262,8 @@ Report the number of chunks stored and the source name.
 After indexing, return a final summary: the live post URL (if provided), the
 filename stored, and the number of chunks indexed.""",
     tools=[read_research_file, index_document, embed_and_store],
-    model="openai/gpt-4.1-mini",
-    model_settings=ModelSettings(max_tokens=2000),
+    model=_models.get("indexer", {}).get("model", "openai/gpt-4.1-mini"),
+    model_settings=_model_settings("indexer", default_temp=0.0, default_tokens=2000),
 )
 
 # ---------------------------------------------------------------------------
@@ -276,6 +312,6 @@ When given a task, determine the type from the prefix and execute the appropriat
 Always log your decisions after each handoff.
 If any agent fails, log the error and continue with the remaining steps where possible.""",
     handoffs=[researcher, writer, editor, publisher, indexer],
-    model="openai/gpt-4.1-mini",
-    model_settings=ModelSettings(max_tokens=2000),
+    model=_models.get("orchestrator", {}).get("model", "openai/gpt-4.1-mini"),
+    model_settings=_model_settings("orchestrator", default_temp=0.1, default_tokens=2000),
 )
