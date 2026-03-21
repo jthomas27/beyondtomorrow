@@ -10,6 +10,11 @@ Required env vars:
     EMAIL_USER  — IMAP username / email address
     EMAIL_PASS  — IMAP password
 
+    SMTP_HOST   — SMTP server hostname (default: smtp.hostinger.com)
+    SMTP_PORT   — SMTP port (default: 587)
+    SMTP_USER   — SMTP username (default: same as EMAIL_USER)
+    SMTP_PASS   — SMTP password (default: same as EMAIL_PASS)
+
 Email subject format:
     COMMAND: topic text here
 
@@ -29,9 +34,12 @@ Usage:
 
 import asyncio
 import email
+import email.mime.text
+import email.mime.multipart
 import imaplib
 import logging
 import os
+import smtplib
 from email.header import decode_header
 from email.message import Message
 from typing import Optional
@@ -46,6 +54,50 @@ VALID_COMMANDS = frozenset({"BLOG", "RESEARCH", "REPORT", "INDEX"})
 
 DEFAULT_IMAP_HOST = "imap.hostinger.com"
 DEFAULT_IMAP_PORT = 993
+DEFAULT_SMTP_HOST = "smtp.hostinger.com"
+DEFAULT_SMTP_PORT = 587
+
+
+# ---------------------------------------------------------------------------
+# SMTP reply helper
+# ---------------------------------------------------------------------------
+
+def send_reply(to_address: str, subject: str, body: str) -> None:
+    """Send a plain-text status reply email to *to_address*.
+
+    Uses SMTP credentials from environment variables. Logs and swallows
+    any send errors so a notification failure never kills the main loop.
+
+    Args:
+        to_address: Recipient email address.
+        subject:    Email subject line.
+        body:       Plain-text message body.
+    """
+    smtp_host = os.environ.get("SMTP_HOST", DEFAULT_SMTP_HOST)
+    smtp_port = int(os.environ.get("SMTP_PORT", str(DEFAULT_SMTP_PORT)))
+    smtp_user = os.environ.get("SMTP_USER") or os.environ.get("EMAIL_USER")
+    smtp_pass = os.environ.get("SMTP_PASS") or os.environ.get("EMAIL_PASS")
+    from_addr = smtp_user or "admin@beyondtomorrow.world"
+
+    if not smtp_user or not smtp_pass:
+        logger.warning("SMTP credentials not set — skipping reply to %s", to_address)
+        return
+
+    msg = email.mime.multipart.MIMEMultipart()
+    msg["From"] = f"BeyondTomorrow.World <{from_addr}>"
+    msg["To"] = to_address
+    msg["Subject"] = subject
+    msg.attach(email.mime.text.MIMEText(body, "plain"))
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(from_addr, to_address, msg.as_string())
+        logger.info("Reply sent to %s: %s", to_address, subject)
+    except Exception as exc:
+        logger.error("Failed to send reply to %s: %s", to_address, exc)
 
 
 # ---------------------------------------------------------------------------
@@ -281,11 +333,47 @@ async def poll_once() -> None:
         task_str = f"{command}: {topic}"
         logger.info("Processing email task: %s (from %s)", task_str, sender)
 
+        # Strip display name from sender to get plain address for reply
+        reply_to = sender
+        if "<" in sender and ">" in sender:
+            reply_to = sender.split("<")[-1].rstrip(">")
+
+        # Acknowledge receipt immediately
+        send_reply(
+            reply_to,
+            f"[BeyondTomorrow] Received: {command}: {topic}",
+            f"Your request has been received and is now processing.\n\n"
+            f"Command : {command}\n"
+            f"Topic   : {topic}\n\n"
+            f"The full pipeline (research → write → edit → publish) typically takes "
+            f"5–15 minutes. You'll receive another email when it's done.\n\n"
+            f"— BeyondTomorrow.World",
+        )
+
         try:
             await _run_blog_pipeline(task_str)
             logger.info("Task complete: %s", task_str)
+            send_reply(
+                reply_to,
+                f"[BeyondTomorrow] Published: {topic}",
+                f"Your blog post has been published on BeyondTomorrow.World.\n\n"
+                f"Topic   : {topic}\n"
+                f"Status  : Published\n\n"
+                f"Visit https://beyondtomorrow.world to read it live.\n\n"
+                f"— BeyondTomorrow.World",
+            )
         except Exception as exc:
             logger.error("Task failed: %s — %s", task_str, exc)
+            send_reply(
+                reply_to,
+                f"[BeyondTomorrow] Failed: {command}: {topic}",
+                f"Unfortunately your request encountered an error.\n\n"
+                f"Command : {command}\n"
+                f"Topic   : {topic}\n"
+                f"Error   : {exc}\n\n"
+                f"Please try sending the email again, or check the Railway logs for details.\n\n"
+                f"— BeyondTomorrow.World",
+            )
 
 
 async def run_poll_loop() -> None:
