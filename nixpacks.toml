@@ -1,0 +1,4 @@
+# nixpacks.toml — force Python provider for the email-worker Railway service.
+# Without this, nixpacks detects package.json first and uses Node instead of Python.
+
+providers = ["python"]
