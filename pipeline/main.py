@@ -544,7 +544,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
         )
         index_output = await _run_agent_with_fallback(
             indexer, index_input,
-            agent_name="Indexer", pool=pool, max_turns=8,
+            agent_name="Indexer", pool=pool, max_turns=15,
         )
         await log_model_call(pool, indexer.model, phase="indexer")
 
@@ -635,7 +635,7 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> None:
         )
         index_output = await _run_agent_with_fallback(
             indexer, index_input,
-            agent_name="Indexer", pool=pool, max_turns=8,
+            agent_name="Indexer", pool=pool, max_turns=15,
         )
         await log_model_call(pool, indexer.model, phase="indexer")
 

@@ -135,6 +135,14 @@ TITLE RULES — apply these before writing anything else:
 3. Write an engaging, well-structured post body (900–1500 words).
 4. Use clear headings (H2/H3), short paragraphs, and bullet points where appropriate.
 5. Cite sources naturally in the text with inline markdown links.
+   SOURCE LINK RULES (mandatory):
+   - Link text MUST be the name of the source (publication, organisation, or study
+     title) — NEVER use generic text like "source", "here", "this", or "link".
+   - Anchor the link to the specific claim or phrase it supports, woven into the
+     sentence naturally.
+     Bad:  "Emissions rose 37 billion tonnes. [Source](url)"
+     Good: "Emissions reached 37 billion tonnes according to the
+           [Global Carbon Project's 2024 budget](url)."
 6. Maintain an authoritative but accessible tone.
 7. Include a strong introduction that hooks the reader.
 8. End with a forward-looking conclusion that looks ahead to the future.
@@ -184,6 +192,12 @@ Review the blog post draft for ALL of the following, in this order:
 4. Structure and flow — logical progression, clear transitions.
 5. Proper citations — every major claim has an inline source link; flag unverifiable
    claims with <!-- UNVERIFIED: ... --> rather than silently removing them.
+   SOURCE LINK RULES (mandatory — fix any violations found in the draft):
+   - Link text MUST be the name of the source (publication, organisation, or study
+     title). Replace any generic link text like "source", "here", or "this" with
+     the actual source name.
+   - Links must be anchored to the phrase or claim they support, not appended
+     after the sentence as a standalone [Source] tag.
 6. SEO basics — clear title, meta description in frontmatter, proper heading hierarchy.
 7. Length — must be 900–1500 words. Trim padding or expand thin sections.
 
@@ -250,19 +264,19 @@ indexer = Agent(
     instructions="""You are a document processing specialist for the BeyondTomorrow.World knowledge corpus.
 
 Given a document (research output, article, or web content):
-1. Read the document content using read_research_file.
-2. Use index_document to chunk and embed the full document into pgvector.
-3. For research JSON outputs, also extract key_findings as separate high-priority chunks using embed_and_store.
+1. Call read_research_file to load the document.
+2. Call index_document to chunk and embed the full document into pgvector.
+   - doc_type: one of research | article | pdf | email | webpage
+   - date: today's date in YYYY-MM-DD format if not available from the document
+3. Only if the document is a research JSON AND the instructions explicitly ask for
+   per-finding indexing, also call embed_and_store for each key_finding with
+   metadata={"type": "finding"}. Skip this step for articles and edited posts.
 
-Set doc_type to one of: research, article, pdf, email, webpage.
-Set the date to today's date in YYYY-MM-DD format if not known.
-
-Report the number of chunks stored and the source name.
-After indexing, return a final summary: the live post URL (if provided), the
-filename stored, and the number of chunks indexed.""",
+Return a brief final summary: chunks stored, source name, and the post URL if provided.
+Do not repeat tool outputs verbatim — one short sentence is sufficient.""",
     tools=[read_research_file, index_document, embed_and_store],
     model=_models.get("indexer", {}).get("model", "openai/gpt-4.1-mini"),
-    model_settings=_model_settings("indexer", default_temp=0.0, default_tokens=500),
+    model_settings=_model_settings("indexer", default_temp=0.0, default_tokens=1000),
 )
 
 # ---------------------------------------------------------------------------
