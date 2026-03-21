@@ -70,6 +70,7 @@ The script will:
 | `Railway: Unauthorized` | Token expired — create a new one at railway.app/account/tokens |
 | `Ghost: 401 Unauthorized` | `GHOST_ADMIN_KEY` wrong or expired — copy fresh key from Ghost Admin → Settings → Integrations |
 | `Ghost: 403 Forbidden` | Using `urllib` — always use `httpx` for Ghost calls |
+| `Ghost: HTTP 530 / 521 / timeout` | Railway Ghost service is down — restart it at railway.app → caring-alignment → ghost service → Deployments → Restart. The auth check retries 3× automatically. |
 | `Hostinger IMAP: auth failed` | `EMAIL_PASS` wrong — verify in Hostinger webmail settings |
 | `Hostinger SMTP: auth failed` | Set `SMTP_USER` and `SMTP_PASS` explicitly in `.env` if they differ from IMAP credentials |
 | `GitHub: 401` | `GITHUB_TOKEN` expired or missing `models:read` scope — regenerate at github.com/settings/tokens |

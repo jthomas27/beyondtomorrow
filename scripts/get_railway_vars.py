@@ -1,10 +1,20 @@
+"""
+Fetch Railway environment variables for a given service.
+
+Usage:
+    python3 scripts/get_railway_vars.py [service]
+
+    service: ghost (default) | email-worker | pgvector
+
+Credentials are loaded from .env (RAILWAY_TOKEN). Never hardcoded.
+"""
 import json
-import urllib.request
 import sys
 import os
+import httpx
 from pathlib import Path
 
-# Load credentials from .env (never hardcode)
+# ── Credentials ────────────────────────────────────────────────
 def _load_env():
     env_path = Path(__file__).parent.parent / ".env"
     if not env_path.exists():
@@ -27,44 +37,73 @@ if not token:
     print("Error: RAILWAY_TOKEN not set. Add it to your .env file.")
     print("Get a token at: https://railway.app/account/tokens")
     sys.exit(1)
-project_id = "752fdaea-fd96-4521-bec6-b7d5ef451270"
-environment_id = "c9dfebe4-097a-4151-be37-2b1fcd414e74"
 
+# ── Service map ────────────────────────────────────────────────
+PROJECT_ID     = "752fdaea-fd96-4521-bec6-b7d5ef451270"
+ENVIRONMENT_ID = "c9dfebe4-097a-4151-be37-2b1fcd414e74"
+SERVICES = {
+    "ghost":        "0daf496c-e14f-41d4-b89b-3624a778c99d",
+    "email-worker": "15b13afb-8515-49e9-ab38-7e138069064f",
+}
+
+# Parse args: [service] [--raw KEY]
+args = sys.argv[1:]
+raw_key = None
+if "--raw" in args:
+    idx = args.index("--raw")
+    raw_key = args[idx + 1] if idx + 1 < len(args) else None
+    args = [a for a in args if a not in ("--raw", raw_key)]
+
+service_name = args[0] if args else "ghost"
+service_id   = SERVICES.get(service_name)
+if not service_id:
+    print(f"Unknown service '{service_name}'. Valid options: {', '.join(SERVICES)}")
+    sys.exit(1)
+
+# ── Query ──────────────────────────────────────────────────────
 query = """
-query GetVariables($projectId: String!, $environmentId: String!) {
-  variables(projectId: $projectId, environmentId: $environmentId)
+query GetVariables($projectId: String!, $environmentId: String!, $serviceId: String!) {
+  variables(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId)
 }
 """
 
-req = urllib.request.Request(
+r = httpx.post(
     "https://backboard.railway.app/graphql/v2",
-    data=json.dumps({
+    json={
         "query": query,
         "variables": {
-            "projectId": project_id,
-            "environmentId": environment_id
+            "projectId": PROJECT_ID,
+            "environmentId": ENVIRONMENT_ID,
+            "serviceId": service_id,
         }
-    }).encode(),
+    },
     headers={
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + token
-    }
+        "Authorization": f"Bearer {token}",
+    },
+    timeout=15,
 )
-
-resp = urllib.request.urlopen(req)
-data = json.loads(resp.read())
+data = r.json()
 
 if "errors" in data:
     print("GraphQL errors:", json.dumps(data["errors"], indent=2))
     sys.exit(1)
 
 variables = data.get("data", {}).get("variables", {})
-print(f"Found {len(variables)} variables in caring-alignment/production:\n")
+
+if raw_key:
+    val = variables.get(raw_key)
+    if val is None:
+        print(f"Key '{raw_key}' not found in {service_name} service.")
+        sys.exit(1)
+    print(val)
+    sys.exit(0)
+
+print(f"\n{service_name} service — {len(variables)} variables (caring-alignment / production):\n")
 for k in sorted(variables.keys()):
     v = variables[k]
-    # Mask the value but show enough to confirm it's set
     if v:
-        masked = v[:8] + "..." + v[-4:] if len(v) > 12 else "(short)"
+        masked = v[:8] + "..." + v[-4:] if len(v) > 12 else v
         print(f"  {k}: {masked}")
     else:
         print(f"  {k}: (empty)")

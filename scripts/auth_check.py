@@ -144,16 +144,32 @@ def check_ghost() -> None:
         sig = hmac.new(bytes.fromhex(secret), sig_input, hashlib.sha256).digest()
         token = f"{h}.{p}.{b64url(sig)}"
 
-        r = httpx.get(
-            f"{ghost_url.rstrip('/')}/ghost/api/admin/site/",
-            headers={"Authorization": f"Ghost {token}"},
-            timeout=10,
-        )
-        if r.status_code == 200:
-            version = r.json().get("site", {}).get("version", "unknown")
-            record("Ghost", True, f"Ghost v{version} at {ghost_url}  (key: {mask(admin_key)})")
-        else:
-            record("Ghost", False, f"HTTP {r.status_code} — check GHOST_ADMIN_KEY")
+        url = f"{ghost_url.rstrip('/')}/ghost/api/admin/site/"
+        last_err = ""
+        for attempt in range(3):
+            try:
+                r = httpx.get(
+                    url,
+                    headers={"Authorization": f"Ghost {token}"},
+                    timeout=20,
+                )
+                if r.status_code == 200:
+                    version = r.json().get("site", {}).get("version", "unknown")
+                    record("Ghost", True, f"Ghost v{version} at {ghost_url}  (key: {mask(admin_key)})")
+                    return
+                elif r.status_code in (530, 521, 523, 524):
+                    last_err = f"HTTP {r.status_code} — Railway Ghost service is down or starting up; restart it at railway.app"
+                elif r.status_code == 401:
+                    last_err = f"HTTP 401 — GHOST_ADMIN_KEY is wrong or expired"
+                    break  # no point retrying auth failures
+                else:
+                    last_err = f"HTTP {r.status_code} — check GHOST_ADMIN_KEY"
+                    break
+            except Exception as e:
+                last_err = f"timeout/connection error (attempt {attempt+1}/3): {e}"
+            if attempt < 2:
+                time.sleep(5)
+        record("Ghost", False, last_err)
     except ValueError as e:
         record("Ghost", False, str(e))
     except Exception as e:
