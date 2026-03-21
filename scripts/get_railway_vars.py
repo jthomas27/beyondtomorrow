@@ -1,11 +1,13 @@
 """
-Fetch, set, or tail logs for Railway services.
+Fetch or set Railway environment variables. Logs and redeployment use the Railway CLI directly.
 
 Usage:
-    python3 scripts/get_railway_vars.py [service]                 # list all vars (masked)
-    python3 scripts/get_railway_vars.py [service] --raw KEY       # print one value unmasked
-    python3 scripts/get_railway_vars.py [service] --set KEY VALUE # upsert a variable
-    python3 scripts/get_railway_vars.py [service] --logs [N]      # show last N log lines (default 100)
+    python3 scripts/get_railway_vars.py [service]                    # list all vars (masked)
+    python3 scripts/get_railway_vars.py [service] --raw KEY          # print one value unmasked
+    python3 scripts/get_railway_vars.py [service] --set KEY VALUE    # upsert a variable
+
+    For logs:    railway logs --service <service>
+    For redeploy: railway redeploy --service <service> --yes
 
     service: ghost (default) | email-worker
 
@@ -49,13 +51,11 @@ SERVICES = {
     "email-worker": "15b13afb-8515-49e9-ab38-7e138069064f",
 }
 
-# Parse args: [service] [--raw KEY] [--set KEY VALUE] [--logs [N]]
+# Parse args: [service] [--raw KEY] [--set KEY VALUE]
 args = sys.argv[1:]
 raw_key = None
 set_key = None
 set_val = None
-show_logs = False
-log_lines = 100
 
 if "--raw" in args:
     idx = args.index("--raw")
@@ -67,16 +67,6 @@ if "--set" in args:
     set_key = args[idx + 1] if idx + 1 < len(args) else None
     set_val = args[idx + 2] if idx + 2 < len(args) else None
     args = [a for a in args if a not in ("--set", set_key, set_val)]
-
-if "--logs" in args:
-    show_logs = True
-    idx = args.index("--logs")
-    # optional numeric argument after --logs
-    if idx + 1 < len(args) and args[idx + 1].isdigit():
-        log_lines = int(args[idx + 1])
-        args = [a for a in args if a not in ("--logs", args[idx + 1])]
-    else:
-        args = [a for a in args if a != "--logs"]
 
 service_name = args[0] if args else "ghost"
 service_id   = SERVICES.get(service_name)
@@ -114,73 +104,6 @@ if set_key and set_val is not None:
         sys.exit(1)
     masked = set_val[:8] + "..." + set_val[-4:] if len(set_val) > 12 else set_val
     print(f"✓  {set_key} set on {service_name} service  ({masked})")
-    sys.exit(0)
-
-# ── Logs ───────────────────────────────────────────────────────
-if show_logs:
-    # Step 1: get latest deployment id
-    deploy_q = """
-    query Deploys($serviceId: String!, $environmentId: String!) {
-      deployments(
-        input: { serviceId: $serviceId, environmentId: $environmentId }
-        last: 1
-      ) {
-        edges { node { id status createdAt } }
-      }
-    }
-    """
-    r = httpx.post(
-        "https://backboard.railway.app/graphql/v2",
-        json={"query": deploy_q, "variables": {
-            "serviceId": service_id,
-            "environmentId": ENVIRONMENT_ID,
-        }},
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
-        timeout=15,
-    )
-    data = r.json()
-    if "errors" in data:
-        print("GraphQL errors:", json.dumps(data["errors"], indent=2))
-        sys.exit(1)
-    edges = (data.get("data") or {}).get("deployments", {}).get("edges", [])
-    if not edges:
-        print(f"No deployments found for {service_name}.")
-        sys.exit(1)
-    deploy = edges[0]["node"]
-    deploy_id = deploy["id"]
-    print(f"{service_name} — deployment {deploy_id} [{deploy['status']}] created {deploy['createdAt']}\n")
-
-    # Step 2: fetch logs
-    logs_q = """
-    query Logs($deploymentId: String!) {
-      deploymentLogs(deploymentId: $deploymentId) {
-        timestamp
-        message
-        severity
-      }
-    }
-    """
-    r2 = httpx.post(
-        "https://backboard.railway.app/graphql/v2",
-        json={"query": logs_q, "variables": {"deploymentId": deploy_id}},
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
-        timeout=30,
-    )
-    log_data = r2.json()
-    if "errors" in log_data:
-        # deploymentLogs may not exist on all plans — try plugin logs endpoint
-        print("deploymentLogs query failed:")
-        print(json.dumps(log_data["errors"], indent=2))
-        sys.exit(1)
-    logs = (log_data.get("data") or {}).get("deploymentLogs", [])
-    if not logs:
-        print("No logs returned — the deployment may still be starting, or logs are not available via API on this plan.")
-        sys.exit(0)
-    for entry in logs[-log_lines:]:
-        ts  = entry.get("timestamp", "")[:19].replace("T", " ")
-        sev = entry.get("severity", "INFO")
-        msg = entry.get("message", "")
-        print(f"[{ts}] [{sev:5}] {msg}")
     sys.exit(0)
 
 # ── Query ──────────────────────────────────────────────────────
