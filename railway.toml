@@ -1,0 +1,32 @@
+# railway.toml — BeyondTomorrow.World deployment configuration
+#
+# This repo deploys TWO Railway services:
+#   1. ghost         — Ghost CMS web service (managed separately via Railway dashboard)
+#   2. email-worker  — Email listener daemon (this config)
+#
+# To deploy the email listener:
+#   1. Create a new Railway service connected to this repo
+#   2. Set the start command to: python -m pipeline.email_listener
+#   3. Set required environment variables (see below)
+#   4. Deploy
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python -m pipeline.email_listener"
+restartPolicyType = "always"
+restartPolicyMaxRetries = 5
+
+# Required environment variables for the email-worker service:
+#   EMAIL_HOST       — IMAP server (default: imap.hostinger.com)
+#   EMAIL_PORT       — IMAP port (default: 993)
+#   EMAIL_USER       — IMAP username / email address
+#   EMAIL_PASS       — IMAP password
+#   EMAIL_POLL_INTERVAL — polling interval in seconds (optional, default: 300)
+#
+# Also required (same values as Ghost service):
+#   GITHUB_TOKEN     — GitHub Models API PAT
+#   DATABASE_URL     — PostgreSQL external proxy (caboose.proxy.rlwy.net:21688)
+#   GHOST_URL        — https://beyondtomorrow.world
+#   GHOST_ADMIN_KEY  — Ghost Admin API key

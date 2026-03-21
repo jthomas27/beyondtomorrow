@@ -18,10 +18,10 @@ allowed_senders:
     name: "Site Admin"
     note: "Primary trigger address — full task access"
 
-  # Add your personal email(s) here
-  # - address: you@youremail.com
-  #   name: "Your Name"
-  #   note: "Personal email — full task access"
+  # Personal email — full task access
+  - address: jeremiah.thomas2701@gmail.com
+    name: "Jeremiah Thomas"
+    note: "Personal Gmail — full task access"
 
   # Add a backup address if needed
   # - address: backup@yourdomain.com
