@@ -1,8 +1,8 @@
 # OpenAI Agents SDK — Architecture & Implementation Guide
 
 > **Framework:** [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) (`openai-agents` v0.9+)
-> **LLM Provider:** GitHub Models API (zero cost via Copilot Pro)
-> **Orchestrator Model:** claude-haiku-4-5 | **Plan:** Copilot Pro (10 req/min high-cost, 150 req/min low-cost)
+> **LLM Provider:** GitHub Models API (zero cost via Copilot Pro+)
+> **Orchestrator Model:** openai/gpt-4.1-mini | **Plan:** Copilot Pro+ (unlimited premium requests)
 
 ---
 
@@ -46,9 +46,9 @@ The Claude Agent SDK requires an Anthropic API key (pay-per-token) and wraps the
 │   GitHub Models API      │
 │   models.github.ai       │
 │                          │
-│   claude-sonnet-4-6      │
-│   claude-haiku-4-5       │
-│   claude-opus-4-6        │
+│   openai/gpt-4.1         │
+│   openai/gpt-4.1-mini    │
+│   openai/gpt-4.1-nano    │
 └──────────────────────────┘
 ```
 
@@ -76,11 +76,13 @@ def init_github_models():
 
 | Model Tier | Models | Requests/min | Tokens/min (input) | Tokens/min (output) | Requests/day |
 |---|---|---|---|---|---|
-| **High-cost** | claude-opus-4-6 | 10 | 30,000 | 10,000 | 50 |
-| **Medium-cost** | claude-sonnet-4-6, claude-sonnet-4 | 10 | 60,000 | 10,000 | 200 |
-| **Low-cost** | claude-haiku-4-5 | 150 | 200,000 | 100,000 | 3,000 |
+| **Custom** | openai/gpt-5, gpt-5-mini, gpt-5-nano, o3, o4-mini | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) |
+| **High** | openai/gpt-4.1, gpt-4o | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) |
+| **Low** | openai/gpt-4.1-mini, gpt-4.1-nano | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) |
 
-**Architecture implication:** Use haiku-4-5 for orchestration and tool-heavy loops (many short calls). Reserve sonnet-4-6 for research, writing, and editing. Use opus only for deep synthesis.
+> With Copilot Pro+, there are no daily request caps. The pipeline enforces its own soft RPM and daily budget limits via `pipeline/guardrails.py` to avoid transient rate-limit errors from the API.
+
+**Architecture implication:** Use `gpt-4.1` for research, writing, and editing (1M context, reliable reasoning). Use `gpt-4.1-mini` for orchestration, publishing, and indexing (fast, lightweight). Fallback chain: `gpt-4.1` → `gpt-4.1-mini` → `gpt-4.1-nano`.
 
 ---
 
@@ -93,28 +95,28 @@ Each agent in the pipeline is an `Agent` object with its own model, tools, and i
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                       ORCHESTRATOR AGENT                                │
-│                       (claude-haiku-4-5)                                │
+│                       (openai/gpt-4.1-mini)                               │
 │                                                                         │
 │   Receives task → decides which agent to invoke via handoff             │
 │                                                                         │
 │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                │
 │   │  Researcher   │  │   Writer     │  │   Editor     │                │
-│   │  (sonnet-4-6)  │  │  (sonnet-4-6) │  │  (sonnet-4-6) │                │
+│   │  (gpt-4.1)    │  │  (gpt-4.1)   │  │  (gpt-4.1)   │                │
 │   │              │  │              │  │              │                │
 │   │  Tools:       │  │  Tools:       │  │  Tools:       │                │
 │   │  - web_search │  │  - read_file  │  │  - read_file  │                │
 │   │  - search_    │  │  - write_file │  │  - write_file │                │
-│   │    corpus     │  │              │  │              │                │
-│   │  - fetch_page │  │              │  │              │                │
-│   │  - search_    │  │              │  │              │                │
-│   │    arxiv      │  │              │  │              │                │
+│   │    corpus     │  │              │  │  - search_    │                │
+│   │  - fetch_page │  │              │  │    corpus     │                │
+│   │  - search_    │  │              │  │  - score_     │                │
+│   │    arxiv      │  │              │  │    credibility│                │
 │   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                │
 │          │                 │                 │                         │
 │          └─────────────────┼─────────────────┘                         │
 │                            ▼                                            │
 │                  ┌──────────────┐  ┌──────────────┐                    │
 │                  │  Publisher   │  │   Indexer    │                    │
-│                  │  (haiku-4-5) │  │  (haiku-4-5) │                    │
+│                  │ (gpt-4.1-mini│  │(gpt-4.1-mini)│                    │
 │                  │              │  │              │                    │
 │                  │  Tools:       │  │  Tools:       │                    │
 │                  │  - publish_   │  │  - index_     │                    │
@@ -163,7 +165,7 @@ Rules:
 - Cite specific URLs for every key finding
 - Prefer recent sources (last 2 years) but include older ones if highly relevant""",
     tools=[web_search, search_corpus, fetch_page, search_arxiv, score_credibility],
-    model="claude-sonnet-4-6",
+    model="openai/gpt-4.1",
     model_settings=ModelSettings(temperature=0.2, max_tokens=8000),
 )
 
@@ -183,7 +185,7 @@ Given research findings (structured JSON from the Researcher):
 Output format: Markdown with frontmatter (title, tags, excerpt).
 Save the draft using write_research_file.""",
     tools=[read_research_file, write_research_file],
-    model="claude-sonnet-4-6",
+    model="openai/gpt-4.1",
     model_settings=ModelSettings(temperature=0.7, max_tokens=4000),
 )
 
@@ -203,8 +205,8 @@ Review the blog post draft for:
 Make targeted edits directly. Do NOT rewrite from scratch.
 Flag any claims you cannot verify against the provided research.
 Save the edited version using write_research_file.""",
-    tools=[read_research_file, write_research_file],
-    model="claude-sonnet-4-6",
+    tools=[read_research_file, write_research_file, search_corpus, score_credibility],
+    model="openai/gpt-4.1",
     model_settings=ModelSettings(temperature=0.3, max_tokens=4000),
 )
 
@@ -221,7 +223,7 @@ Given a final edited blog post:
 Only publish posts that have been through the Editor.
 If publishing fails, save the error and report it.""",
     tools=[read_research_file, publish_to_ghost],
-    model="claude-haiku-4-5",
+    model="openai/gpt-4.1-mini",
     model_settings=ModelSettings(temperature=0.0, max_tokens=1000),
 )
 
@@ -237,8 +239,8 @@ Given a document (PDF text, research output, or web content):
 
 For research outputs, also extract key findings as separate high-priority chunks.""",
     tools=[read_research_file, index_document, embed_and_store],
-    model="claude-haiku-4-5",
-    model_settings=ModelSettings(temperature=0.0, max_tokens=2000),
+    model="openai/gpt-4.1-mini",
+    model_settings=ModelSettings(temperature=0.0, max_tokens=500),
 )
 
 # --- Orchestrator (uses handoffs to delegate) ---
@@ -272,7 +274,7 @@ When given a task, determine the type and execute the appropriate workflow:
 Always log your decisions and report progress after each handoff.
 If any agent fails, log the error and continue with the remaining steps.""",
     handoffs=[researcher, writer, editor, publisher, indexer],
-    model="claude-haiku-4-5",
+    model="openai/gpt-4.1-mini",
     model_settings=ModelSettings(temperature=0.1, max_tokens=2000),
 )
 ```
@@ -724,17 +726,19 @@ async def get_daily_usage(model: str) -> dict:
 from agents import InputGuardrail, GuardrailFunctionOutput, Runner
 from agents.db import get_daily_usage
 
-# Daily budget limits (Copilot Pro)
+# Daily budget limits (self-imposed for Copilot Pro+)
 DAILY_LIMITS = {
-    "claude-opus-4-6": {"calls": 40, "tokens_in": 200_000},
-    "claude-sonnet-4-6": {"calls": 150, "tokens_in": 500_000},
-    "claude-sonnet-4": {"calls": 150, "tokens_in": 500_000},
-    "claude-haiku-4-5": {"calls": 2000, "tokens_in": 1_000_000},
+    "openai/gpt-4.1": {"calls": 80, "tokens_in": 500_000},
+    "openai/gpt-4.1-mini": {"calls": 500, "tokens_in": 1_000_000},
+    "openai/gpt-4.1-nano": {"calls": 1000, "tokens_in": 1_000_000},
+    "openai/gpt-5": {"calls": 80, "tokens_in": 500_000},
+    "openai/gpt-5-mini": {"calls": 500, "tokens_in": 1_000_000},
+    "openai/gpt-5-nano": {"calls": 1000, "tokens_in": 1_000_000},
 }
 
 async def check_rate_limits(ctx, agent, input_text):
     """Block agent runs if daily rate limits are approaching."""
-    model = agent.model or "claude-haiku-4-5"
+    model = agent.model or "openai/gpt-4.1-mini"
     usage = await get_daily_usage(model)
     limits = DAILY_LIMITS.get(model, {"calls": 100, "tokens_in": 500_000})
 
@@ -770,10 +774,9 @@ from agents.db import get_daily_usage
 from agents.guardrails import DAILY_LIMITS
 
 FALLBACK_CHAIN = [
-    "claude-opus-4-6",
-    "claude-sonnet-4-6",
-    "claude-sonnet-4",
-    "claude-haiku-4-5",
+    "openai/gpt-4.1",
+    "openai/gpt-4.1-mini",
+    "openai/gpt-4.1-nano",
 ]
 
 async def select_model(preferred: str) -> str:
@@ -786,7 +789,7 @@ async def select_model(preferred: str) -> str:
         if usage["calls"] < limits["calls"] * 0.9:
             return model
 
-    return FALLBACK_CHAIN[-1]  # claude-haiku-4-5 as last resort
+    return FALLBACK_CHAIN[-1]  # gpt-4.1-nano as last resort
 ```
 
 ---
@@ -995,11 +998,11 @@ scripts/
 | Decision | Choice | Rationale |
 |---|---|---|
 | **Agent Framework** | OpenAI Agents SDK (`openai-agents`) | Provider-agnostic, works with GitHub Models, built-in agent loop + handoffs + guardrails |
-| **LLM Provider** | GitHub Models API | Zero cost — included in Copilot Pro |
-| **Orchestrator Model** | claude-haiku-4-5 | Routing is deterministic; saves 0.67x vs sonnet per pipeline run |
-| **Heavy Tasks Model** | claude-sonnet-4-6 (research, writing, editing) | Best Sonnet quality at same 1x cost; 200 calls/day |
-| **Light Tasks Model** | claude-haiku-4-5 | Orchestrator, publisher, indexer; 0.33x cost, 3,000 calls/day |
-| **Synthesis Model** | claude-opus-4-6 (when needed) | Reserved for complex multi-source research; 50 calls/day |
+| **LLM Provider** | GitHub Models API | Zero cost — included in Copilot Pro+ |
+| **Orchestrator Model** | openai/gpt-4.1-mini | Fast routing; 1M context |
+| **Heavy Tasks Model** | openai/gpt-4.1 (research/write/edit) | Reliable reasoning + tool-calling; 1M context |
+| **Light Tasks Model** | openai/gpt-4.1-mini (publish/index/orchestrate) | Fast, 1M context |
+| **Fallback Chain** | gpt-4.1 → gpt-4.1-mini → gpt-4.1-nano | Automatic degradation on rate limits |
 | **Embeddings** | Local all-MiniLM-L6-v2 | Free, runs on Railway CPU, no API calls |
 | **Async Driver** | asyncpg | Native async PostgreSQL, works with asyncio agent loop |
 | **Session Persistence** | PostgreSQL agent_sessions table | Resumable tasks, full audit trail, debugging |
@@ -1027,7 +1030,7 @@ scripts/
 | Aspect | Claude Agent SDK Plan | OpenAI Agents SDK Plan |
 |---|---|---|
 | **Framework** | `claude-agent-sdk` (Anthropic) | `openai-agents` (OpenAI, MIT) |
-| **LLM Cost** | Pay-per-token (Anthropic API) | $0 (GitHub Models) |
+| **LLM Cost** | Pay-per-token (Anthropic API) | $0 (GitHub Models via Copilot Pro+) |
 | **Runtime Dependency** | Node.js (Claude Code CLI) | Python only |
 | **Tool Decorator** | `@tool` | `@function_tool` |
 | **Agent Definition** | `AgentDefinition` | `Agent(name, instructions, tools, handoffs)` |

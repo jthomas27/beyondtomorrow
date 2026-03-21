@@ -73,8 +73,7 @@ The AI doesn't just search the web — it also reads **your own documents** for 
 | [Railway](https://railway.app) account | Hosts the blog and all services |
 | [GitHub](https://github.com) account | Stores code and runs scheduled tasks |
 | Domain name | Your blog's web address (e.g. beyondtomorrow.world) |
-| Claude API key | Powers the AI writing ([anthropic.com](https://anthropic.com)) |
-| OpenAI API key | Powers document search ([openai.com](https://openai.com)) |
+| GitHub PAT (models:read) | Powers all AI agents via [GitHub Models API](https://github.com/marketplace/models) |
 | Hostinger email *(optional)* | Lets you trigger posts via email |
 
 ### Quick Start
@@ -107,8 +106,7 @@ Add these in Railway's dashboard under **Variables**:
 |----------|-------|
 | `GHOST_URL` | `https://beyondtomorrow.world` |
 | `DATABASE_CLIENT` | `mysql` |
-| `CLAUDE_API_KEY` | Your Anthropic API key |
-| `OPENAI_API_KEY` | Your OpenAI API key |
+| `GITHUB_TOKEN` | Your GitHub PAT with `models:read` scope |
 
 **5. Connect your domain**
 - Go to Railway → **Settings** → **Domains**
@@ -180,11 +178,10 @@ All services run on [Railway](https://railway.app). Costs depend on how often po
 | Service | Role | Est. Monthly Cost |
 |---------|------|-------------------|
 | Railway | Hosting, databases, storage | $5 – $25 |
-| Claude API | AI writing and editing | $5 – $50 |
-| OpenAI API | Document search | $1 – $5 |
+| GitHub Copilot Pro+ | All AI agents (research, writing, editing, publishing) | $39 (subscription) |
 | Hostinger Email | Email triggers | Included with domain |
 | GitHub Actions | Scheduled automation | Free |
-| **Total** | | **$11 – $85** |
+| **Total** | | **$44 – $64** |
 
 > 💡 Start small. You can scale up as the blog grows.
 

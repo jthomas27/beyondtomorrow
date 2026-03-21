@@ -42,9 +42,9 @@ def test_get_fallback_returns_first_for_unknown_model():
     assert result == FALLBACK_CHAIN[0]
 
 
-def test_get_fallback_chain_starts_with_opus():
+def test_get_fallback_chain_starts_with_primary_model():
     """The chain must start with the most capable model."""
-    assert FALLBACK_CHAIN[0] == "openai/gpt-5"
+    assert FALLBACK_CHAIN[0] == "openai/gpt-4.1"
 
 
 def test_get_fallback_chain_ends_with_cheap_model():
@@ -75,26 +75,26 @@ async def test_select_model_returns_preferred_when_available(mocker):
             return_value={"available": True, "warning": False, "pct": 30.0}
         ),
     )
-    result = await select_model("openai/gpt-5", pool=object())
-    assert result == "openai/gpt-5"
+    result = await select_model("openai/gpt-4.1", pool=object())
+    assert result == "openai/gpt-4.1"
 
 
 async def test_select_model_falls_back_when_preferred_exhausted(mocker):
     """When preferred is exhausted the next available model is returned."""
 
     async def mock_check(pool, model):
-        if model == "openai/gpt-5":
+        if model == "openai/gpt-4.1":
             return {"available": False, "warning": True, "pct": 97.0}
         return {"available": True, "warning": False, "pct": 10.0}
 
     mocker.patch("pipeline.degradation.check_model_budget", side_effect=mock_check)
-    result = await select_model("openai/gpt-5", pool=object())
-    assert result == "openai/gpt-5-mini"
+    result = await select_model("openai/gpt-4.1", pool=object())
+    assert result == "openai/gpt-4.1-mini"
 
 
 async def test_select_model_skips_multiple_exhausted_models(mocker):
     """Falls back past multiple exhausted models to find the first available."""
-    exhausted = {"openai/gpt-5", "openai/gpt-5-mini", "openai/gpt-5-nano"}
+    exhausted = {"openai/gpt-4.1", "openai/gpt-4.1-mini"}
 
     async def mock_check(pool, model):
         return {
@@ -104,8 +104,8 @@ async def test_select_model_skips_multiple_exhausted_models(mocker):
         }
 
     mocker.patch("pipeline.degradation.check_model_budget", side_effect=mock_check)
-    result = await select_model("openai/gpt-5", pool=object())
-    assert result == "openai/gpt-4.1"
+    result = await select_model("openai/gpt-4.1", pool=object())
+    assert result == "openai/gpt-4.1-nano"
 
 
 async def test_select_model_returns_last_resort_when_all_exhausted(mocker):
@@ -116,7 +116,7 @@ async def test_select_model_returns_last_resort_when_all_exhausted(mocker):
             return_value={"available": False, "warning": True, "pct": 99.0}
         ),
     )
-    result = await select_model("openai/gpt-5", pool=object())
+    result = await select_model("openai/gpt-4.1", pool=object())
     assert result == FALLBACK_CHAIN[-1]
 
 
@@ -131,7 +131,7 @@ async def test_select_model_starts_at_preferred_not_chain_start(mocker):
     mocker.patch("pipeline.degradation.check_model_budget", side_effect=mock_check)
     await select_model("openai/gpt-4.1-mini", pool=object())
 
-    # Should only check mini (and possibly nano), not gpt-4.1 or gpt-4o
+    # Should only check mini (and possibly nano), not gpt-4.1
     for model in checked_models:
         idx_checked = FALLBACK_CHAIN.index(model) if model in FALLBACK_CHAIN else -1
         idx_mini = FALLBACK_CHAIN.index("openai/gpt-4.1-mini")

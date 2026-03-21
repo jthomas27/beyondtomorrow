@@ -172,7 +172,7 @@ Status: READY ✓
 
 **Ghost 403 errors** — The Admin API key may have been regenerated. Go to [Ghost Admin → Integrations → Publisher Agent](https://beyondtomorrow.world/ghost/#/settings/integrations) and copy the new key.
 
-**GitHub Models 404 / unknown_model** — Verify the model name is correct and available on the GitHub Models API. The pipeline uses `claude-sonnet-4-6` (researcher/writer/editor), `claude-haiku-4-5` (orchestrator/publisher/indexer). Check `config/models.yaml` for the current assignments and ensure your `GITHUB_TOKEN` has `models:read` scope.
+**GitHub Models 404 / unknown_model** — Verify the model name is correct and available on the GitHub Models API. The pipeline uses `openai/gpt-4.1` (researcher/writer/editor) and `openai/gpt-4.1-mini` (orchestrator/publisher/indexer). Check `config/models.yaml` for the current assignments and ensure your `GITHUB_TOKEN` has `models:read` scope.
 
 ---
 
@@ -181,7 +181,7 @@ Status: READY ✓
 Once `.env` is populated and `status` shows READY:
 
 ```bash
-# Full pipeline: research → write → edit → Ghost draft → corpus index
+# Full pipeline: research → write → edit → Ghost publish (live) → corpus index
 .venv/bin/python -m pipeline.main "BLOG: your topic here"
 
 # Research and index only (no blog post)
@@ -191,5 +191,5 @@ Once `.env` is populated and `status` shows READY:
 .venv/bin/python scripts/publish_test_post.py
 ```
 
-All blog posts are created as **drafts** by default. Review at:
+All blog posts are published **live** by default. View at:
 `https://beyondtomorrow.world/ghost/#/posts`

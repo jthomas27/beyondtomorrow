@@ -92,7 +92,7 @@ python -m pipeline.main "BLOG: your topic"  # run the full blog pipeline
 |---|---|
 | CLI → Research | `python -m pipeline.main "topic"` → `Runner.run()` → structured output |
 | Research → Corpus | Research output chunked, embedded via `index_document`, stored in pgvector |
-| Research → Blog Pipeline | `python -m pipeline.main "BLOG: topic"` → researcher → writer → editor → Ghost draft |
+| Research → Blog Pipeline | `python -m pipeline.main "BLOG: topic"` → researcher → writer → editor → Ghost published post |
 | Agent Handoffs | Orchestrator → researcher → writer chain completes without error |
 | Agent Sessions | `agent_sessions` table records state for each agent in a run |
 

@@ -9,7 +9,7 @@ A step-by-step guide to adding a PostgreSQL database with pgvector to your **car
 ## What's Set Up
 
 - A **PostgreSQL 18 database** with pgvector hosted on Railway (using the [pgvector template](https://railway.com/template/pgvector))
-- The **pgvector extension** for storing and searching AI embeddings (1536-dimension vectors)
+- The **pgvector extension** for storing and searching AI embeddings (384-dimension vectors)
 - Five tables: `documents`, `chunks`, `embeddings`, `blog_posts`, and `knowledge_graph`
 - Vector similarity index (HNSW) for fast nearest-neighbor searches
 

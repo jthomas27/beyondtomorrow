@@ -84,11 +84,11 @@ A custom Python research agent for **BeyondTomorrow.World** that researches topi
 │                  │  LLM PROVIDER        │                                │
 │                  │  (GitHub Models API) │                                │
 │                  │                     │                                │
-│                  │  Sonnet → Orchestrate│                                │
-│                  │  Sonnet → Research   │                                │
-│                  │  Sonnet → Write/Edit │                                │
-│                  │  Haiku → Publish/Idx │                                │
-│                  │  Opus → Deep synth   │                                │
+│                  │  gpt-4.1 → Research  │                                │
+│                  │  gpt-4.1 → Write     │                                │
+│                  │  gpt-4.1 → Edit      │                                │
+│                  │  gpt-4.1-mini → Orch  │                                │
+│                  │  gpt-4.1-mini → P/Idx │                                │
 │                  └─────────┬───────────┘                                │
 │                            │                                            │
 │          ┌─────────────────┼─────────────────┐                         │
@@ -142,23 +142,24 @@ Your GitHub Copilot Pro subscription includes access to the **GitHub Models API*
 
 Each Agent in the SDK has its own `model` parameter. The Orchestrator uses handoffs to delegate to the right agent with the right model:
 
-| Agent | Default Model | Daily Budget (Copilot Pro) | Fallback |
+| Agent | Default Model | Daily Budget (Copilot Pro+) | Fallback |
 |---|---|---|---|
-| Orchestrator | `claude-haiku-4-5` | 3,000 calls/day | `claude-sonnet-4` |
-| Researcher | `claude-sonnet-4-6` | 200 calls/day | `claude-sonnet-4` |
-| Writer | `claude-sonnet-4-6` | 200 calls/day | `claude-sonnet-4` |
-| Editor | `claude-sonnet-4-6` | 200 calls/day | `claude-sonnet-4` |
-| Publisher | `claude-haiku-4-5` | 3,000 calls/day | `claude-sonnet-4` |
-| Indexer | `claude-haiku-4-5` | 3,000 calls/day | `claude-sonnet-4` |
-| Deep synthesis (optional) | `claude-opus-4-6` | 50 calls/day | `claude-sonnet-4-6` |
+| Orchestrator | `openai/gpt-4.1-mini` | 500 calls/day (self-imposed) | `openai/gpt-4.1-nano` |
+| Researcher | `openai/gpt-4.1` | 80 calls/day (self-imposed) | `openai/gpt-4.1-mini` |
+| Writer | `openai/gpt-4.1` | 80 calls/day (self-imposed) | `openai/gpt-4.1-mini` |
+| Editor | `openai/gpt-4.1` | 80 calls/day (self-imposed) | `openai/gpt-4.1-mini` |
+| Publisher | `openai/gpt-4.1-mini` | 500 calls/day (self-imposed) | `openai/gpt-4.1-nano` |
+| Indexer | `openai/gpt-4.1-mini` | 500 calls/day (self-imposed) | `openai/gpt-4.1-nano` |
 
 ### Copilot Pro Rate Limits
 
 | Model Tier | Models | Req/min | Tokens/min (in) | Tokens/min (out) | Req/day |
 |---|---|---|---|---|---|
-| **High-cost** | claude-opus-4-6 | 10 | 30,000 | 10,000 | 50 |
-| **Medium-cost** | claude-sonnet-4-6, claude-sonnet-4 | 10 | 60,000 | 10,000 | 200 |
-| **Low-cost** | claude-haiku-4-5 | 150 | 200,000 | 100,000 | 3,000 |
+| **Custom** | openai/gpt-5, gpt-5-mini, gpt-5-nano | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) |
+| **High** | openai/gpt-4.1, gpt-4o | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) |
+| **Low** | openai/gpt-4.1-mini, gpt-4.1-nano | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) | Unlimited (Pro+) |
+
+> With Copilot Pro+, there are no hard daily caps. Self-imposed limits are enforced in `pipeline/guardrails.py`.
 
 ### User Controls
 
@@ -172,9 +173,9 @@ Each Agent in the SDK has its own `model` parameter. The Orchestrator uses hando
 The SDK's `InputGuardrail` system checks rate limits before each agent run:
 
 ```
-Normal:   Sonnet-4-6 (research/writing/editing) → Haiku-4-5 (orchestrate/publish/index) → Opus (deep synthesis)
-Low:      Sonnet-4 (research/writing) → Haiku-4-5 (all other tasks)
-Critical: Haiku-4-5 (all tasks) or queue for next rate limit window
+Normal:   gpt-5 (research) → gpt-5-mini (writing/editing/orchestration/publishing/indexing)
+Low:      gpt-5-mini (all tasks) → gpt-5-nano (fallback)
+Critical: gpt-5-nano (all tasks) → gpt-4.1 → gpt-4.1-mini → gpt-4.1-nano
 ```
 
 The `agents/guardrails.py` module implements a `rate_limit_guardrail` that:
@@ -437,7 +438,7 @@ Topic: quantum computing cryptography
 Sources found: 12 (8 web, 4 corpus)
 Output: Structured notes saved to corpus
 Time: 3m 42s
-Model: claude-sonnet-4-6 (via OpenAI Agents SDK + GitHub Models)
+Model: openai/gpt-4.1 (via OpenAI Agents SDK + GitHub Models)
 
 Key findings preview:
 - NIST finalised 4 post-quantum algorithms in August 2024...
@@ -526,7 +527,7 @@ The Researcher agent's instructions tell it to output structured JSON:
     {"url": "https://...", "title": "...", "type": "academic_paper", "credibility": 5}
   ],
   "total_sources": 12,
-  "model_used": "claude-sonnet-4-6"
+  "model_used": "openai/gpt-4.1"
 }
 ```
 
@@ -625,7 +626,7 @@ Used when the research feeds into the Writer → Editor → Publisher chain.
   ],
   "gaps": ["Limited data on quantum computing costs for attackers"],
   "total_sources": 12,
-  "model_used": "claude-sonnet-4-6"
+  "model_used": "openai/gpt-4.1"
 }
 ```
 
@@ -665,7 +666,7 @@ Used when triggered by a `REPORT:` email or `--report` CLI flag.
 2. [Title](URL) — accessed 2026-02-22
 
 ## Methodology
-- Models: claude-sonnet-4-6 (researcher/writer/editor), claude-haiku-4-5 (orchestrator/publisher/indexer) via GitHub Models
+- Models: openai/gpt-4.1 (researcher/writer/editor), openai/gpt-4.1-mini (orchestrator/publisher/indexer) via GitHub Models
 - Search: DuckDuckGo, Brave, arXiv
 - Corpus matches: 3 relevant documents
 - Time: 3m 42s
@@ -709,10 +710,9 @@ GitHub Models has rate limits per model (requests per minute, tokens per minute,
 ```yaml
 # config/limits.yaml
 daily_budgets:
-  claude-opus-4-6: 30          # Max Opus calls per day
-  claude-sonnet-4-6: 100       # Max Sonnet-4-6 calls per day
-  claude-sonnet-4: 100         # Max Sonnet-4 fallback calls per day
-  claude-haiku-4-5: 200        # Max Haiku calls per day
+  openai/gpt-4.1: 80           # Max gpt-4.1 calls per day
+  openai/gpt-4.1-mini: 500     # Max gpt-4.1-mini calls per day
+  openai/gpt-4.1-nano: 1000    # Max gpt-4.1-nano fallback calls per day
 
 search_limits:
   max_queries_per_task: 5       # Search queries generated per research task
@@ -872,21 +872,20 @@ All agent behaviour is controlled by YAML config files. Change behaviour without
 
 ```yaml
 # Which model to use for each task
-# Options: claude-opus-4-6, claude-sonnet-4-6, claude-sonnet-4, claude-haiku-4-5
+# Options: openai/gpt-4.1, openai/gpt-4.1-mini, openai/gpt-4.1-nano
 
 task_models:
-  query_planning: claude-sonnet-4-6
-  relevance_filtering: claude-haiku-4-5
-  source_summarisation: claude-sonnet-4-6
-  deep_synthesis: claude-opus-4-6
-  metadata_tagging: claude-haiku-4-5
-  report_formatting: claude-sonnet-4-6
+  query_planning: openai/gpt-4.1-mini
+  relevance_filtering: openai/gpt-4.1-mini
+  source_summarisation: openai/gpt-4.1
+  deep_synthesis: openai/gpt-4.1
+  metadata_tagging: openai/gpt-4.1-mini
+  report_formatting: openai/gpt-4.1-mini
 
 fallback_chain:
-  - claude-opus-4-6
-  - claude-sonnet-4-6
-  - claude-sonnet-4
-  - claude-haiku-4-5
+  - openai/gpt-4.1
+  - openai/gpt-4.1-mini
+  - openai/gpt-4.1-nano
 ```
 
 ### Example: `config/prompts.yaml`
@@ -1173,9 +1172,9 @@ scripts/
 | Decision | Choice | Why |
 |---|---|---|
 | **Agent Framework** | OpenAI Agents SDK (`openai-agents`) | Provider-agnostic, Python-native, works with GitHub Models, MIT licence, $0 |
-| **LLM Provider** | GitHub Models API | Zero cost — included in Copilot Pro subscription |
-| **Primary Model** | `claude-sonnet-4-6` (researcher + writer + editor) | Best Sonnet quality at 1x cost, same 200 calls/day budget |
-| **Light Model** | `claude-haiku-4-5` (orchestrator, publisher, indexer) | 3000 calls/day at 0.33x cost; used for deterministic low-complexity tasks |
+| **LLM Provider** | GitHub Models API | Zero cost — included in Copilot Pro+ subscription |
+| **Primary Model** | `openai/gpt-4.1` (researcher/writer/editor) | Reliable reasoning + tool-calling; 1M context |
+| **Light Model** | `openai/gpt-4.1-mini` (orchestrator, publisher, indexer) | Fast, 1M context; lightweight for routing and indexing |
 | **Embeddings** | Local `all-MiniLM-L6-v2` | Free, runs on Railway CPU, no API calls |
 | **Embedding Dimensions** | 384 (down from 1536) | Requires pgvector migration; good enough for <100K chunks |
 | **Summariser** | Merged into Researcher agent | One fewer LLM call per pipeline run; researcher outputs structured JSON directly |
@@ -1184,7 +1183,7 @@ scripts/
 | **Email Trigger** | IMAP polling every 5 min | Works with Hostinger; simpler than webhooks |
 | **Automation** | GitHub Actions | Free tier; already in the architecture |
 | **Config Format** | YAML files | Human-readable, easy to edit, no code changes needed |
-| **Human Review** | Default ON (publish as `draft`) | Safety net before auto-publishing |
+| **Default Publish Status** | `published` (live) | Pipeline handles full review chain; posts go live automatically |
 
 ---
 

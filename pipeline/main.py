@@ -15,14 +15,14 @@ Usage:
     python -m agents.main "INDEX: path/to/document.txt"
 
     # Override the model for a run
-    python -m agents.main --model openai/gpt-5-mini "RESEARCH: quick topic"
+    python -m agents.main --model openai/gpt-4.1-mini "RESEARCH: quick topic"
 
     # Check status (env vars, db connection, rate limits)
     python -m agents.main status
 
 Options:
     --model MODEL   Override the orchestrator model for this run
-                    (e.g. openai/gpt-5-mini, openai/gpt-5-nano, openai/gpt-4.1)
+                    (e.g. openai/gpt-4.1, openai/gpt-4.1-mini, openai/gpt-4.1-nano)
     --dry-run       Print what the agent would do without executing LLM calls
     --debug         Enable verbose SDK tracing output
 
@@ -41,14 +41,122 @@ import os
 import sys
 import argparse
 from datetime import datetime
+from time import monotonic
 
 logger = logging.getLogger("pipeline")
 
 # Default timeout per agent step (seconds)
 _AGENT_TIMEOUT = 300
 
+# Cooldown between pipeline stages (seconds).
+# With RPM-aware guardrails, a short cooldown suffices.
+_STAGE_COOLDOWN = 20
+_RETRY_BACKOFF_BASE = 20  # seconds; exponential: 20, 40, 80, 160, …
 
-def _compact_research(research_output: str, max_chars: int = 1500) -> str:
+
+# ---------------------------------------------------------------------------
+# Shared rate-limit / model-limit error detection
+# ---------------------------------------------------------------------------
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Return True for errors that warrant falling back to a different model.
+
+    Covers: 429 RateLimitError, 413 body-too-large, 400 unsupported-param.
+    """
+    from openai import RateLimitError, APIStatusError, BadRequestError
+
+    if isinstance(exc, RateLimitError):
+        return True
+    if isinstance(exc, BadRequestError):
+        msg = str(exc).lower()
+        return "unsupported parameter" in msg or "unsupported value" in msg
+    if isinstance(exc, APIStatusError) and exc.status_code in (413, 429):
+        return True
+    msg = str(exc)
+    return "tokens_limit_reached" in msg or "Request body too large" in msg
+
+
+# ---------------------------------------------------------------------------
+# Unified agent runner with retry + model fallback + exponential backoff
+# ---------------------------------------------------------------------------
+
+async def _run_agent_with_fallback(
+    agent,
+    input_text: str,
+    *,
+    agent_name: str,
+    pool,
+    max_turns: int = 10,
+    max_attempts: int = 6,
+) -> str:
+    """Run an agent with automatic model fallback on rate-limit errors.
+
+    On each rate-limit/model-limit failure:
+    1. Falls back to the next model in the degradation chain.
+    2. Waits with exponential backoff (20s, 40s, 60s, …) before retrying.
+    3. Re-creates the agent's model_settings to match the new model.
+
+    Raises RuntimeError if all attempts are exhausted.
+    Returns the agent's final_output string.
+    """
+    from pipeline._sdk import Runner
+    from pipeline.definitions import model_settings_for
+    from pipeline.degradation import get_fallback
+
+    # Snapshot original model so we can restore it after this call
+    original_model = agent.model
+    original_settings = agent.model_settings
+    current_model = agent.model
+
+    try:
+        for attempt in range(max_attempts):
+            try:
+                result = await asyncio.wait_for(
+                    Runner.run(agent, max_turns=max_turns, input=input_text),
+                    timeout=_AGENT_TIMEOUT,
+                )
+                return result.final_output
+            except asyncio.TimeoutError:
+                logger.error("%s timed out after %ds (attempt %d/%d)",
+                             agent_name, _AGENT_TIMEOUT, attempt + 1, max_attempts)
+                raise
+            except Exception as exc:
+                if _is_rate_limit_error(exc):
+                    fallback = get_fallback(current_model)
+                    if fallback:
+                        backoff = min(_RETRY_BACKOFF_BASE * (2 ** attempt), 300)
+                        logger.warning(
+                            "%s hit rate limit on %s (%s) — falling back to %s "
+                            "(waiting %ds, attempt %d/%d)",
+                            agent_name, current_model, type(exc).__name__,
+                            fallback, backoff, attempt + 1, max_attempts,
+                        )
+                        current_model = fallback
+                        agent.model = current_model
+                        agent.model_settings = model_settings_for(
+                            agent_name.lower(), model_override=current_model
+                        )
+                        await asyncio.sleep(backoff)
+                    else:
+                        logger.error(
+                            "%s exhausted all fallback models after %s on %s",
+                            agent_name, type(exc).__name__, current_model,
+                        )
+                        raise RuntimeError(
+                            f"{agent_name} failed — rate-limited on every model in "
+                            f"the fallback chain. Last model: {current_model}"
+                        ) from exc
+                else:
+                    raise
+
+        raise RuntimeError(f"{agent_name} failed after {max_attempts} attempts")
+    finally:
+        # Always restore original model so fallback doesn't leak to next stage
+        agent.model = original_model
+        agent.model_settings = original_settings
+
+
+def _compact_research(research_output: str, max_chars: int = 3000) -> str:
     """Return a token-budget-friendly summary of the research JSON.
 
     Extracts the fields the writer/editor actually need (key_findings,
@@ -183,9 +291,6 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
 
     init_github_models()
 
-    # Cooldown between pipeline stages to respect per-minute rate limits
-    _STAGE_COOLDOWN = 8  # seconds
-
     # Disable tracing — GitHub token is not a valid OpenAI key
     import os as _os
     _os.environ["OPENAI_AGENTS_DISABLE_TRACING"] = "1"
@@ -204,81 +309,57 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
 
     try:
         pool = await get_pool()
+        _pipeline_t0 = monotonic()
 
-        # --- Step 1: Research ---
+        # =============================================================
+        # Step 1: Research
+        # =============================================================
         logger.info("[1/5] Researching and indexing sources to DB...")
+        _t0 = monotonic()
 
-        # Skip research if the draft already exists (e.g. pipeline resumed after failure)
+        research_cache_path = research_dir / f"{today_str}-{slug}-research.json"
+
         if (research_dir / draft_filename).exists() or (research_dir / edited_filename).exists():
             logger.info("Draft already exists — skipping research step.")
             research_output = "{}"
+        elif research_cache_path.exists():
+            logger.info("Research cache found — loading from %s", research_cache_path.name)
+            research_output = research_cache_path.read_text(encoding="utf-8")
         else:
-            from openai import RateLimitError, APIStatusError, BadRequestError
-            from pipeline.degradation import get_fallback
-
-            def _is_model_limit_error(exc: Exception) -> bool:
-                """Return True for errors that warrant falling back to a different model.
-
-                Covers:
-                - 429 RateLimitError (quota / RPM exceeded)
-                - 413 APIStatusError (request body too large)
-                - 400 BadRequestError for unsupported params (model-family mismatch)
-                """
-                if isinstance(exc, RateLimitError):
-                    return True
-                if isinstance(exc, BadRequestError):
-                    msg = str(exc).lower()
-                    return "unsupported parameter" in msg or "unsupported value" in msg
-                if isinstance(exc, APIStatusError) and exc.status_code in (413, 429):
-                    return True
-                msg = str(exc)
-                return "tokens_limit_reached" in msg or "Request body too large" in msg
+            # --- Pre-fetch: generate 2-3 queries and index pages BEFORE the LLM ---
+            logger.info("Pre-fetching pages into corpus before Researcher LLM call...")
+            try:
+                from pipeline.tools.search import _prefetch_topic
+                await _prefetch_topic(topic, num_queries=2)
+                logger.info("Pre-fetch complete.")
+            except Exception as _pf_err:
+                logger.warning("Pre-fetch failed (non-fatal): %s", _pf_err)
 
             research_input = (
                 f"Research this topic thoroughly for a blog post: {topic}\n\n"
+                f"The knowledge corpus has already been seeded with pages on this topic.\n"
                 f"REQUIRED STEPS:\n"
-                f"1. Generate 3-5 search queries covering different angles.\n"
-                f"2. For each query call search_and_index — this fetches full pages and "
-                f"stores text + embeddings directly in the knowledge database (not temp files).\n"
-                f"3. Call search_corpus after indexing to retrieve the stored knowledge.\n"
-                f"4. Call search_arxiv for scientific papers on this topic.\n"
-                f"5. Return structured research JSON with key_findings, subtopics, "
+                f"1. Generate 2-3 targeted search queries covering different angles.\n"
+                f"2. For each query call search_and_index to fetch and store any new pages.\n"
+                f"3. Call search_corpus ONCE with top_k=3 to retrieve the stored knowledge.\n"
+                f"4. Return structured research JSON with key_findings, subtopics, "
                 f"suggested_angles, gaps, source_list, total_sources, model_used."
             )
+            research_output = await _run_agent_with_fallback(
+                researcher, research_input,
+                agent_name="Researcher", pool=pool, max_turns=8,
+            )
+            await log_model_call(pool, researcher.model, phase="research")
+            logger.info("Research complete.")
 
-            research_model = await select_model(researcher.model, pool=pool)
-            research_output = None
-            for _attempt in range(6):  # enough for the full fallback chain
-                if research_model != researcher.model:
-                    logger.warning("Researcher degraded: %s → %s", researcher.model, research_model)
-                researcher.model = research_model
-                researcher.model_settings = model_settings_for("researcher", model_override=research_model)
-                try:
-                    research_result = await asyncio.wait_for(
-                        Runner.run(researcher, max_turns=15, input=research_input),
-                        timeout=_AGENT_TIMEOUT,
-                    )
-                    research_output = research_result.final_output
-                    break
-                except Exception as _research_err:
-                    if _is_model_limit_error(_research_err):
-                        fallback = get_fallback(research_model)
-                        if fallback:
-                            logger.warning(
-                                "Researcher hit model limit on %s (%s) — falling back to %s",
-                                research_model, type(_research_err).__name__, fallback,
-                            )
-                            research_model = fallback
-                        else:
-                            raise
-                    else:
-                        raise
+            # Cache research JSON locally to avoid re-running on retry
+            try:
+                research_cache_path.write_text(research_output, encoding="utf-8")
+                logger.info("Research JSON cached to %s", research_cache_path.name)
+            except Exception as _cache_err:
+                logger.warning("Could not cache research JSON: %s", _cache_err)
 
-            if research_output is None:
-                raise RuntimeError("Research step failed after all retries")
-            await log_model_call(pool, research_model, phase="research")
-            logger.info("Research complete")
-
+        # Persist research JSON to corpus
         research_doc_name = f"{today_str}-{slug}-research"
         try:
             from pipeline.tools.corpus import _index_document_impl
@@ -291,107 +372,49 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
         except Exception as _idx_err:
             logger.warning("Could not save research to DB: %s", _idx_err)
 
-        # --- Step 2: Write draft ---
+        logger.info("[1/5] Research done in %.1fs", monotonic() - _t0)
+
+        # =============================================================
+        # Step 2: Write draft
+        # =============================================================
         logger.info("[2/5] Writing draft (cooldown %ds)...", _STAGE_COOLDOWN)
         await asyncio.sleep(_STAGE_COOLDOWN)
+        _t0 = monotonic()
         research_compact = _compact_research(research_output)
 
-        from openai import RateLimitError as _RateLimitError, APIStatusError as _APIStatusError, BadRequestError as _BadRequestError
-        from pipeline.degradation import get_fallback as _get_fallback
-
-        def _is_writer_limit_error(exc: Exception) -> bool:
-            if isinstance(exc, _RateLimitError):
-                return True
-            if isinstance(exc, _BadRequestError):
-                msg = str(exc).lower()
-                return "unsupported parameter" in msg or "unsupported value" in msg
-            if isinstance(exc, _APIStatusError) and exc.status_code in (413, 429):
-                return True
-            msg = str(exc)
-            return "tokens_limit_reached" in msg or "Request body too large" in msg
-
-        writer_model = await select_model(writer.model, pool=pool)
-        if writer_model != writer.model:
-            logger.warning("Writer degraded: %s → %s", writer.model, writer_model)
-            writer.model = writer_model
-            writer.model_settings = model_settings_for("writer", model_override=writer_model)
-
         if (research_dir / draft_filename).exists():
-            write_output = f"(skipped — draft already exists: {draft_filename})"
             logger.info("Draft already exists, skipping writer: %s", draft_filename)
         else:
             existing_drafts = set(research_dir.glob("*.md"))
 
-            async def _run_writer(extra_prefix: str = "") -> str:
-                result = await asyncio.wait_for(
-                    Runner.run(
-                        writer,
-                        max_turns=10,
-                        input=(
-                            f"{extra_prefix}"
-                            f"Write a blog post about: {topic}\n"
-                            f"You MUST call write_research_file with filename '{draft_filename}' "
-                            f"to save the post before you finish — do not stop without saving.\n\n"
-                            f"Research findings:\n{research_compact}"
-                        ),
-                    ),
-                    timeout=_AGENT_TIMEOUT,
-                )
-                return result.final_output
+            write_input = (
+                f"Write a blog post about: {topic}\n"
+                f"You MUST call write_research_file with filename '{draft_filename}' "
+                f"to save the post before you finish — do not stop without saving.\n\n"
+                f"Research findings:\n{research_compact}"
+            )
+            await _run_agent_with_fallback(
+                writer, write_input,
+                agent_name="Writer", pool=pool, max_turns=6,
+            )
+            await log_model_call(pool, writer.model, phase="writer")
 
-            write_output = None
-            for _w_attempt in range(6):  # enough for full fallback chain
-                try:
-                    write_output = await _run_writer()
-                    break
-                except Exception as _w_err:
-                    if _is_writer_limit_error(_w_err):
-                        _fallback = _get_fallback(writer_model)
-                        if _fallback:
-                            logger.warning(
-                                "Writer hit model limit on %s (%s) — falling back to %s",
-                                writer_model, type(_w_err).__name__, _fallback,
-                            )
-                            writer_model = _fallback
-                            writer.model = writer_model
-                            writer.model_settings = model_settings_for("writer", model_override=writer_model)
-                        else:
-                            raise
-                    else:
-                        raise
-            if write_output is None:
-                raise RuntimeError("Writer step failed after all retries")
-
-            await log_model_call(pool, writer_model, phase="writer")
             new_drafts = [
                 f for f in research_dir.glob("*.md")
                 if f not in existing_drafts and "-edited" not in f.name
             ]
             if not new_drafts:
                 logger.warning("Writer did not save a file — retrying with explicit instruction...")
-                for _w_attempt in range(6):
-                    try:
-                        write_output = await _run_writer(
-                            f"CRITICAL: You MUST call write_research_file('{draft_filename}', ...) "
-                            f"as your very first action. Do not respond without saving the file first.\n\n"
-                        )
-                        break
-                    except Exception as _w_err:
-                        if _is_writer_limit_error(_w_err):
-                            _fallback = _get_fallback(writer_model)
-                            if _fallback:
-                                logger.warning(
-                                    "Writer hit model limit on %s (%s) — falling back to %s",
-                                    writer_model, type(_w_err).__name__, _fallback,
-                                )
-                                writer_model = _fallback
-                                writer.model = writer_model
-                                writer.model_settings = model_settings_for("writer", model_override=writer_model)
-                            else:
-                                raise
-                        else:
-                            raise
-                await log_model_call(pool, writer_model, phase="writer-retry")
+                retry_input = (
+                    f"CRITICAL: You MUST call write_research_file('{draft_filename}', ...) "
+                    f"as your very first action. Do not respond without saving the file first.\n\n"
+                    + write_input
+                )
+                await _run_agent_with_fallback(
+                    writer, retry_input,
+                    agent_name="Writer", pool=pool, max_turns=6,
+                )
+                await log_model_call(pool, writer.model, phase="writer-retry")
                 new_drafts = [
                     f for f in research_dir.glob("*.md")
                     if f not in existing_drafts and "-edited" not in f.name
@@ -401,156 +424,133 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                 draft_filename = max(new_drafts, key=lambda f: f.stat().st_mtime).name
 
         logger.info("Draft saved: %s", draft_filename)
+        logger.info("[2/5] Write done in %.1fs", monotonic() - _t0)
 
-        # --- Step 3: Edit ---
+        # =============================================================
+        # Step 3: Edit
+        # =============================================================
         logger.info("[3/5] Editing (cooldown %ds)...", _STAGE_COOLDOWN)
         await asyncio.sleep(_STAGE_COOLDOWN)
-        editor_model = await select_model(editor.model, pool=pool)
-        if editor_model != editor.model:
-            logger.warning("Editor degraded: %s → %s", editor.model, editor_model)
-            editor.model = editor_model
-            editor.model_settings = model_settings_for("editor", model_override=editor_model)
+        _t0 = monotonic()
 
         if (research_dir / edited_filename).exists():
             logger.info("Edited file already exists, skipping editor: %s", edited_filename)
         else:
+            edit_input = (
+                f"Edit the blog post draft.\n"
+                f"1. Call read_research_file('{draft_filename}') to read the draft.\n"
+                f"2. Save your edits as '{edited_filename}' using write_research_file.\n\n"
+                f"Research findings for fact-checking:\n{research_compact}\n\n"
+                f"If you need to verify additional claims, call search_corpus with a "
+                f"relevant query to check the knowledge base."
+            )
             try:
-                await asyncio.wait_for(
-                    Runner.run(
-                        editor,
-                        max_turns=10,
-                        input=(
-                            f"Edit the blog post draft.\n"
-                            f"1. Call read_research_file('{draft_filename}') to read the draft.\n"
-                            f"2. Save your edits as '{edited_filename}' using write_research_file.\n\n"
-                            f"Research JSON filename for fact-checking: {today_str}-{slug}-research\n"
-                            f"(Call read_research_file with that name if you need to verify claims.)"
-                        ),
-                    ),
-                    timeout=_AGENT_TIMEOUT,
+                await _run_agent_with_fallback(
+                    editor, edit_input,
+                    agent_name="Editor", pool=pool, max_turns=6,
                 )
-                await log_model_call(pool, editor_model, phase="editor")
+                await log_model_call(pool, editor.model, phase="editor")
             except asyncio.TimeoutError:
                 logger.error("Editor timed out after %ds", _AGENT_TIMEOUT)
-                if (research_dir / edited_filename).exists():
-                    logger.warning("Editor timed out but saved file — proceeding.")
-                else:
-                    logger.warning("Editor timed out without saving. Using original draft.")
-                    edited_filename = draft_filename
-            except Exception as _edit_err:
-                _err_msg = str(_edit_err).lower()
-                _is_token_err = "413" in str(_edit_err) or "tokens_limit_reached" in _err_msg
-                _is_rate_err = "429" in str(_edit_err) or "RateLimitError" in type(_edit_err).__name__ or "too many requests" in _err_msg
-                _is_param_err = "unsupported parameter" in _err_msg or "unsupported value" in _err_msg
-                _is_recoverable = _is_token_err or _is_rate_err or _is_param_err
-                if _is_recoverable and (research_dir / edited_filename).exists():
-                    logger.warning("Editor hit API limit after saving — proceeding with saved file.")
-                elif _is_recoverable:
-                    logger.warning("Editor hit API limit, file not saved. Using original draft.")
-                    edited_filename = draft_filename
-                else:
-                    raise
-            else:
-                if not (research_dir / edited_filename).exists():
-                    logger.warning("Editor did not save '%s'. Using original draft.", edited_filename)
-                    edited_filename = draft_filename
-        logger.info("Edit complete: %s", edited_filename)
 
-        # --- Step 4: Publish ---
+            # Verify the editor actually saved the file
+            if not (research_dir / edited_filename).exists():
+                logger.warning(
+                    "Editor did not produce '%s' — falling back to unedited draft.",
+                    edited_filename,
+                )
+                edited_filename = draft_filename
+
+        logger.info("Edit complete: %s", edited_filename)
+        logger.info("[3/5] Edit done in %.1fs", monotonic() - _t0)
+
+        # =============================================================
+        # Step 4: Publish
+        # =============================================================
         logger.info("[4/5] Publishing to Ghost (cooldown %ds)...", _STAGE_COOLDOWN)
         await asyncio.sleep(_STAGE_COOLDOWN)
-        publish_result = await asyncio.wait_for(
-            Runner.run(
-                publisher,
-                max_turns=6,
-                input=(
-                    f"Publish the blog post file '{edited_filename}' to Ghost.\n"
-                    f"Step 1: call pick_random_asset_image()\n"
-                    f"Step 2: call upload_image_to_ghost(image_path=<path from step 1>)\n"
-                    f"Step 3: call publish_file_to_ghost(filename='{edited_filename}', feature_image_url=<url from step 2>, status='published')\n"
-                    f"Return only the published URL from step 3."
-                ),
-            ),
-            timeout=_AGENT_TIMEOUT,
+        _t0 = monotonic()
+
+        publish_input = (
+            f"Publish the blog post file '{edited_filename}' to Ghost.\n"
+            f"Step 1: call pick_random_asset_image()\n"
+            f"Step 2: call upload_image_to_ghost(image_path=<path from step 1>)\n"
+            f"Step 3: call publish_file_to_ghost(filename='{edited_filename}', "
+            f"feature_image_url=<url from step 2>, status='published')\n"
+            f"Return only the published URL from step 3."
+        )
+        publish_output = await _run_agent_with_fallback(
+            publisher, publish_input,
+            agent_name="Publisher", pool=pool, max_turns=6,
         )
         await log_model_call(pool, publisher.model, phase="publisher")
-        publish_output = publish_result.final_output
 
         # --- Handle MISSING: validation failures from publish_file_to_ghost ---
         if publish_output.strip().startswith("MISSING:"):
             logger.warning("Publish blocked — pre-publish validation failed: %s", publish_output)
             missing_lower = publish_output.lower()
 
-            if "title" in missing_lower or "body_content" in missing_lower or "just for laughs" in missing_lower or "source links" in missing_lower or "excerpt" in missing_lower:
+            if any(kw in missing_lower for kw in (
+                "title", "body_content", "just for laughs", "source links", "excerpt"
+            )):
                 logger.info("Recovering: re-running Editor to fix content issues...")
-                await asyncio.wait_for(
-                    Runner.run(
-                        editor,
-                        max_turns=10,
-                        input=(
-                            f"The blog post FAILED pre-publish validation with this error:\n"
-                            f"{publish_output}\n\n"
-                            f"Fix ALL reported issues before saving:\n"
-                            f"- If 'title' issue: rewrite to be 5–10 words, factual, punchy.\n"
-                            f"- If 'body_content' too short: expand to at least 1500 words.\n"
-                            f"- If 'Just For Laughs' missing: add a ## Just For Laughs section with a topic-related joke.\n"
-                            f"- If 'source links' missing: add inline markdown links to sources.\n"
-                            f"- If 'excerpt' missing: add a 1–2 sentence excerpt in frontmatter.\n\n"
-                            f"1. Call read_research_file('{draft_filename}') to read the original draft.\n"
-                            f"2. Fix every reported validation issue.\n"
-                            f"3. Save the corrected post as '{edited_filename}' using write_research_file."
-                        ),
-                    ),
-                    timeout=_AGENT_TIMEOUT,
+                recovery_input = (
+                    f"The blog post FAILED pre-publish validation with this error:\n"
+                    f"{publish_output}\n\n"
+                    f"Fix ALL reported issues before saving:\n"
+                    f"- If 'title' issue: rewrite to be 5–10 words, factual, punchy.\n"
+                    f"- If 'body_content' too short: expand to at least 900 words.\n"
+                    f"- If 'Just For Laughs' missing: add a ## Just For Laughs section.\n"
+                    f"- If 'source links' missing: add inline markdown links.\n"
+                    f"- If 'excerpt' missing: add a 1–2 sentence excerpt in frontmatter.\n\n"
+                    f"1. Call read_research_file('{draft_filename}') to read the original draft.\n"
+                    f"2. Fix every reported validation issue.\n"
+                    f"3. Save the corrected post as '{edited_filename}' using write_research_file."
                 )
-                await log_model_call(pool, editor_model, phase="editor-recovery")
+                await _run_agent_with_fallback(
+                    editor, recovery_input,
+                    agent_name="Editor", pool=pool, max_turns=10,
+                )
+                await log_model_call(pool, editor.model, phase="editor-recovery")
 
             logger.info("Retrying Publisher after recovery...")
-            publish_result = await asyncio.wait_for(
-                Runner.run(
-                    publisher,
-                    max_turns=6,
-                    input=(
-                        f"Publish the blog post file '{edited_filename}' to Ghost.\n"
-                        f"Step 1: call pick_random_asset_image()\n"
-                        f"Step 2: call upload_image_to_ghost(image_path=<path from step 1>)\n"
-                        f"Step 3: call publish_file_to_ghost(filename='{edited_filename}', "
-                        f"feature_image_url=<url from step 2>, status='published')\n"
-                        f"Return only the published URL from step 3."
-                    ),
-                ),
-                timeout=_AGENT_TIMEOUT,
+            publish_output = await _run_agent_with_fallback(
+                publisher, publish_input,
+                agent_name="Publisher", pool=pool, max_turns=6,
             )
             await log_model_call(pool, publisher.model, phase="publisher-retry")
-            publish_output = publish_result.final_output
+
             if publish_output.strip().startswith("MISSING:"):
                 raise RuntimeError(
-                    f"Pipeline aborted — publish validation still failing after recovery attempt.\n"
+                    f"Pipeline aborted — publish validation still failing after recovery.\n"
                     f"Unresolved: {publish_output}"
                 )
 
         logger.info("Published: %s", publish_output)
+        logger.info("[4/5] Publish done in %.1fs", monotonic() - _t0)
 
-        # --- Step 5: Index research to corpus ---
+        # =============================================================
+        # Step 5: Index to corpus
+        # =============================================================
         logger.info("[5/5] Indexing edited post to corpus (cooldown %ds)...", _STAGE_COOLDOWN)
         await asyncio.sleep(_STAGE_COOLDOWN)
-        index_result = await asyncio.wait_for(
-            Runner.run(
-                indexer,
-                max_turns=8,
-                input=(
-                    f"Index the edited blog post into the corpus as an 'article' document.\n"
-                    f"1. Call read_research_file('{edited_filename}') to read the post.\n"
-                    f"2. Call index_document with source='{today_str}-{slug}', doc_type='article'.\n"
-                    f"Published post URL: {publish_output}"
-                ),
-            ),
-            timeout=_AGENT_TIMEOUT,
+        _t0 = monotonic()
+
+        index_input = (
+            f"Index the edited blog post into the corpus as an 'article' document.\n"
+            f"1. Call read_research_file('{edited_filename}') to read the post.\n"
+            f"2. Call index_document with source='{today_str}-{slug}', doc_type='article'.\n"
+            f"Published post URL: {publish_output}"
+        )
+        index_output = await _run_agent_with_fallback(
+            indexer, index_input,
+            agent_name="Indexer", pool=pool, max_turns=8,
         )
         await log_model_call(pool, indexer.model, phase="indexer")
-        index_output = index_result.final_output
 
-        logger.info("BLOG pipeline complete")
+        _total = monotonic() - _pipeline_t0
+        logger.info("[5/5] Index done in %.1fs", monotonic() - _t0)
+        logger.info("BLOG pipeline complete in %.1fs (%.1f min)", _total, _total / 60)
         logger.info("Published: %s", publish_output)
         logger.info("Corpus: %s", index_output)
     finally:
@@ -562,10 +562,9 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
 
     Usage:  python -m pipeline.main "PUBLISH: 2026-03-13-my-post-edited.md"
     """
-    from pipeline._sdk import Runner
     from pipeline.setup import init_github_models
     from pipeline.definitions import publisher
-    from pipeline.db import close_pool
+    from pipeline.db import get_pool, close_pool
 
     init_github_models()
 
@@ -573,32 +572,29 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
     logger.info("Publishing '%s'...", filename)
 
     try:
-        publish_result = await asyncio.wait_for(
-            Runner.run(
-                publisher,
-                max_turns=6,
-                input=(
-                    f"Publish the blog post file '{filename}' to Ghost.\n"
-                    f"Step 1: call pick_random_asset_image()\n"
-                    f"Step 2: call upload_image_to_ghost(image_path=<path from step 1>)\n"
-                    f"Step 3: call publish_file_to_ghost(filename='{filename}', feature_image_url=<url from step 2>, status='published')\n"
-                    f"Return only the published URL from step 3."
-                ),
-            ),
-            timeout=_AGENT_TIMEOUT,
+        pool = await get_pool()
+        publish_input = (
+            f"Publish the blog post file '{filename}' to Ghost.\n"
+            f"Step 1: call pick_random_asset_image()\n"
+            f"Step 2: call upload_image_to_ghost(image_path=<path from step 1>)\n"
+            f"Step 3: call publish_file_to_ghost(filename='{filename}', "
+            f"feature_image_url=<url from step 2>, status='published')\n"
+            f"Return only the published URL from step 3."
         )
-        logger.info("Result: %s", publish_result.final_output)
+        publish_output = await _run_agent_with_fallback(
+            publisher, publish_input,
+            agent_name="Publisher", pool=pool, max_turns=6,
+        )
+        logger.info("Result: %s", publish_output)
     finally:
         await close_pool()
 
 
 async def _run_research_pipeline(task: str, debug: bool = False) -> None:
     """Run RESEARCH or REPORT: Research + Index, no blog post."""
-    from pipeline._sdk import Runner
     from pipeline.setup import init_github_models
     from pipeline.definitions import researcher, indexer
     from pipeline.db import get_pool, close_pool
-    from pipeline.degradation import select_model
     from pipeline.guardrails import log_model_call
 
     init_github_models()
@@ -614,49 +610,37 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> None:
     try:
         pool = await get_pool()
 
-        research_model = await select_model(researcher.model, pool=pool)
-        if research_model != researcher.model:
-            logger.warning("Researcher degraded: %s → %s", researcher.model, research_model)
-            researcher.model = research_model
-
-        research_result = await asyncio.wait_for(
-            Runner.run(
-                researcher,
-                max_turns=15,
-                input=(
-                    f"Research this topic thoroughly: {topic}\n\n"
-                    f"REQUIRED STEPS:\n"
-                    f"1. Generate 3-5 search queries covering different angles.\n"
-                    f"2. For each query call search_and_index.\n"
-                    f"3. Call search_corpus after indexing.\n"
-                    f"4. Call search_arxiv for scientific papers.\n"
-                    f"5. Return structured research JSON."
-                ),
-            ),
-            timeout=_AGENT_TIMEOUT,
+        research_input = (
+            f"Research this topic thoroughly: {topic}\n\n"
+            f"REQUIRED STEPS:\n"
+            f"1. Generate 2-3 search queries covering different angles.\n"
+            f"2. For each query call search_and_index.\n"
+            f"3. Call search_corpus after indexing.\n"
+            f"5. Return structured research JSON."
         )
-        await log_model_call(pool, research_model, phase="research")
+        research_output = await _run_agent_with_fallback(
+            researcher, research_input,
+            agent_name="Researcher", pool=pool, max_turns=8,
+        )
+        await log_model_call(pool, researcher.model, phase="research")
         logger.info("Research complete")
 
         # Index to corpus
         logger.info("Indexing research to corpus...")
-        index_result = await asyncio.wait_for(
-            Runner.run(
-                indexer,
-                max_turns=8,
-                input=(
-                    f"Index this research output into the corpus.\n"
-                    f"Content:\n{research_result.final_output}\n\n"
-                    f"Source name: '{today_str}-{slug}-research'\n"
-                    f"doc_type: 'research'"
-                ),
-            ),
-            timeout=_AGENT_TIMEOUT,
+        index_input = (
+            f"Index this research output into the corpus.\n"
+            f"Content:\n{research_output}\n\n"
+            f"Source name: '{today_str}-{slug}-research'\n"
+            f"doc_type: 'research'"
+        )
+        index_output = await _run_agent_with_fallback(
+            indexer, index_input,
+            agent_name="Indexer", pool=pool, max_turns=8,
         )
         await log_model_call(pool, indexer.model, phase="indexer")
 
         logger.info("%s pipeline complete", prefix.strip().upper())
-        logger.info("Corpus: %s", index_result.final_output)
+        logger.info("Corpus: %s", index_output)
     finally:
         await close_pool()
 
@@ -722,7 +706,7 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default=None,
-        help="Override the orchestrator model (e.g. claude-haiku-3-5)",
+        help="Override the orchestrator model (e.g. openai/gpt-4.1-mini)",
     )
     parser.add_argument(
         "--dry-run",

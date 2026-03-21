@@ -17,9 +17,9 @@
 #   Low tier:     openai/gpt-4.1-mini, openai/gpt-4.1-nano
 #
 # Model selection strategy:
-#   - openai/gpt-5       : complex tasks (research, writing, editing) — 200k context, reasoning, 100k output
-#   - openai/gpt-5-mini  : simple/deterministic tasks (orchestrating, publishing, indexing) — 200k context, fast
-#   - openai/gpt-5-nano  : budget fallback — 200k context, cheapest gpt-5 family
+#   - openai/gpt-4.1      : primary model for all agents — 1M context, high quality, reliable
+#   - openai/gpt-4.1-mini : fast fallback — 1M context, lightweight, low cost
+#   - openai/gpt-4.1-nano : last-resort budget fallback
 #
 # See docs/GITHUB_COPILOT_MODELS.md for the full model catalog.
 
@@ -30,40 +30,40 @@
 
 agents:
   orchestrator:
-    model: openai/gpt-5-mini
+    model: openai/gpt-4.1-mini
     temperature: 0.1
-    max_tokens: 4000
-    note: "Multi-step handoff chain — gpt-5-mini is fast and sufficient for routing"
+    max_tokens: 2000
+    note: "Multi-step handoff chain — gpt-4.1-mini is fast and sufficient for routing"
 
   researcher:
-    model: openai/gpt-5
+    model: openai/gpt-4.1
     temperature: 0.2
-    max_tokens: 16000
-    note: "Complex multi-tool research + structured JSON synthesis — gpt-5 has reasoning + 200k context"
+    max_tokens: 8000
+    note: "Complex multi-tool research + structured JSON synthesis — gpt-4.1 for reasoning"
 
   writer:
-    model: openai/gpt-5
+    model: openai/gpt-4.1
     temperature: 0.7
-    max_tokens: 8000
-    note: "Best writing quality — gpt-5 with higher temp for varied, engaging prose"
+    max_tokens: 4000
+    note: "Blog writing — gpt-4.1 with 1M context; falls back to gpt-4.1-mini"
 
   editor:
-    model: openai/gpt-5
+    model: openai/gpt-4.1
     temperature: 0.3
-    max_tokens: 8000
-    note: "Careful fact-check + editorial reasoning — gpt-5 for analytical accuracy"
+    max_tokens: 4000
+    note: "Editorial pass — gpt-4.1 for reliable fact-check + grammar + structure"
 
   publisher:
-    model: openai/gpt-5-mini
+    model: openai/gpt-4.1-mini
     temperature: 0.0
     max_tokens: 1000
-    note: "Deterministic metadata extraction + Ghost API call — gpt-5-mini is fast"
+    note: "Deterministic metadata extraction + Ghost API call — gpt-4.1-mini is fast"
 
   indexer:
-    model: openai/gpt-5-mini
+    model: openai/gpt-4.1-mini
     temperature: 0.0
-    max_tokens: 2000
-    note: "Chunking + indexing decisions — gpt-5-mini is sufficient"
+    max_tokens: 500
+    note: "Chunking + indexing decisions — gpt-4.1-mini is sufficient"
 
 # ---------------------------------------------------------------------------
 # Optional: deep synthesis override
@@ -88,12 +88,9 @@ agents:
 # ---------------------------------------------------------------------------
 
 fallback_chain:
-  - openai/gpt-5          # Primary — best quality, reasoning, 200k context
-  - openai/gpt-5-mini     # Fast fallback — 200k context, lightweight
-  - openai/gpt-5-nano     # Budget fallback — 200k context, cheapest gpt-5 family
-  - openai/gpt-4.1        # Previous gen — 1M context, high quality
-  - openai/gpt-4.1-mini   # Previous gen fallback
-  - openai/gpt-4.1-nano   # Last resort
+  - openai/gpt-4.1        # Primary — high quality, 1M context
+  - openai/gpt-4.1-mini   # Fast fallback — 1M context, lightweight
+  - openai/gpt-4.1-nano   # Last resort — budget fallback
 
 # ---------------------------------------------------------------------------
 # Degradation thresholds

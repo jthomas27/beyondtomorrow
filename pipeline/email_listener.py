@@ -18,14 +18,25 @@ Supported commands:
     RESEARCH  — research only → saves structured notes to corpus
     REPORT    — research only → full Markdown report emailed back
     INDEX     — index attached PDF(s) into knowledge corpus
+
+Usage:
+    # Run as a continuous polling daemon
+    python -m pipeline.email_listener
+
+    # The loop polls every POLL_INTERVAL seconds (default: 300 = 5 min).
+    # Override with the EMAIL_POLL_INTERVAL env var.
 """
 
+import asyncio
 import email
 import imaplib
+import logging
 import os
 from email.header import decode_header
 from email.message import Message
 from typing import Optional
+
+logger = logging.getLogger("pipeline.email_listener")
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -204,3 +215,99 @@ def fetch_unread_messages(
                 messages.append(part[1])
         conn.store(msg_id, "+FLAGS", "\\Seen")
     return messages
+
+
+# ---------------------------------------------------------------------------
+# Polling loop
+# ---------------------------------------------------------------------------
+
+DEFAULT_POLL_INTERVAL = 300  # seconds (5 minutes)
+
+
+def _load_allowlist() -> list[dict]:
+    """Load the approved-senders list from config/allowlist.yaml."""
+    import yaml
+    from pathlib import Path
+
+    path = Path(__file__).parent.parent / "config" / "allowlist.yaml"
+    if not path.exists():
+        return []
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    return data.get("allowed_senders", [])
+
+
+async def poll_once() -> None:
+    """Check IMAP for new messages and dispatch any valid commands."""
+    from pipeline.main import _run_blog_pipeline  # local import to avoid circular
+
+    allowlist = _load_allowlist()
+
+    try:
+        conn = connect_imap()
+    except Exception as exc:
+        logger.error("IMAP connection failed: %s", exc)
+        return
+
+    try:
+        raw_messages = fetch_unread_messages(conn)
+    except Exception as exc:
+        logger.error("Failed to fetch unread messages: %s", exc)
+        return
+    finally:
+        try:
+            conn.logout()
+        except Exception:
+            pass
+
+    if not raw_messages:
+        logger.debug("No new messages.")
+        return
+
+    for raw in raw_messages:
+        parsed = parse_email(raw)
+        sender = parsed["from"]
+        command = parsed["command"]
+        topic = parsed["topic"]
+
+        if not command or not topic:
+            logger.info("Ignoring email from %s — no valid command in subject.", sender)
+            continue
+
+        if not is_sender_allowed(sender, allowlist):
+            logger.warning("Rejected email from unapproved sender: %s", sender)
+            continue
+
+        task_str = f"{command}: {topic}"
+        logger.info("Processing email task: %s (from %s)", task_str, sender)
+
+        try:
+            await _run_blog_pipeline(task_str)
+            logger.info("Task complete: %s", task_str)
+        except Exception as exc:
+            logger.error("Task failed: %s — %s", task_str, exc)
+
+
+async def run_poll_loop() -> None:
+    """Run the email polling loop indefinitely."""
+    interval = int(os.environ.get("EMAIL_POLL_INTERVAL", str(DEFAULT_POLL_INTERVAL)))
+    logger.info("Email listener starting — polling every %ds", interval)
+
+    while True:
+        try:
+            await poll_once()
+        except Exception as exc:
+            logger.error("Poll cycle error: %s", exc)
+        await asyncio.sleep(interval)
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point:  python -m pipeline.email_listener
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    )
+    asyncio.run(run_poll_loop())

@@ -158,8 +158,7 @@ Each agent is defined via the OpenAI Agents SDK `Agent()` class with its own mod
 |--------------|--------------------------------------------------|----------|
 | Orchestrator | Manages the run, calls other agents in order     | Required |
 | Research     | Searches web + knowledge corpus for info         | Required |
-| Summariser   | Condenses long sources into bullet points        | Required |
-| Writer       | Creates the blog post (Markdown or HTML)         | Required |
+| Writer       | Creates the blog post (Markdown)                 | Required |
 | Editor       | Proofreads, improves tone, checks facts          | Required |
 | Publisher    | Sends the post to Ghost via Admin API            | Required |
 | Indexer      | Processes new PDFs/emails into knowledge corpus  | Required |
@@ -173,11 +172,11 @@ Each agent is defined via the OpenAI Agents SDK `Agent()` class with its own mod
 3. **Research** — Researcher agent searches web + knowledge corpus, outputs structured JSON with findings
 4. **Write** — Writer agent creates draft blog post from research findings (handoff from Researcher)
 5. **Edit** — Editor agent reviews and improves draft (handoff from Writer)
-6. **Publish** — Publisher agent calls Ghost Admin API — defaults to `draft` status for human review
+6. **Publish** — Publisher agent calls Ghost Admin API — publishes live (`status='published'`)
 7. **Store** — Ghost writes post to MySQL
 8. **Index** — Indexer agent stores research output + sources in pgvector corpus
 9. **Alert** — Success/failure notification sent (Slack webhook)
-10. **Live** — Post appears on the blog after approval
+10. **Live** — Post appears on the blog immediately after publishing
 
 > Agents never write to MySQL directly. Ghost is the only service that touches the blog database.
 > All agent coordination happens via OpenAI Agents SDK handoffs — the Orchestrator delegates to subagents which return results back up the chain.
@@ -188,7 +187,7 @@ Each agent is defined via the OpenAI Agents SDK `Agent()` class with its own mod
 
 | Scenario | Action |
 |----------|--------|
-| GitHub Models API fails | Retry 3x with exponential backoff (5s, 15s, 45s); auto-degrade to cheaper model if rate-limited |
+| GitHub Models API fails | Retry up to 6× with exponential backoff (20s base, doubling to 300s cap); auto-degrade to cheaper model if rate-limited |
 | Ghost API fails | Retry 3x, then save draft locally and alert |
 | Research finds nothing | Fall back to knowledge corpus only |
 | PDF extraction fails | Log error, skip file, continue with others |

@@ -11,7 +11,7 @@ This workspace runs an automated research-and-publish pipeline for **BeyondTomor
 | Blog CMS | Ghost 5.x (self-hosted) | `https://beyondtomorrow.world` |
 | Hosting | Railway (`caring-alignment` project) | Ghost + agent worker services |
 | Vector DB | PostgreSQL + pgvector (Railway) | 384-dim embeddings for semantic search |
-| AI Framework | OpenAI Agents SDK + GitHub Models API | `gpt-5` for research/write/edit; `gpt-5-mini` for publish/index |
+| AI Framework | OpenAI Agents SDK + GitHub Models API | `gpt-4.1` for research/write/edit; `gpt-4.1-mini` for orchestrate/publish/index |
 | Embeddings | `all-MiniLM-L6-v2` (sentence-transformers) | Runs locally; zero API cost |
 | Email trigger | Hostinger IMAP (`admin@beyondtomorrow.world`) | Polled by `pipeline/email_listener.py` |
 
@@ -188,7 +188,7 @@ These are the authoritative instructions each agent follows. When modifying agen
 
 ### Orchestrator
 
-Routes tasks by prefix and manages the sequential handoff chain. Uses `gpt-5-mini` at `temperature=0.1`.
+Routes tasks by prefix and manages the sequential handoff chain. Uses `gpt-4.1-mini` at `temperature=0.1`.
 
 - `BLOG:` → Researcher → Writer → Editor → Publisher → Indexer → return live URL + file path + chunk count
 - `RESEARCH:` → Researcher → Indexer → return file path + chunk count
@@ -199,7 +199,7 @@ Routes tasks by prefix and manages the sequential handoff chain. Uses `gpt-5-min
 
 ### Researcher
 
-Uses `gpt-5` at `temperature=0.2`, `max_tokens=8000`. Tools: `search_and_index`, `search_corpus`, `fetch_page`, `search_arxiv`, `web_search`, `score_credibility`.
+Uses `gpt-4.1` at `temperature=0.2`, `max_tokens=8000`. Tools: `search_and_index`, `search_corpus`, `fetch_page`, `search_arxiv`, `web_search`, `score_credibility`.
 
 **Sequence**:
 1. Generate 3–5 targeted search queries covering different angles
@@ -220,7 +220,7 @@ Uses `gpt-5` at `temperature=0.2`, `max_tokens=8000`. Tools: `search_and_index`,
 
 ### Writer
 
-Uses `gpt-5` at `temperature=0.7`, `max_tokens=4000`. Tools: `read_research_file`, `write_research_file`.
+Uses `gpt-4.1` at `temperature=0.7`, `max_tokens=4000`. Tools: `read_research_file`, `write_research_file`.
 
 **Title rules** (apply before writing anything else):
 - Must be **punchy**: 6–10 words, specific, and immediately clear
@@ -232,7 +232,7 @@ Uses `gpt-5` at `temperature=0.7`, `max_tokens=4000`. Tools: `read_research_file
 1. Draft 3 candidate titles following the title rules; select the strongest one; record only the chosen title in frontmatter
 2. Choose the most compelling angle from `suggested_angles`
 3. Identify ONE central key issue; state it in the introduction and develop it progressively through every section; conclusion must resolve or reframe it
-4. Write a well-structured post **1500–2500 words** with clear H2/H3 headings, short paragraphs, and bullet points where appropriate
+4. Write a well-structured post **900–1500 words** with clear H2/H3 headings, short paragraphs, and bullet points where appropriate
 5. Writing must be **thought-provoking** — challenge assumptions, surface tensions, give the reader something to consider beyond the immediate facts
 6. Use clear and concise grammar throughout — avoid jargon, complex sentences, and padding
 7. Back all significant claims with inline markdown links to sources; flag unverifiable claims explicitly
@@ -252,7 +252,7 @@ Save using `write_research_file` with filename `YYYY-MM-DD-slug.md`.
 
 ### Editor
 
-Uses `gpt-5` at `temperature=0.3`, `max_tokens=4000`. Tools: `read_research_file`, `write_research_file`.
+Uses `gpt-4.1` at `temperature=0.3`, `max_tokens=4000`. Tools: `read_research_file`, `write_research_file`, `search_corpus`, `score_credibility`.
 
 **Review checklist**:
 1. **Title quality** — must be punchy (6–10 words), factual, attention-grabbing without being misleading; rewrite before anything else if it fails this standard
@@ -265,13 +265,13 @@ Uses `gpt-5` at `temperature=0.3`, `max_tokens=4000`. Tools: `read_research_file
 8. **Evidence and sources** — every significant factual claim or statistic must have an inline source link; flag unsupported claims with `<!-- UNVERIFIED: ... -->`
 9. **Structure and flow** — logical progression, clear transitions between sections
 10. **SEO basics** — clear title, meta excerpt in frontmatter, proper H2/H3 hierarchy
-11. **Length** — target 1500–2500 words; trim padding or expand thin sections
+11. **Length** — target 900–1500 words; trim padding or expand thin sections
 
 **Rules**: Make **targeted edits** — do NOT rewrite from scratch unless the draft is structurally broken. Flag unverifiable claims with `<!-- UNVERIFIED: ... -->` rather than silently fixing them. Save edited version using `write_research_file` with `-edited` appended to the filename.
 
 ### Publisher
 
-Uses `gpt-5-mini` at `temperature=0.0`, `max_tokens=1000`. Tools: `pick_random_asset_image`, `upload_image_to_ghost`, `publish_file_to_ghost`.
+Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=1000`. Tools: `pick_random_asset_image`, `upload_image_to_ghost`, `publish_file_to_ghost`.
 
 **Sequence** (exactly, every time):
 1. Call `pick_random_asset_image()` — if result starts with `Error:`, stop and report
@@ -290,7 +290,7 @@ If **any** item is missing: return `MISSING: [list the missing items] — retry 
 
 ### Indexer
 
-Uses `gpt-5-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_research_file`, `index_document`, `embed_and_store`.
+Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_research_file`, `index_document`, `embed_and_store`.
 
 **Sequence**:
 1. Read the document using `read_research_file`
@@ -308,16 +308,16 @@ Uses `gpt-5-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_research_
 
 | Agent | Model | Temperature | Max Tokens | Notes |
 |---|---|---|---|---|
-| Orchestrator | `openai/gpt-5-mini` | 0.1 | 4,000 | Fast routing; 200k context |
-| Researcher | `openai/gpt-5` | 0.2 | 16,000 | Reasoning + tool-calling + 200k context |
-| Writer | `openai/gpt-5` | 0.7 | 8,000 | Best prose quality; higher temp for varied writing |
-| Editor | `openai/gpt-5` | 0.3 | 8,000 | Reasoning for fact-check + editorial accuracy |
-| Publisher | `openai/gpt-5-mini` | 0.0 | 1,000 | Deterministic metadata extraction + Ghost API call |
-| Indexer | `openai/gpt-5-mini` | 0.0 | 2,000 | Minimal reasoning; chunking + indexing |
+| Orchestrator | `openai/gpt-4.1-mini` | 0.1 | 2,000 | Fast routing; 1M context |
+| Researcher | `openai/gpt-4.1` | 0.2 | 8,000 | Reasoning + tool-calling + 1M context |
+| Writer | `openai/gpt-4.1` | 0.7 | 4,000 | Blog prose; 1M context |
+| Editor | `openai/gpt-4.1` | 0.3 | 4,000 | Editorial pass; reliable fact-check |
+| Publisher | `openai/gpt-4.1-mini` | 0.0 | 1,000 | Deterministic metadata extraction + Ghost API call |
+| Indexer | `openai/gpt-4.1-mini` | 0.0 | 500 | Minimal reasoning; chunking + indexing |
 
 > **Plan: Copilot Pro+** — unlimited premium requests; no daily caps.  
-> **GitHub Models API does NOT have Claude/Anthropic models.** Use `openai/gpt-5`, `openai/gpt-5-mini`, or other supported OpenAI models.  
-> **Fallback chain**: `gpt-5` → `gpt-5-mini` → `gpt-5-nano` → `gpt-4.1` → `gpt-4.1-mini` → `gpt-4.1-nano`
+> **GitHub Models API does NOT have Claude/Anthropic models.** Use `openai/gpt-4.1`, `openai/gpt-4.1-mini`, or other supported OpenAI models.  
+> **Fallback chain**: `gpt-4.1` → `gpt-4.1-mini` → `gpt-4.1-nano`
 
 ---
 
@@ -343,7 +343,7 @@ Uses `gpt-5-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_research_
 
 | Scenario | Action |
 |---|---|
-| GitHub Models API fails | Retry 3× with exponential backoff (5s, 15s, 45s); degrade to cheaper model |
+| GitHub Models API fails | Retry up to 6× with exponential backoff (20s base, doubling to 300s cap); degrade to cheaper model via fallback chain |
 | Ghost API fails | Retry 3×, then save draft locally and alert Slack |
 | Research finds nothing | Fall back to knowledge corpus only |
 | PDF extraction fails | Log error, skip file, continue |

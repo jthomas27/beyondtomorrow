@@ -17,7 +17,7 @@ on:
         required: true
         type: string
       model:
-        description: "Override agent model (e.g. claude-haiku-3-5 for faster/cheaper runs)"
+        description: "Override agent model (e.g. openai/gpt-4.1-mini for faster/cheaper runs)"
         required: false
         default: ""
 
@@ -63,7 +63,7 @@ jobs:
             # Scheduled weekly run — RESEARCH keeps cost within testing budget
             # (avoids triggering the full BLOG: pipeline: Writer + Editor + Publisher)
             echo "task=RESEARCH: latest developments in AI safety and alignment" >> "$GITHUB_OUTPUT"
-            echo "model=claude-haiku-3-5" >> "$GITHUB_OUTPUT"
+            echo "model=openai/gpt-4.1-nano" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check agent status

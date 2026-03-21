@@ -13,7 +13,7 @@ Quick reference for understanding and working on RAG agent publish requests.
 | Blog DB | MySQL (Railway) | Ghost owns all writes — agents never touch it directly |
 | Vector DB | PostgreSQL + pgvector (Railway) | Stores 384-dim embeddings for semantic search |
 | Object Storage | Railway Object Storage | Raw PDFs, emails, images, knowledge corpus |
-| AI Framework | OpenAI Agents SDK + GitHub Models API | `gpt-5` for research/write/edit; `gpt-5-mini` for orch/publish/index |
+| AI Framework | OpenAI Agents SDK + GitHub Models API | `gpt-4.1` for research/write/edit; `gpt-4.1-mini` for orch/publish/index |
 | Embeddings | `all-MiniLM-L6-v2` (sentence-transformers, local) | Runs on Railway compute; zero API cost |
 | Trigger | GitHub Actions (cron or manual dispatch) | Also triggered by inbound email via IMAP |
 | Email | Hostinger Business Email (`admin@beyondtomorrow.world`) | IMAP-polled by `email_listener.py` |
@@ -30,9 +30,8 @@ Quick reference for understanding and working on RAG agent publish requests.
 ### Agent Handoff Chain (OpenAI Agents SDK)
 3. **Orchestrator** — receives task, identifies type, manages the handoff chain
 4. **Researcher** — searches the web + queries pgvector corpus (semantic similarity search on embeddings); returns structured JSON findings
-5. **Summariser** — condenses raw research into bullet points for the Writer
-6. **Writer** — produces 500–1500 word HTML draft grounded in research
-7. **Editor** — proofreads, improves tone, runs quality guardrails
+5. **Writer** — produces 900–1500 word Markdown draft grounded in research
+6. **Editor** — proofreads, improves tone, runs quality guardrails
 
 ### Publish Phase
 8. **Publisher agent** reads `GHOST_ADMIN_API_KEY` from Railway env vars
@@ -40,11 +39,11 @@ Quick reference for understanding and working on RAG agent publish requests.
 10. (If image) Uploads via `POST /ghost/api/admin/images/upload/`; saves returned URL for `feature_image`
 11. Wraps HTML body in a **Lexical HTML card** (lossless — required for all BeyondTomorrow posts)
 12. `POST /ghost/api/admin/posts/` with full payload (title, lexical, tags, SEO fields, social previews)
-13. Post defaults to `status: "draft"` — requires human approval before going live
+13. Post publishes with `status: "published"` — goes live immediately
 
 ### Post-Publish Phase
 14. **Indexer** — chunks + embeds research JSON/sources into pgvector for future corpus retrieval
-15. Slack alert sent; post reviewed and promoted to `published` in Ghost Admin
+15. Slack alert sent; post is already live on the blog
 
 ---
 
@@ -74,7 +73,7 @@ Quick reference for understanding and working on RAG agent publish requests.
 - **Do NOT use `?source=html`** for BeyondTomorrow posts — conversion is lossy
 - **Updating posts**: Must send `lexical` (not `html`), plus `id` and `updated_at`
 - **HTTP client**: Must use `httpx` — Cloudflare blocks `urllib` with 403 1010
-- **Default post status**: `draft` — never publish directly without review
+- **Default post status**: `published` — posts go live through the pipeline
 
 ### Minimal publish payload
 ```json
@@ -82,7 +81,7 @@ Quick reference for understanding and working on RAG agent publish requests.
   "posts": [{
     "title": "...",
     "lexical": "{...lexical JSON string...}",
-    "status": "draft",
+    "status": "published",
     "tags": ["AI", "Geopolitics"],
     "custom_excerpt": "...",
     "meta_title": "...",
@@ -116,7 +115,7 @@ Quick reference for understanding and working on RAG agent publish requests.
 
 | Scenario | Action |
 |---|---|
-| GitHub Models API fails | Retry 3× with exponential backoff (5s, 15s, 45s); degrade to cheaper model |
+| GitHub Models API fails | Retry up to 6× with exponential backoff (20s base, doubling to 300s cap); degrade to cheaper model |
 | Ghost API fails | Retry 3×, then save draft locally and alert Slack |
 | Research finds nothing | Fall back to knowledge corpus only |
 | PDF extraction fails | Log error, skip file, continue |
@@ -153,4 +152,4 @@ railway variables --service 0daf496c-e14f-41d4-b89b-3624a778c99d
 - Agents **never write to MySQL directly** — Ghost is the only service that touches the blog DB
 - Always use `.venv/bin/python3` — system Python 3.14 has SSL cert issues on macOS
 - `DATABASE_URL` uses the **external proxy** (`caboose.proxy.rlwy.net:21688`) — do not overwrite with Railway internal URL
-- GitHub Models API does **not** include Claude/Anthropic models — use `openai/gpt-5`, `openai/gpt-5-mini`, or other supported OpenAI models
+- GitHub Models API does **not** include Claude/Anthropic models — use `openai/gpt-4.1`, `openai/gpt-4.1-mini`, or other supported OpenAI models

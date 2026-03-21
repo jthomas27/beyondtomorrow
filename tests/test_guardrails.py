@@ -17,8 +17,11 @@ from pipeline.guardrails import (
     DAILY_LIMITS,
     HARD_THRESHOLD_PCT,
     SOFT_THRESHOLD_PCT,
+    RPM_LIMITS,
     check_model_budget,
+    check_rpm,
     get_daily_usage,
+    get_rpm_usage,
     log_model_call,
 )
 
@@ -64,10 +67,14 @@ async def test_check_model_budget_available_below_soft_threshold(
     mock_pool, mock_conn, mocker
 ):
     """Usage at 50% of limit: available=True, warning=False."""
-    limit = DAILY_LIMITS["openai/gpt-4.1"]  # 50
+    limit = DAILY_LIMITS["openai/gpt-4.1"]  # 80
     used = int(limit * 0.50)
     mocker.patch(
         "pipeline.guardrails.get_daily_usage", new=AsyncMock(return_value=used)
+    )
+    mocker.patch(
+        "pipeline.guardrails.check_rpm",
+        new=AsyncMock(return_value={"ok": True, "used": 0, "limit": 10, "model": "openai/gpt-4.1"}),
     )
 
     result = await check_model_budget(mock_pool, "openai/gpt-4.1")
@@ -88,6 +95,10 @@ async def test_check_model_budget_warning_above_soft_threshold(
     mocker.patch(
         "pipeline.guardrails.get_daily_usage", new=AsyncMock(return_value=used)
     )
+    mocker.patch(
+        "pipeline.guardrails.check_rpm",
+        new=AsyncMock(return_value={"ok": True, "used": 0, "limit": 10, "model": "openai/gpt-4.1"}),
+    )
 
     result = await check_model_budget(mock_pool, "openai/gpt-4.1")
 
@@ -103,6 +114,10 @@ async def test_check_model_budget_blocked_above_hard_threshold(
     used = int(limit * 0.96)
     mocker.patch(
         "pipeline.guardrails.get_daily_usage", new=AsyncMock(return_value=used)
+    )
+    mocker.patch(
+        "pipeline.guardrails.check_rpm",
+        new=AsyncMock(return_value={"ok": True, "used": 0, "limit": 10, "model": "openai/gpt-4.1"}),
     )
 
     result = await check_model_budget(mock_pool, "openai/gpt-4.1")
@@ -120,6 +135,10 @@ async def test_check_model_budget_exactly_at_hard_threshold_is_blocked(
     used = math.ceil(limit * HARD_THRESHOLD_PCT / 100)
     mocker.patch(
         "pipeline.guardrails.get_daily_usage", new=AsyncMock(return_value=used)
+    )
+    mocker.patch(
+        "pipeline.guardrails.check_rpm",
+        new=AsyncMock(return_value={"ok": True, "used": 0, "limit": 30, "model": "openai/gpt-4.1-mini"}),
     )
 
     result = await check_model_budget(mock_pool, "openai/gpt-4.1-mini")
@@ -175,9 +194,9 @@ async def test_log_model_call_defaults_tokens_to_zero(mock_pool, mock_conn):
     """tokens_in and tokens_out default to 0 when not supplied."""
     await log_model_call(mock_pool, model="claude-sonnet-4")
     args = mock_conn.execute.call_args[0]
-    # SQL + phase + model + tokens_in + tokens_out + run_id + request_type
-    assert args[3] == 0  # tokens_in
-    assert args[4] == 0  # tokens_out
+    # SQL + model + tokens_in + tokens_out + run_id + phase
+    assert args[2] == 0  # tokens_in
+    assert args[3] == 0  # tokens_out
 
 
 async def test_log_model_call_passes_run_id_and_phase(mock_pool, mock_conn):

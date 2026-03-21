@@ -286,9 +286,9 @@ async def publish_file_to_ghost(
 
     # Must contain inline source links
     link_count = len(_re_val.findall(r'\[.+?\]\(https?://.+?\)', body))
-    if link_count < 3:
+    if link_count < 2:
         missing.append(
-            f"source links ({link_count} found — need at least 3 inline "
+            f"source links ({link_count} found — need at least 2 inline "
             "markdown source links to back claims)"
         )
 

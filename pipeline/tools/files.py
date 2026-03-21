@@ -26,6 +26,12 @@ _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 def _safe_path(filename: str) -> pathlib.Path:
     """Return a resolved path under research/, raising ValueError on traversal."""
     _RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
+    # Strip a leading "research/" or "research\" prefix that LLMs sometimes add
+    # (the directory is already baked into _RESEARCH_DIR, so it must not be repeated).
+    for prefix in ("research/", "research\\"):
+        if filename.lower().startswith(prefix):
+            filename = filename[len(prefix):]
+            break
     resolved = (_RESEARCH_DIR / filename).resolve()
     if not str(resolved).startswith(str(_RESEARCH_DIR.resolve())):
         raise ValueError(f"Path traversal attempt blocked: {filename}")

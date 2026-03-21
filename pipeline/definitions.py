@@ -46,10 +46,10 @@ def model_settings_for(
 ) -> ModelSettings:
     """Build ModelSettings from config, using the right token param for the model family.
 
-    gpt-5 family and o-series:
+    gpt-5 family and o-series (only used if explicitly configured or as fallback):
     - Reject 'max_tokens' — must use 'max_completion_tokens' via extra_body
     - Reject non-default temperature — only temperature=1 (the default) is supported
-    All other models: use standard max_tokens and temperature fields.
+    All other models (gpt-4.1 family etc.): use standard max_tokens and temperature fields.
 
     Args:
         agent_name: Key in config/models.yaml agents section.
@@ -82,14 +82,13 @@ researcher = Agent(
 
 Given a topic, follow this sequence:
 
-1. Generate 3-5 targeted search queries covering different angles of the topic.
+1. Generate 2-3 targeted search queries covering different angles of the topic.
 2. For EACH query, call search_and_index (NOT web_search). This fetches the full
    text of each result page and stores it as embeddings in the knowledge database.
 3. After indexing all queries, call search_corpus ONCE with top_k=3 to retrieve
    the most relevant stored knowledge. Do not call search_corpus more than once.
-4. For academic or scientific topics, also call search_arxiv.
-5. Score each source for credibility. Discard sources scoring 1/5.
-6. Synthesise all findings into structured JSON with these exact keys:
+4. Score each source for credibility. Discard sources scoring 1/5.
+5. Synthesise all findings into structured JSON with these exact keys:
    - key_findings (finding, confidence: high/medium/low, sources: [URLs])
    - subtopics (name, summary, bullet_points)
    - suggested_angles (3-5 compelling framings for the writer)
@@ -108,7 +107,7 @@ Rules:
 - Output ONLY the structured JSON — no preamble.""",
     tools=[search_and_index, search_corpus, fetch_page, search_arxiv, score_credibility],
     model=_models.get("researcher", {}).get("model", "openai/gpt-4.1"),
-    model_settings=_model_settings("researcher", default_temp=0.2, default_tokens=16000),
+    model_settings=_model_settings("researcher", default_temp=0.2, default_tokens=8000),
 )
 
 # ---------------------------------------------------------------------------
@@ -133,7 +132,7 @@ TITLE RULES — apply these before writing anything else:
 
 1. Write the title following the TITLE RULES above as your very first action.
 2. Choose the most compelling angle from suggested_angles.
-3. Write an engaging, well-structured post body (1500–2500 words).
+3. Write an engaging, well-structured post body (900–1500 words).
 4. Use clear headings (H2/H3), short paragraphs, and bullet points where appropriate.
 5. Cite sources naturally in the text with inline markdown links.
 6. Maintain an authoritative but accessible tone.
@@ -154,7 +153,7 @@ excerpt: One to two sentence summary for the preview card.
 
 CRITICAL REQUIREMENTS before saving:
 - The frontmatter \'title\' MUST be present and 5–10 words.
-- The post body MUST be at least 1500 words of actual content.
+- The post body MUST be at least 900 words of actual content.
 Do NOT call write_research_file until both requirements are met.
 
 Save the draft using write_research_file with a filename like YYYY-MM-DD-slug.md.
@@ -163,7 +162,7 @@ Once the file is saved, hand off to the Editor by calling transfer_to_editor.
 Include the filename you used so the Editor can find the draft.""",
     tools=[read_research_file, write_research_file],
     model=_models.get("writer", {}).get("model", "openai/gpt-4.1"),
-    model_settings=_model_settings("writer", default_temp=0.7, default_tokens=8000),
+    model_settings=_model_settings("writer", default_temp=0.7, default_tokens=4000),
 )
 
 editor = Agent(
@@ -186,16 +185,16 @@ Review the blog post draft for ALL of the following, in this order:
 5. Proper citations — every major claim has an inline source link; flag unverifiable
    claims with <!-- UNVERIFIED: ... --> rather than silently removing them.
 6. SEO basics — clear title, meta description in frontmatter, proper heading hierarchy.
-7. Length — must be 1500–2500 words. Trim padding or expand thin sections.
+7. Length — must be 900–1500 words. Trim padding or expand thin sections.
 
 Make targeted edits directly. Do NOT rewrite from scratch unless the draft is structurally broken.
 Save the edited version using write_research_file (append -edited to the filename).
 
 Once the edited file is saved, hand off to the Publisher by calling
 transfer_to_publisher. Include the filename of the edited file.""",
-    tools=[read_research_file, write_research_file],
+    tools=[read_research_file, write_research_file, search_corpus, score_credibility],
     model=_models.get("editor", {}).get("model", "openai/gpt-4.1"),
-    model_settings=_model_settings("editor", default_temp=0.3, default_tokens=8000),
+    model_settings=_model_settings("editor", default_temp=0.3, default_tokens=4000),
 )
 
 publisher = Agent(
@@ -263,7 +262,7 @@ After indexing, return a final summary: the live post URL (if provided), the
 filename stored, and the number of chunks indexed.""",
     tools=[read_research_file, index_document, embed_and_store],
     model=_models.get("indexer", {}).get("model", "openai/gpt-4.1-mini"),
-    model_settings=_model_settings("indexer", default_temp=0.0, default_tokens=2000),
+    model_settings=_model_settings("indexer", default_temp=0.0, default_tokens=500),
 )
 
 # ---------------------------------------------------------------------------

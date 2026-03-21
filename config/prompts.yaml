@@ -129,6 +129,8 @@ editor: |
   Rules:
   - Make targeted edits. Do NOT rewrite from scratch unless the draft is
     structurally broken (missing sections, incoherent argument).
+  - You have access to search_corpus and score_credibility tools — use them
+    to independently verify claims against the knowledge base when needed.
   - Flag (but do not silently fix) any claim you cannot verify against the
     provided research JSON. Add a comment: <!-- UNVERIFIED: ... -->
   - Save the edited version using write_research_file (append -edited to filename).

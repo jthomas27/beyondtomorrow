@@ -88,16 +88,106 @@ Token limits are per-request. With Pro+, there are no daily request caps. The ti
 
 ---
 
+## Rate Limits (Free API / Playground)
+
+> Source: [GitHub Docs — Prototyping with AI models](https://docs.github.com/en/github-models/use-github-models/prototyping-with-ai-models#rate-limits)
+> These apply to the free playground and API usage. Paid usage via Azure AI / GitHub Models billing has production-grade limits.
+
+### Custom Tier — o1, o3, gpt-5
+
+| Limit | Free | Pro | Business | Enterprise |
+|---|---|---|---|---|
+| Requests/min | — | 1 | 2 | 2 |
+| Requests/day | — | 8 | 10 | 12 |
+| Tokens/req | — | 4K in / 4K out | 4K in / 4K out | 4K in / 8K out |
+| Concurrent | — | 1 | 1 | 1 |
+
+### Custom Tier — o1-mini, o3-mini, o4-mini, gpt-5-mini, gpt-5-nano, gpt-5-chat
+
+| Limit | Free | Pro | Business | Enterprise |
+|---|---|---|---|---|
+| Requests/min | — | 2 | 3 | 3 |
+| Requests/day | — | 12 | 15 | 20 |
+| Tokens/req | — | 4K in / 4K out | 4K in / 4K out | 4K in / 4K out |
+| Concurrent | — | 1 | 1 | 1 |
+
+### Custom Tier — o1-preview
+
+| Limit | Free | Pro | Business | Enterprise |
+|---|---|---|---|---|
+| Requests/min | — | 1 | 2 | 2 |
+| Requests/day | — | 8 | 10 | 12 |
+| Tokens/req | — | 4K in / 4K out | 4K in / 4K out | 4K in / 8K out |
+| Concurrent | — | 1 | 1 | 1 |
+
+### Custom Tier — DeepSeek-R1, DeepSeek-R1-0528, MAI-DS-R1
+
+| Limit | Free | Pro | Business | Enterprise |
+|---|---|---|---|---|
+| Requests/min | 1 | 1 | 2 | 2 |
+| Requests/day | 8 | 8 | 10 | 12 |
+| Tokens/req | 4K in / 4K out | 4K in / 4K out | 4K in / 4K out | 4K in / 4K out |
+| Concurrent | 1 | 1 | 1 | 1 |
+
+### Custom Tier — xAI Grok-3
+
+| Limit | Free | Pro | Business | Enterprise |
+|---|---|---|---|---|
+| Requests/min | 1 | 1 | 2 | 2 |
+| Requests/day | 15 | 15 | 20 | 30 |
+| Tokens/req | 4K in / 4K out | 4K in / 4K out | 4K in / 8K out | 4K in / 16K out |
+| Concurrent | 1 | 1 | 1 | 1 |
+
+### Custom Tier — xAI Grok-3-Mini
+
+| Limit | Free | Pro | Business | Enterprise |
+|---|---|---|---|---|
+| Requests/min | 2 | 2 | 3 | 3 |
+| Requests/day | 30 | 30 | 40 | 50 |
+| Tokens/req | 4K in / 8K out | 4K in / 8K out | 4K in / 12K out | 4K in / 12K out |
+| Concurrent | 1 | 1 | 1 | 1 |
+
+### High Tier (gpt-4.1, gpt-4o, Llama 4, Llama 3.x 70B+, DeepSeek-V3, Cohere Command R+, AI21 Jamba)
+
+| Limit | Free | Pro | Business | Enterprise |
+|---|---|---|---|---|
+| Requests/min | 10 | 10 | 10 | 15 |
+| Requests/day | 50 | 50 | 100 | 150 |
+| Tokens/req | 8K in / 4K out | 8K in / 4K out | 8K in / 4K out | 16K in / 8K out |
+| Concurrent | 2 | 2 | 2 | 4 |
+
+### Low Tier (gpt-4.1-mini/nano, gpt-4o-mini, Mistral, Llama 3.x 8B/11B, Cohere Command R/A, Phi-4)
+
+| Limit | Free | Pro | Business | Enterprise |
+|---|---|---|---|---|
+| Requests/min | 15 | 15 | 15 | 20 |
+| Requests/day | 150 | 150 | 300 | 450 |
+| Tokens/req | 8K in / 4K out | 8K in / 4K out | 8K in / 4K out | 8K in / 8K out |
+| Concurrent | 5 | 5 | 5 | 8 |
+
+### Embedding Tier (text-embedding-3-small, text-embedding-3-large)
+
+| Limit | Free | Pro | Business | Enterprise |
+|---|---|---|---|---|
+| Requests/min | 15 | 15 | 15 | 20 |
+| Requests/day | 150 | 150 | 300 | 450 |
+| Tokens/req | 64,000 | 64,000 | 64,000 | 64,000 |
+| Concurrent | 5 | 5 | 5 | 8 |
+
+> **Pipeline note:** The pipeline uses `gpt-4.1` (High tier: 10 RPM / 50 RPD) for researcher/writer/editor, and `gpt-4.1-mini` for orchestrator/publisher/indexer. Fallback chain: `gpt-4.1` → `gpt-4.1-mini` → `gpt-4.1-nano`. These token-per-request caps are free-tier limits — the model's actual context window is much larger.
+
+---
+
 ## Pipeline Model Assignments (recommended)
 
 | Agent | Model | Reason |
 |-------|-------|--------|
-| Researcher | `openai/gpt-5` | 200k context, reasoning, tool-calling |
-| Writer | `openai/gpt-5` | Best prose quality |
-| Editor | `openai/gpt-5` | Reasoning for fact-check |
-| Orchestrator | `openai/gpt-5-mini` | Fast routing, 200k context |
-| Publisher | `openai/gpt-5-mini` | Deterministic metadata extraction + Ghost API call |
-| Indexer | `openai/gpt-5-mini` | Minimal reasoning needed |
+| Researcher | `openai/gpt-4.1` | 1M context, reliable reasoning, tool-calling |
+| Writer | `openai/gpt-4.1` | Blog prose; 1M context |
+| Editor | `openai/gpt-4.1` | Editorial pass; reliable fact-check |
+| Orchestrator | `openai/gpt-4.1-mini` | Fast routing, 1M context |
+| Publisher | `openai/gpt-4.1-mini` | Deterministic metadata extraction + Ghost API call |
+| Indexer | `openai/gpt-4.1-mini` | Minimal reasoning needed |
 
 ---
 

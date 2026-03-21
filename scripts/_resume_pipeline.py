@@ -18,9 +18,9 @@ async def run() -> None:
     date_prefix = "2026-03-12"
     feature_image = "https://beyondtomorrow.world/content/images/2026/03/futuristic-city-3.png"
 
-    # Override to gpt-5-mini for quick resume runs
-    writer_agent = writer.clone(handoffs=[], model="openai/gpt-5-mini")
-    editor_agent = editor.clone(handoffs=[], model="openai/gpt-5-mini")
+    # Override to gpt-4.1-mini for quick resume runs
+    writer_agent = writer.clone(handoffs=[], model="openai/gpt-4.1-mini")
+    editor_agent = editor.clone(handoffs=[], model="openai/gpt-4.1-mini")
     publisher_agent = publisher.clone(handoffs=[])
     indexer_agent = indexer.clone(handoffs=[])
 

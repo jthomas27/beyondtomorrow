@@ -130,21 +130,9 @@ async def web_search(query: str, max_results: int = 10) -> str:
     )
 
 
-@function_tool
-async def search_and_index(query: str, max_results: int = 8) -> str:
-    """Search the web, fetch full page content, and store text + embeddings in pgvector.
-
-    Unlike web_search (snippets only), this tool fetches complete article text and
-    persists it in the knowledge corpus (PostgreSQL + pgvector) so it can be retrieved
-    semantically by search_corpus. Results survive across pipeline runs — they are
-    stored in the database, not temporary files.
-
-    Automatically retries with simplified search terms if rate-limited.
-
-    Args:
-        query: The search query string.
-        max_results: Number of pages to fetch and index (default 8).
-    """
+async def _search_and_index_impl(query: str, max_results: int = 8) -> str:
+    """Core implementation of search + embed + store. Called by the @function_tool
+    wrapper and by _prefetch_topic (which runs outside the LLM loop)."""
     from pipeline.embeddings import embed_batch
     from pipeline.db import get_pool
     from pipeline.tools.corpus import _chunk_text, _get_chunk_params
@@ -300,6 +288,24 @@ async def search_and_index(query: str, max_results: int = 8) -> str:
 
 
 @function_tool
+async def search_and_index(query: str, max_results: int = 8) -> str:
+    """Search the web, fetch full page content, and store text + embeddings in pgvector.
+
+    Unlike web_search (snippets only), this tool fetches complete article text and
+    persists it in the knowledge corpus (PostgreSQL + pgvector) so it can be retrieved
+    semantically by search_corpus. Results survive across pipeline runs — they are
+    stored in the database, not temporary files.
+
+    Automatically retries with simplified search terms if rate-limited.
+
+    Args:
+        query: The search query string.
+        max_results: Number of pages to fetch and index (default 8).
+    """
+    return await _search_and_index_impl(query, max_results)
+
+
+@function_tool
 async def search_arxiv(query: str, max_results: int = 5) -> str:
     """Search arXiv for academic papers and index abstracts into the corpus.
 
@@ -419,3 +425,48 @@ async def fetch_page(url: str) -> str:
         text = text[:max_chars] + "\n\n[... truncated]"
 
     return f"Source: {url}\n\n{text}"
+
+
+# ---------------------------------------------------------------------------
+# Pre-fetch helper — called directly by the pipeline (not via LLM tool call)
+# ---------------------------------------------------------------------------
+
+async def _prefetch_topic(topic: str, num_queries: int = 2) -> list[str]:
+    """Generate simple keyword queries for *topic* and index pages into the corpus.
+
+    This runs entirely outside the LLM loop — no API calls to GitHub Models.
+    Pages are fetched and embedded before the Researcher agent starts, so the
+    agent can skip search_and_index calls and go straight to search_corpus.
+
+    Args:
+        topic: The raw topic string from the pipeline task.
+        num_queries: How many query variants to generate (default 2).
+
+    Returns:
+        List of index-result strings from search_and_index.
+    """
+    words = [w for w in topic.lower().replace(",", "").replace("'", "").split() if len(w) > 2]
+
+    # Build simple keyword-only queries (no LLM needed)
+    queries: list[str] = []
+    # Query 1: First 5 meaningful words
+    queries.append(" ".join(words[:5]))
+    # Query 2: Append "analysis 2025" for a recency-focused angle
+    if num_queries >= 2:
+        queries.append(" ".join(words[:4]) + " analysis 2025")
+    # Query 3: "latest" variant
+    if num_queries >= 3:
+        queries.append("latest " + " ".join(words[:4]))
+
+    results: list[str] = []
+    for q in queries[:num_queries]:
+        try:
+            result = await _search_and_index_impl(q, max_results=5)
+            results.append(result)
+            logger.info("Pre-fetch: indexed query '%s'", q)
+        except Exception as exc:
+            logger.warning("Pre-fetch failed for query '%s': %s", q, exc)
+        # Small delay between queries to avoid DuckDuckGo rate-limiting
+        await asyncio.sleep(3)
+
+    return results
