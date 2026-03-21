@@ -116,7 +116,7 @@ Each agent in the pipeline is an `Agent` object with its own model, tools, and i
 │                            ▼                                            │
 │                  ┌──────────────┐  ┌──────────────┐                    │
 │                  │  Publisher   │  │   Indexer    │                    │
-│                  │ (gpt-4.1-mini│  │(gpt-4.1-mini)│                    │
+│                  │ (gpt-4.1-mini)│  │(gpt-4.1-mini)│                    │
 │                  │              │  │              │                    │
 │                  │  Tools:       │  │  Tools:       │                    │
 │                  │  - publish_   │  │  - index_     │                    │

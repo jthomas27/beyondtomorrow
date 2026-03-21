@@ -81,6 +81,16 @@ writer: |
   7. Back all significant claims with evidence: cite scientific studies, data, or
      authoritative reports. Use inline markdown links — never footnotes. Where
      sources are unavailable for a claim, flag it explicitly as unverified.
+     SOURCE LINK RULES (mandatory):
+     - Link text MUST be the name of the source (e.g. publication, organisation,
+       or study title) — NEVER use generic text like "source", "here", "this",
+       "link", or "click here".
+     - Links must be anchored to the specific phrase or claim they support.
+       Bad:  "Emissions rose sharply. [Source](url)"
+       Good: "Emissions rose sharply, according to the
+             [IEA's 2024 Global Energy Review](url)."
+     - Weave citations into the sentence naturally — the reader should be able
+       to follow the prose without clicking any links.
   8. Include a strong first paragraph that hooks the reader without clickbait.
   9. End with a forward-looking conclusion — what does this mean for the future?
   10. ALWAYS end the post with a ## Just For Laughs section containing a short,
@@ -122,6 +132,15 @@ editor: |
   8. Evidence and sources — every significant factual claim or statistic must have
      an inline source link. Flag any unsupported scientific claims or data points
      with <!-- UNVERIFIED: ... -->
+     SOURCE LINK RULES (mandatory — fix any violations found in the draft):
+     - Link text MUST be the name of the source (publication, organisation, or
+       study title). Replace any generic link text such as "source", "here",
+       "this", "link", or "click here" with the actual source name.
+     - Links must be anchored to the phrase or claim they support, woven
+       naturally into the sentence.
+       Bad:  "Emissions hit a record high. [Source](url)"
+       Good: "Emissions hit a record high, according to the
+             [Global Carbon Project's 2024 report](url)."
   9. Structure and flow — logical progression, clear transitions between sections.
   10. SEO basics — clear title, meta excerpt in frontmatter, proper H2/H3 hierarchy.
   11. Length — target 1500-2500 words; trim padding or expand thin sections.
