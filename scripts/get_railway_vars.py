@@ -1,10 +1,12 @@
 """
-Fetch Railway environment variables for a given service.
+Fetch or set Railway environment variables for a given service.
 
 Usage:
-    python3 scripts/get_railway_vars.py [service]
+    python3 scripts/get_railway_vars.py [service]              # list all (masked)
+    python3 scripts/get_railway_vars.py [service] --raw KEY    # print one value unmasked
+    python3 scripts/get_railway_vars.py [service] --set KEY VALUE  # upsert a variable
 
-    service: ghost (default) | email-worker | pgvector
+    service: ghost (default) | email-worker
 
 Credentials are loaded from .env (RAILWAY_TOKEN). Never hardcoded.
 """
@@ -46,19 +48,60 @@ SERVICES = {
     "email-worker": "15b13afb-8515-49e9-ab38-7e138069064f",
 }
 
-# Parse args: [service] [--raw KEY]
+# Parse args: [service] [--raw KEY] [--set KEY VALUE]
 args = sys.argv[1:]
 raw_key = None
+set_key = None
+set_val = None
+
 if "--raw" in args:
     idx = args.index("--raw")
     raw_key = args[idx + 1] if idx + 1 < len(args) else None
     args = [a for a in args if a not in ("--raw", raw_key)]
+
+if "--set" in args:
+    idx = args.index("--set")
+    set_key = args[idx + 1] if idx + 1 < len(args) else None
+    set_val = args[idx + 2] if idx + 2 < len(args) else None
+    args = [a for a in args if a not in ("--set", set_key, set_val)]
 
 service_name = args[0] if args else "ghost"
 service_id   = SERVICES.get(service_name)
 if not service_id:
     print(f"Unknown service '{service_name}'. Valid options: {', '.join(SERVICES)}")
     sys.exit(1)
+
+# ── Upsert ─────────────────────────────────────────────────────
+if set_key and set_val is not None:
+    mutation = """
+    mutation UpsertVar($input: VariableUpsertInput!) {
+      variableUpsert(input: $input)
+    }
+    """
+    r = httpx.post(
+        "https://backboard.railway.app/graphql/v2",
+        json={
+            "query": mutation,
+            "variables": {
+                "input": {
+                    "projectId": PROJECT_ID,
+                    "environmentId": ENVIRONMENT_ID,
+                    "serviceId": service_id,
+                    "name": set_key,
+                    "value": set_val,
+                }
+            }
+        },
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        timeout=15,
+    )
+    data = r.json()
+    if "errors" in data:
+        print("GraphQL errors:", json.dumps(data["errors"], indent=2))
+        sys.exit(1)
+    masked = set_val[:8] + "..." + set_val[-4:] if len(set_val) > 12 else set_val
+    print(f"✓  {set_key} set on {service_name} service  ({masked})")
+    sys.exit(0)
 
 # ── Query ──────────────────────────────────────────────────────
 query = """
