@@ -6,7 +6,7 @@
 #
 # To deploy the email listener:
 #   1. Create a new Railway service connected to this repo
-#   2. Set the start command to: python -m pipeline.email_listener
+#   2. Set the start command to: python3 -m pipeline.email_listener
 #   3. Set required environment variables (see below)
 #   4. Deploy
 
@@ -14,7 +14,7 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "python -m pipeline.email_listener"
+startCommand = "python3 -m pipeline.email_listener"
 restartPolicyType = "always"
 restartPolicyMaxRetries = 5
 
