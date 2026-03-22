@@ -46,6 +46,28 @@ from typing import Optional
 
 logger = logging.getLogger("pipeline.email_listener")
 
+# Load .env at module level so EMAIL_USER/EMAIL_PASS are available when the
+# listener is run directly (e.g. python -m pipeline.email_listener locally).
+# On Railway, env vars are injected by the platform and this is a no-op.
+def _load_dotenv() -> None:
+    """Load .env from the project root into os.environ (skips already-set vars)."""
+    from pathlib import Path
+    env_path = Path(__file__).parent.parent / ".env"
+    if not env_path.is_file():
+        return
+    with open(env_path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and value and key not in os.environ:
+                os.environ[key] = value
+
+_load_dotenv()
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
