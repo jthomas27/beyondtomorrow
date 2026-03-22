@@ -298,6 +298,76 @@ def fetch_unread_messages(
 DEFAULT_POLL_INTERVAL = 300  # seconds (5 minutes)
 
 
+# ---------------------------------------------------------------------------
+# Email body formatters
+# ---------------------------------------------------------------------------
+
+def _fmt_duration(elapsed_s: float) -> str:
+    m, s = divmod(int(elapsed_s), 60)
+    return f"{m}m {s}s" if m else f"{s}s"
+
+
+def _fmt_stages(stages: list) -> str:
+    lines = []
+    for s in stages:
+        icon = {"ok": "\u2713", "error": "\u2717", "skipped": "\u21B7"}.get(s["status"], "?")
+        elapsed = f"  {s['elapsed_s']}s" if s.get("elapsed_s") else ""
+        line = f"  {s['stage']:<12}{icon}{elapsed}"
+        if s["status"] == "error":
+            line += f"  ({s.get('error_type', 'Error')}: {s.get('error_message', '')})"
+        elif s["status"] == "skipped":
+            line += f"  ({s.get('reason', '')})"
+        lines.append(line)
+    return "\n".join(lines) if lines else "  (no stages recorded)"
+
+
+def _build_success_email(command: str, topic: str, result: dict) -> str:
+    run_log = result.get("run_log")
+    summary = run_log.summary() if run_log else {}
+    duration = _fmt_duration(result.get("total_elapsed_s", 0))
+    url = result.get("published_url", "https://beyondtomorrow.world")
+    stage_lines = _fmt_stages(summary.get("stages", []))
+    return (
+        f"Command  : {command}\n"
+        f"Topic    : {topic}\n"
+        f"Status   : Published\n"
+        f"URL      : {url}\n"
+        f"Duration : {duration}\n"
+        f"\nStages:\n{stage_lines}"
+    )
+
+
+def _build_failure_email(command: str, topic: str, result: dict) -> str:
+    run_log = result.get("run_log")
+    summary = run_log.summary() if run_log else {}
+    duration = _fmt_duration(result.get("total_elapsed_s", 0))
+    failed_stage = summary.get("failed_stage") or "Unknown"
+    error_type = summary.get("error_type") or "Error"
+    error_msg = summary.get("error_message") or "Unknown error"
+    run_id = summary.get("run_id", "")
+    log_file = summary.get("log_file", "")
+    stage_lines = _fmt_stages(summary.get("stages", []))
+    cause_chain = summary.get("cause_chain")
+
+    body = (
+        f"Command  : {command}\n"
+        f"Topic    : {topic}\n"
+        f"Status   : FAILED at {failed_stage}\n"
+        f"Error    : {error_type}: {error_msg}\n"
+        f"Run ID   : {run_id}\n"
+        f"Duration : {duration}\n"
+        f"Log      : {log_file}\n"
+        f"\nStages:\n{stage_lines}"
+    )
+
+    if cause_chain:
+        body += "\n\nCause chain:"
+        for c in cause_chain:
+            body += f"\n  <- {c['type']}: {c['message']}"
+
+    return body
+
+
 def _load_allowlist() -> list[dict]:
     """Load the approved-senders list from config/allowlist.yaml."""
     import yaml
@@ -364,37 +434,38 @@ async def poll_once() -> None:
         send_reply(
             reply_to,
             f"[BeyondTomorrow] Received: {command}: {topic}",
-            f"Your request has been received and is now processing.\n\n"
-            f"Command : {command}\n"
-            f"Topic   : {topic}\n\n"
-            f"The full pipeline (research → write → edit → publish) typically takes "
-            f"5–15 minutes. You'll receive another email when it's done.\n\n"
-            f"— BeyondTomorrow.World",
+            f"Command  : {command}\nTopic    : {topic}\nStatus   : Processing",
         )
 
         try:
-            await _run_blog_pipeline(task_str)
-            logger.info("Task complete: %s", task_str)
-            send_reply(
-                reply_to,
-                f"[BeyondTomorrow] Published: {topic}",
-                f"Your blog post has been published on BeyondTomorrow.World.\n\n"
-                f"Topic   : {topic}\n"
-                f"Status  : Published\n\n"
-                f"Visit https://beyondtomorrow.world to read it live.\n\n"
-                f"— BeyondTomorrow.World",
-            )
+            result = await _run_blog_pipeline(task_str)
+            if result.get("status") == "published":
+                logger.info("Task complete: %s", task_str)
+                send_reply(
+                    reply_to,
+                    f"[BeyondTomorrow] Published: {topic}",
+                    _build_success_email(command, topic, result),
+                )
+            else:
+                run_log = result.get("run_log")
+                failed_stage = run_log.summary().get("failed_stage") if run_log else "Unknown"
+                logger.error("Task failed: %s — stage: %s", task_str, failed_stage)
+                send_reply(
+                    reply_to,
+                    f"[BeyondTomorrow] Failed: {command}: {topic}",
+                    _build_failure_email(command, topic, result),
+                )
         except Exception as exc:
-            logger.error("Task failed: %s — %s", task_str, exc)
+            logger.error("Task raised unhandled exception: %s — %s", task_str, exc, exc_info=True)
             send_reply(
                 reply_to,
                 f"[BeyondTomorrow] Failed: {command}: {topic}",
-                f"Unfortunately your request encountered an error.\n\n"
-                f"Command : {command}\n"
-                f"Topic   : {topic}\n"
-                f"Error   : {exc}\n\n"
-                f"Please try sending the email again, or check the Railway logs for details.\n\n"
-                f"— BeyondTomorrow.World",
+                (
+                    f"Command  : {command}\n"
+                    f"Topic    : {topic}\n"
+                    f"Status   : FAILED (unhandled exception)\n"
+                    f"Error    : {type(exc).__name__}: {exc}"
+                ),
             )
 
 

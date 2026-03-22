@@ -99,6 +99,7 @@ async def _run_agent_with_fallback(
     pool,
     max_turns: int = 10,
     max_attempts: int = 6,
+    run_log=None,
 ) -> tuple[str, int, int]:
     """Run an agent with proactive model selection and automatic fallback.
 
@@ -130,6 +131,12 @@ async def _run_agent_with_fallback(
                 "%s: proactive switch %s → %s (budget/RPM pressure)",
                 agent_name, current_model, selected,
             )
+            if run_log:
+                run_log.model_fallback(
+                    stage=agent_name, agent_name=agent_name,
+                    from_model=current_model, to_model=selected,
+                    attempt=0, reason="proactive RPM/budget switch",
+                )
             current_model = selected
             agent.model = current_model
             agent.model_settings = model_settings_for(
@@ -162,6 +169,13 @@ async def _run_agent_with_fallback(
                             agent_name, current_model, type(exc).__name__,
                             fallback, backoff, attempt + 1, max_attempts,
                         )
+                        if run_log:
+                            run_log.model_fallback(
+                                stage=agent_name, agent_name=agent_name,
+                                from_model=current_model, to_model=fallback,
+                                attempt=attempt + 1,
+                                reason=f"{type(exc).__name__}: {exc}",
+                            )
                         current_model = fallback
                         agent.model = current_model
                         agent.model_settings = model_settings_for(
@@ -310,7 +324,7 @@ async def _check_status() -> None:
         logger.error("Status: NOT READY — fix the issues above before running agents")
 
 
-async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
+async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
     """Run the full BLOG pipeline: Research+Index → Write → Edit → Publish → Index."""
     from pathlib import Path
 
@@ -339,6 +353,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
     logger.info("Starting BLOG pipeline")
     logger.info("Topic: %s", topic)
 
+    from pipeline.pipeline_logger import PipelineRunLogger
+    run_log = PipelineRunLogger(topic=topic, command="BLOG")
+    _current_stage = "init"
+    _pipeline_t0 = monotonic()
+    _pipeline_result: dict = {
+        "status": "failed", "published_url": "", "run_log": run_log, "total_elapsed_s": 0.0
+    }
+
     try:
         pool = await get_pool()
         _pipeline_t0 = monotonic()
@@ -346,6 +368,8 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
         # =============================================================
         # Step 1: Research
         # =============================================================
+        _current_stage = "Research"
+        run_log.stage_start("Research")
         logger.info("[1/5] Researching and indexing sources to DB...")
         _t0 = monotonic()
 
@@ -379,7 +403,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
             )
             research_output, r_tin, r_tout = await _run_agent_with_fallback(
                 researcher, research_input,
-                agent_name="Researcher", pool=pool, max_turns=8,
+                agent_name="Researcher", pool=pool, max_turns=8, run_log=run_log,
             )
             await log_model_call(pool, researcher.model, tokens_in=r_tin, tokens_out=r_tout, phase="research")
             logger.info("Research complete (tokens: in=%d out=%d).", r_tin, r_tout)
@@ -404,11 +428,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
         except Exception as _idx_err:
             logger.warning("Could not save research to DB: %s", _idx_err)
 
+        run_log.stage_ok("Research", elapsed_s=round(monotonic() - _t0, 1), model=researcher.model)
         logger.info("[1/5] Research done in %.1fs", monotonic() - _t0)
 
         # =============================================================
         # Step 2: Write draft
         # =============================================================
+        _current_stage = "Write"
+        run_log.stage_start("Write")
         logger.info("[2/5] Writing draft (cooldown %ds)...", _STAGE_COOLDOWN)
         await asyncio.sleep(_STAGE_COOLDOWN)
         _t0 = monotonic()
@@ -430,7 +457,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
             )
             _, w_tin, w_tout = await _run_agent_with_fallback(
                 writer, write_input,
-                agent_name="Writer", pool=pool, max_turns=6,
+                agent_name="Writer", pool=pool, max_turns=6, run_log=run_log,
             )
             await log_model_call(pool, writer.model, tokens_in=w_tin, tokens_out=w_tout, phase="writer")
 
@@ -450,7 +477,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                 )
                 _, wr_tin, wr_tout = await _run_agent_with_fallback(
                     writer, retry_input,
-                    agent_name="Writer", pool=pool, max_turns=6,
+                    agent_name="Writer", pool=pool, max_turns=6, run_log=run_log,
                 )
                 await log_model_call(pool, writer.model, tokens_in=wr_tin, tokens_out=wr_tout, phase="writer-retry")
                 new_drafts = [
@@ -462,11 +489,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                 draft_filename = max(new_drafts, key=lambda f: f.stat().st_mtime).name
 
         logger.info("Draft saved: %s", draft_filename)
+        run_log.stage_ok("Write", elapsed_s=round(monotonic() - _t0, 1), draft=draft_filename)
         logger.info("[2/5] Write done in %.1fs", monotonic() - _t0)
 
         # =============================================================
         # Step 3: Edit
         # =============================================================
+        _current_stage = "Edit"
+        run_log.stage_start("Edit")
         # Adaptive cooldown: query RPM usage and wait only if needed.
         # If the model's RPM window is clear, use the standard cooldown;
         # otherwise wait long enough for the window to rotate.
@@ -504,14 +534,17 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
             try:
                 _, e_tin, e_tout = await _run_agent_with_fallback(
                     editor, edit_input,
-                    agent_name="Editor", pool=pool, max_turns=6,
+                    agent_name="Editor", pool=pool, max_turns=6, run_log=run_log,
                 )
                 await log_model_call(pool, editor.model, tokens_in=e_tin, tokens_out=e_tout, phase="editor")
-            except asyncio.TimeoutError:
+            except asyncio.TimeoutError as _te:
+                run_log.warning("Edit", f"Editor timed out after {_AGENT_TIMEOUT}s")
                 logger.error("Editor timed out after %ds", _AGENT_TIMEOUT)
 
             # Verify the editor actually saved the file
             if not (research_dir / edited_filename).exists():
+                run_log.warning("Edit", "Editor did not save — using unedited draft as fallback",
+                                fallback=draft_filename)
                 logger.warning(
                     "Editor did not produce '%s' — falling back to unedited draft.",
                     edited_filename,
@@ -519,11 +552,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                 edited_filename = draft_filename
 
         logger.info("Edit complete: %s", edited_filename)
+        run_log.stage_ok("Edit", elapsed_s=round(monotonic() - _t0, 1), edited=edited_filename)
         logger.info("[3/5] Edit done in %.1fs", monotonic() - _t0)
 
         # =============================================================
         # Step 4: Publish
         # =============================================================
+        _current_stage = "Publish"
+        run_log.stage_start("Publish")
         logger.info("[4/5] Publishing to Ghost (cooldown %ds)...", _STAGE_COOLDOWN)
         await asyncio.sleep(_STAGE_COOLDOWN)
         _t0 = monotonic()
@@ -538,7 +574,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
         )
         publish_output, p_tin, p_tout = await _run_agent_with_fallback(
             publisher, publish_input,
-            agent_name="Publisher", pool=pool, max_turns=6,
+            agent_name="Publisher", pool=pool, max_turns=6, run_log=run_log,
         )
         await log_model_call(pool, publisher.model, tokens_in=p_tin, tokens_out=p_tout, phase="publisher")
 
@@ -566,14 +602,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                 )
                 _, er_tin, er_tout = await _run_agent_with_fallback(
                     editor, recovery_input,
-                    agent_name="Editor", pool=pool, max_turns=10,
+                    agent_name="Editor", pool=pool, max_turns=10, run_log=run_log,
                 )
                 await log_model_call(pool, editor.model, tokens_in=er_tin, tokens_out=er_tout, phase="editor-recovery")
 
             logger.info("Retrying Publisher after recovery...")
             publish_output, pr_tin, pr_tout = await _run_agent_with_fallback(
                 publisher, publish_input,
-                agent_name="Publisher", pool=pool, max_turns=6,
+                agent_name="Publisher", pool=pool, max_turns=6, run_log=run_log,
             )
             await log_model_call(pool, publisher.model, tokens_in=pr_tin, tokens_out=pr_tout, phase="publisher-retry")
 
@@ -584,11 +620,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                 )
 
         logger.info("Published: %s", publish_output)
+        run_log.stage_ok("Publish", elapsed_s=round(monotonic() - _t0, 1), url=publish_output)
         logger.info("[4/5] Publish done in %.1fs", monotonic() - _t0)
 
         # =============================================================
         # Step 5: Index to corpus
         # =============================================================
+        _current_stage = "Index"
+        run_log.stage_start("Index")
         logger.info("[5/5] Indexing edited post to corpus (cooldown %ds)...", _STAGE_COOLDOWN)
         await asyncio.sleep(_STAGE_COOLDOWN)
         _t0 = monotonic()
@@ -612,12 +651,36 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
             logger.warning("Skipped indexing: %s not found", edited_filename)
 
         _total = monotonic() - _pipeline_t0
+        run_log.stage_ok("Index", elapsed_s=round(monotonic() - _t0, 1), detail=index_output)
         logger.info("[5/5] Index done in %.1fs", monotonic() - _t0)
         logger.info("BLOG pipeline complete in %.1fs (%.1f min)", _total, _total / 60)
         logger.info("Published: %s", publish_output)
         logger.info("Corpus: %s", index_output)
+        run_log.run_complete(published_url=publish_output, total_elapsed_s=_total)
+        _pipeline_result = {
+            "status": "published",
+            "published_url": publish_output,
+            "run_log": run_log,
+            "total_elapsed_s": _total,
+        }
+    except Exception as exc:
+        _total = monotonic() - _pipeline_t0
+        run_log.stage_error(_current_stage, exc)
+        run_log.run_failed(_current_stage, exc, total_elapsed_s=_total)
+        _pipeline_result = {
+            "status": "failed",
+            "published_url": "",
+            "run_log": run_log,
+            "total_elapsed_s": _total,
+        }
+        logger.error(
+            "BLOG pipeline failed at stage '%s': %s",
+            _current_stage, exc, exc_info=True,
+        )
     finally:
         await close_pool()
+
+    return _pipeline_result
 
 
 async def _run_publish_only(task: str, debug: bool = False) -> None:
