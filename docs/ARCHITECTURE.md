@@ -13,7 +13,7 @@ A blog that publishes new posts automatically. Python agents (powered by the [Op
 | Blog             | Ghost (self-hosted)  | Displays posts, manages content           |
 | Hosting          | Railway              | Runs Ghost + agent worker services        |
 | Blog Database    | MySQL (Railway)      | Stores all blog content (Ghost)           |
-| Vector Database  | PostgreSQL + pgvector (Railway) | Stores embeddings for AI semantic search |
+| Vector Database  | PostgreSQL + pgvector (Railway) | Stores 384-dim embeddings + generated tsvector column for hybrid search |
 | Automation       | GitHub Actions       | Triggers agent runs (schedule or event)   |
 | Email            | Hostinger Business Email | Receives inbound emails (beyondtomorrow.world) |
 | AI               | [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) via GitHub Models API | Powers research, writing, publishing agents with built-in agent loop, `@function_tool` decorators, handoffs between agents, guardrails, and tracing — zero LLM cost via Copilot Pro |
@@ -31,11 +31,11 @@ Two databases serve distinct purposes, both hosted on Railway:
 | Database | Purpose | Access Pattern |
 |----------|---------|----------------|
 | **MySQL** | Blog content (Ghost CMS) | Ghost owns all writes; agents publish via Ghost Admin API |
-| **PostgreSQL + pgvector** | Knowledge embeddings for AI agents | Agents read/write directly for semantic search |
+| **PostgreSQL + pgvector** | Knowledge embeddings for AI agents | Agents read/write directly; hybrid semantic + full-text search via RRF |
 
 **Why two databases?**
 - MySQL is required by Ghost—agents never touch it directly
-- PostgreSQL with pgvector extension enables vector similarity search for the knowledge corpus
+- PostgreSQL with pgvector extension enables hybrid search for the knowledge corpus: pgvector cosine similarity + PostgreSQL full-text search (`tsvector` / GIN index), merged via Reciprocal Rank Fusion (RRF)
 - Keeping them separate ensures Ghost stability while giving agents full control over embeddings
 
 **How they connect:**
@@ -191,7 +191,7 @@ Each agent is defined via the OpenAI Agents SDK `Agent()` class with its own mod
 | Ghost API fails | Retry 3x, then save draft locally and alert |
 | Research finds nothing | Fall back to knowledge corpus only |
 | PDF extraction fails | Log error, skip file, continue with others |
-| pgvector search fails | Fall back to keyword search |
+| pgvector search fails | Hybrid search degrades automatically: if `ts` column absent, uses vector-only + `ILIKE` keyword fallback |
 
 ---
 
@@ -220,8 +220,7 @@ Each agent is defined via the OpenAI Agents SDK `Agent()` class with its own mod
    - *Recommendation: Start with manual, add email later*
 
 3. **Corpus size** — How many documents do you expect?
-   - *< 100 docs: Simple keyword search is fine*
-   - *100+ docs: Enable pgvector for semantic search*
+   - *Hybrid search (pgvector + tsvector RRF) is active regardless of corpus size — no threshold decision needed*
 
 ---
 

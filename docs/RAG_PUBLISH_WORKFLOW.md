@@ -11,7 +11,7 @@ Quick reference for understanding and working on RAG agent publish requests.
 | Blog CMS | Ghost 5.x (self-hosted) | `https://beyondtomorrow.world` |
 | Hosting | Railway (`caring-alignment` project) | Ghost + agent worker services |
 | Blog DB | MySQL (Railway) | Ghost owns all writes — agents never touch it directly |
-| Vector DB | PostgreSQL + pgvector (Railway) | Stores 384-dim embeddings for semantic search |
+| Vector DB | PostgreSQL + pgvector (Railway) | Stores 384-dim embeddings + generated tsvector column for hybrid search |
 | Object Storage | Railway Object Storage | Raw PDFs, emails, images, knowledge corpus |
 | AI Framework | OpenAI Agents SDK + GitHub Models API | `gpt-4.1` for research/write/edit; `gpt-4.1-mini` for orch/publish/index |
 | Embeddings | `all-MiniLM-L6-v2` (sentence-transformers, local) | Runs on Railway compute; zero API cost |
@@ -29,7 +29,7 @@ Quick reference for understanding and working on RAG agent publish requests.
 
 ### Agent Handoff Chain (OpenAI Agents SDK)
 3. **Orchestrator** — receives task, identifies type, manages the handoff chain
-4. **Researcher** — searches the web + queries pgvector corpus (semantic similarity search on embeddings); returns structured JSON findings
+4. **Researcher** — searches the web + queries pgvector corpus via hybrid search (pgvector cosine similarity + full-text `tsvector`, merged with RRF); returns structured JSON findings
 5. **Writer** — produces 900–1500 word Markdown draft grounded in research
 6. **Editor** — proofreads, improves tone, runs quality guardrails
 
@@ -56,7 +56,7 @@ Quick reference for understanding and working on RAG agent publish requests.
 | `pipeline/definitions.py` | Agent definitions (Orchestrator, Researcher, Writer, Editor, Publisher, Indexer) |
 | `pipeline/embeddings.py` | Embedding generation (all-MiniLM-L6-v2) and pgvector operations |
 | `pipeline/tools/ghost.py` | Ghost Admin API calls — JWT auth, post creation/update |
-| `pipeline/tools/search.py` | Web search + pgvector semantic search |
+| `pipeline/tools/search.py` | Web search + hybrid corpus search (pgvector + tsvector RRF) |
 | `pipeline/tools/corpus.py` | Knowledge corpus reads/writes (Railway Object Storage) |
 | `pipeline/guardrails.py` | Content quality checks before publishing |
 | `pipeline/degradation.py` | Model fallback chain (retries with backoff; degrades to cheaper model) |
@@ -106,7 +106,7 @@ Quick reference for understanding and working on RAG agent publish requests.
   ├── webpages/saved/   # Archived web content
   └── index/metadata.json
   ```
-- **Search fallback**: If pgvector fails → keyword search
+- **Search**: Hybrid RRF — pgvector cosine similarity + PostgreSQL full-text (`tsvector` GIN index); degrades gracefully to vector-only + `ILIKE` fallback if `ts` column absent
 - **Research fallback**: If web search returns nothing → corpus only
 
 ---
@@ -119,7 +119,7 @@ Quick reference for understanding and working on RAG agent publish requests.
 | Ghost API fails | Retry 3×, then save draft locally and alert Slack |
 | Research finds nothing | Fall back to knowledge corpus only |
 | PDF extraction fails | Log error, skip file, continue |
-| pgvector search fails | Fall back to keyword search |
+| pgvector search fails | Hybrid search degrades automatically: vector-only + `ILIKE` keyword fallback |
 
 ---
 

@@ -8,13 +8,14 @@ before making further API calls.
 The ``rate_limit_log`` table schema::
 
     CREATE TABLE rate_limit_log (
-        id         SERIAL PRIMARY KEY,
-        model      TEXT NOT NULL,
-        tokens_in  INTEGER NOT NULL DEFAULT 0,
-        tokens_out INTEGER NOT NULL DEFAULT 0,
-        run_id     TEXT,
-        phase      TEXT NOT NULL DEFAULT '',
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        id            SERIAL PRIMARY KEY,
+        agent_name    VARCHAR NOT NULL DEFAULT '',
+        model         VARCHAR,
+        tokens_input  INTEGER NOT NULL DEFAULT 0,
+        tokens_output INTEGER NOT NULL DEFAULT 0,
+        request_type  VARCHAR NOT NULL DEFAULT 'chat',
+        session_id    VARCHAR,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 """
 

@@ -74,70 +74,138 @@ def _get_chunk_params() -> tuple[int, int]:
 
 @function_tool
 async def search_corpus(query: str, top_k: int = 5) -> str:
-    """Search the private knowledge corpus using semantic similarity (pgvector).
+    """Search the private knowledge corpus using hybrid semantic + full-text search.
+
+    When the `ts` tsvector column is present (post-migration), combines pgvector
+    cosine similarity with PostgreSQL full-text search and merges results via
+    Reciprocal Rank Fusion (RRF).  Falls back to vector-only search if the column
+    has not been migrated yet.
 
     Args:
-        query: The search query — will be embedded and compared against stored documents.
-        top_k: Number of most similar results to return (default 5).
+        query: The search query — will be embedded and matched against stored documents.
+        top_k: Number of results to return (default 5).
     """
-    query_vector = embed(query)  # list[float] — codec encodes automatically
+    query_vector = embed(query)
 
-    # Read limits from cached config
     limits = _get_limits()
     corpus_cfg = limits.get("search", {}).get("corpus", {})
     hard_max = corpus_cfg.get("hard_max_top_k", 20)
     sim_threshold = corpus_cfg.get("min_similarity_threshold", 0.40)
     top_k = min(top_k, hard_max)
+    fetch_k = top_k * 2  # over-fetch so RRF has enough candidates to re-rank
 
     pool = await get_pool()
+
+    # Detect whether the ts column (generated tsvector) is available.
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
+        has_ts = await conn.fetchval(
             """
-            SELECT
-                e.content,
-                e.metadata,
-                c.chunk_index,
-                d.source,
-                d.source_type,
-                1 - (e.embedding <=> $1::vector) AS similarity
-            FROM embeddings e
-            LEFT JOIN chunks c ON e.chunk_id = c.id
-            LEFT JOIN documents d ON c.document_id = d.id
-            WHERE 1 - (e.embedding <=> $1::vector) > $3
-            ORDER BY e.embedding <=> $1::vector
-            LIMIT $2
-            """,
-            query_vector,
-            top_k,
-            sim_threshold,
+            SELECT EXISTS(
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'embeddings' AND column_name = 'ts'
+            )
+            """
         )
 
-    # ---------- Keyword fallback when vector search returns nothing ----------
-    if not rows:
-        logger.info("Vector search returned no results — trying keyword fallback")
-        keywords = [w for w in query.split() if len(w) > 3][:5]
-        if keywords:
-            like_pattern = "%" + "%".join(keywords) + "%"
-            async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    """
-                    SELECT
-                        e.content,
-                        e.metadata,
-                        c.chunk_index,
-                        d.source,
-                        d.source_type,
-                        0.0::float AS similarity
-                    FROM embeddings e
-                    LEFT JOIN chunks c ON e.chunk_id = c.id
-                    LEFT JOIN documents d ON c.document_id = d.id
-                    WHERE e.content ILIKE $1
-                    ORDER BY d.updated_at DESC
-                    LIMIT $2
-                    """,
-                    like_pattern,
-                    top_k,
-                )
+    rows: list = []
+    display_scores: dict[int, tuple[float, str]] = {}  # id → (score, label)
+
+    if has_ts:
+        # ---- Hybrid path: vector + full-text, merged with RRF ----
+        async with pool.acquire() as conn:
+            vec_rows = await conn.fetch(
+                """
+                SELECT
+                    e.id, e.content, e.metadata, c.chunk_index,
+                    d.source, d.source_type,
+                    1 - (e.embedding <=> $1::vector) AS similarity
+                FROM embeddings e
+                LEFT JOIN chunks c ON e.chunk_id = c.id
+                LEFT JOIN documents d ON c.document_id = d.id
+                WHERE 1 - (e.embedding <=> $1::vector) > $3
+                ORDER BY e.embedding <=> $1::vector
+                LIMIT $2
+                """,
+                query_vector, fetch_k, sim_threshold,
+            )
+            kw_rows = await conn.fetch(
+                """
+                SELECT
+                    e.id, e.content, e.metadata, c.chunk_index,
+                    d.source, d.source_type,
+                    0.0::float AS similarity
+                FROM embeddings e
+                LEFT JOIN chunks c ON e.chunk_id = c.id
+                LEFT JOIN documents d ON c.document_id = d.id,
+                     plainto_tsquery('english', $1) AS query
+                WHERE e.ts @@ query
+                ORDER BY ts_rank(e.ts, query) DESC
+                LIMIT $2
+                """,
+                query, fetch_k,
+            )
+
+        # RRF: score = Σ 1 / (60 + rank) across both result lists.
+        rrf: dict[int, dict] = {}
+        for rank, row in enumerate(vec_rows, 1):
+            rid = row["id"]
+            rrf[rid] = {"row": row, "score": 1.0 / (60 + rank)}
+        for rank, row in enumerate(kw_rows, 1):
+            rid = row["id"]
+            rrf.setdefault(rid, {"row": row, "score": 0.0})
+            rrf[rid]["score"] += 1.0 / (60 + rank)
+
+        top_items = sorted(rrf.values(), key=lambda x: x["score"], reverse=True)[:top_k]
+        rows = [item["row"] for item in top_items]
+        for item in top_items:
+            display_scores[item["row"]["id"]] = (item["score"], "hybrid")
+
+    else:
+        # ---- Vector-only path (pre-migration) ----
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    e.id, e.content, e.metadata, c.chunk_index,
+                    d.source, d.source_type,
+                    1 - (e.embedding <=> $1::vector) AS similarity
+                FROM embeddings e
+                LEFT JOIN chunks c ON e.chunk_id = c.id
+                LEFT JOIN documents d ON c.document_id = d.id
+                WHERE 1 - (e.embedding <=> $1::vector) > $3
+                ORDER BY e.embedding <=> $1::vector
+                LIMIT $2
+                """,
+                query_vector, top_k, sim_threshold,
+            )
+        for row in rows:
+            display_scores[row["id"]] = (row["similarity"], "similarity")
+
+        # ILIKE fallback when vector search returns nothing (not needed in hybrid
+        # mode because the tsvector query already covers keyword matching).
+        if not rows:
+            logger.info("Vector search returned no results — trying keyword fallback")
+            keywords = [w for w in query.split() if len(w) > 3][:5]
+            if keywords:
+                like_pattern = "%" + "%".join(keywords) + "%"
+                async with pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        """
+                        SELECT
+                            e.id, e.content, e.metadata, c.chunk_index,
+                            d.source, d.source_type,
+                            0.0::float AS similarity
+                        FROM embeddings e
+                        LEFT JOIN chunks c ON e.chunk_id = c.id
+                        LEFT JOIN documents d ON c.document_id = d.id
+                        WHERE e.content ILIKE $1
+                        ORDER BY d.updated_at DESC
+                        LIMIT $2
+                        """,
+                        like_pattern, top_k,
+                    )
+                for row in rows:
+                    display_scores[row["id"]] = (0.0, "keyword")
 
     if not rows:
         return "No relevant documents found in the knowledge corpus."
@@ -147,14 +215,14 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
         meta = row["metadata"] or {}
         if isinstance(meta, str):
             meta = json.loads(meta)
-        # Prefer normalized document source over metadata fallback
         source = row["source"] or meta.get("source", "unknown")
         doc_type = row["source_type"] or meta.get("type", "unknown")
-        chunk_label = f" (chunk {row['chunk_index']}" + ")" if row["chunk_index"] is not None else ""
+        chunk_label = f" (chunk {row['chunk_index']})" if row["chunk_index"] is not None else ""
         # Truncate content to 400 chars to stay within GitHub Models' 8k input limit
         snippet = row["content"][:400].rstrip() + ("..." if len(row["content"]) > 400 else "")
+        score, label = display_scores.get(row["id"], (0.0, "score"))
         results.append(
-            f"**[Corpus match \u2014 similarity: {row['similarity']:.3f}]**\n"
+            f"**[Corpus match \u2014 {label}: {score:.4f}]**\n"
             f"Source: {source}{chunk_label}\n"
             f"Type: {doc_type}\n"
             f"Date: {meta.get('date', 'unknown')}\n\n"

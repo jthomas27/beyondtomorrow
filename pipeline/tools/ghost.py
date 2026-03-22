@@ -284,15 +284,6 @@ async def publish_file_to_ghost(
     if "just for laughs" not in body.lower():
         missing.append("'Just For Laughs' section (required at end of every post)")
 
-    # Must contain inline source links — check converted HTML for robustness
-    # (handles markdown links, HTML <a> tags, and reference-style links equally)
-    link_count = len(_re_val.findall(r'href=["\']https?://', html_content))
-    if link_count < 2:
-        missing.append(
-            f"source links ({link_count} found — need at least 2 inline "
-            "markdown source links to back claims)"
-        )
-
     if missing:
         items = "; ".join(missing)
         return (

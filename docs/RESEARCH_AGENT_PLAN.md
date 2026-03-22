@@ -73,7 +73,7 @@ A custom Python research agent for **BeyondTomorrow.World** that researches topi
 │          │                                                              │
 │          │  @function_tool calls                                        │
 │          ├──── web_search (DuckDuckGo/Brave)                           │
-│          ├──── search_corpus (pgvector)                                 │
+│          ├──── search_corpus (hybrid: pgvector + tsvector RRF)          │
 │          ├──── search_arxiv (arXiv API)                                 │
 │          ├──── fetch_page (trafilatura)                                 │
 │          └──── score_credibility                                        │
@@ -490,7 +490,7 @@ The core brain of the agent system. Instead of a hand-coded 6-phase pipeline, th
 | Tool (`@function_tool`) | What It Does | Typical Usage |
 |---|---|---|
 | `web_search(query, max_results)` | Search DuckDuckGo/Brave | 3-5 calls per research task |
-| `search_corpus(query, top_k)` | Semantic search in pgvector | 1-2 calls per task |
+| `search_corpus(query, top_k)` | Hybrid search: pgvector cosine + full-text tsvector, merged via RRF | 1-2 calls per task |
 | `search_arxiv(query, max_results)` | Search arXiv for papers | 1 call (if academic topic) |
 | `fetch_page(url)` | Fetch + extract article text | 5-10 calls per task |
 | `score_credibility(domain)` | Score source credibility | Called per source |
