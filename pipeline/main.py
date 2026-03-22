@@ -239,7 +239,8 @@ def _compact_research(research_output: str, max_chars: int = 3000) -> str:
 
     compact = "\n".join(parts)
     if len(compact) > max_chars:
-        compact = compact[:max_chars] + "\n[truncated]"
+        truncated = compact[:max_chars].rsplit("\n", 1)[0]
+        compact = truncated + "\n[... truncated — use search_corpus for additional sources]"
     return compact
 
 
@@ -411,7 +412,10 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
         logger.info("[2/5] Writing draft (cooldown %ds)...", _STAGE_COOLDOWN)
         await asyncio.sleep(_STAGE_COOLDOWN)
         _t0 = monotonic()
-        research_compact = _compact_research(research_output)
+        # Writer needs full context: all subtopics, angles, and source URLs
+        research_compact_writer = _compact_research(research_output, max_chars=8000)
+        # Editor only needs findings + sources for fact-checking; it reads the draft directly
+        research_compact_editor = _compact_research(research_output, max_chars=2500)
 
         if (research_dir / draft_filename).exists():
             logger.info("Draft already exists, skipping writer: %s", draft_filename)
@@ -422,7 +426,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                 f"Write a blog post about: {topic}\n"
                 f"You MUST call write_research_file with filename '{draft_filename}' "
                 f"to save the post before you finish — do not stop without saving.\n\n"
-                f"Research findings:\n{research_compact}"
+                f"Research findings:\n{research_compact_writer}"
             )
             _, w_tin, w_tout = await _run_agent_with_fallback(
                 writer, write_input,
@@ -439,7 +443,10 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                 retry_input = (
                     f"CRITICAL: You MUST call write_research_file('{draft_filename}', ...) "
                     f"as your very first action. Do not respond without saving the file first.\n\n"
-                    + write_input
+                    f"Write a blog post about: {topic}\n"
+                    f"You MUST call write_research_file with filename '{draft_filename}' "
+                    f"to save the post before you finish — do not stop without saving.\n\n"
+                    f"Research findings:\n{research_compact_writer}"
                 )
                 _, wr_tin, wr_tout = await _run_agent_with_fallback(
                     writer, retry_input,
@@ -490,7 +497,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> None:
                 f"Edit the blog post draft.\n"
                 f"1. Call read_research_file('{draft_filename}') to read the draft.\n"
                 f"2. Save your edits as '{edited_filename}' using write_research_file.\n\n"
-                f"Research findings for fact-checking:\n{research_compact}\n\n"
+                f"Research findings for fact-checking:\n{research_compact_editor}\n\n"
                 f"If you need to verify additional claims, call search_corpus with a "
                 f"relevant query to check the knowledge base."
             )

@@ -147,7 +147,7 @@ This document describes the full research-and-publish pipeline: how each agent w
 **Cooldown:** 20 seconds (standard `_STAGE_COOLDOWN`)
 
 **Process:**
-1. Research JSON is compacted to ~3,000 characters via `_compact_research()` (extracts key_findings, suggested_angles, subtopics, source_list; drops bulk)
+1. Research JSON is compacted via `_compact_research()` (extracts key_findings, suggested_angles, subtopics, source_list; drops bulk metadata). **Writer receives up to 8,000 chars** — enough to retain all subtopics, angles, and source URLs. Truncation cuts at the last complete line and appends a hint to use `search_corpus` for any remainder.
 2. Writer receives compacted research + explicit instruction to save via `write_research_file`
 3. **Title rules** — drafts 3 candidates; selects the strongest (5–10 words, factual, punchy)
 4. Writes 900–1,500 word post with H2/H3 headings, inline source links, strong opening, forward-looking conclusion
@@ -246,9 +246,10 @@ Each stage's output is explicitly passed to the next via the input prompt. This 
 The Orchestrator agent has handoff tools defined but is only used for generic/fallback tasks — the main BLOG and RESEARCH pipelines bypass it entirely.
 
 **Context compaction between stages:**
-- Research JSON (~5,000+ chars) is compacted to ~3,000 chars before passing to Writer and Editor
-- Only key_findings, suggested_angles, subtopics, and source_list are retained
-- Full summaries and redundant metadata are dropped
+- Only key_findings, suggested_angles, subtopics, and source_list are retained; full summaries and redundant metadata are dropped
+- **Writer** receives up to 8,000 chars — full research context including all subtopics, angles, and source URLs
+- **Editor** receives up to 2,500 chars — findings and sources only; it reads the draft directly via `read_research_file` and can call `search_corpus` for additional verification
+- Truncation cuts at the last complete line rather than mid-character, with a `search_corpus` hint appended
 
 ---
 
@@ -500,7 +501,7 @@ The `ts` column is a `GENERATED ALWAYS AS (to_tsvector('english', content)) STOR
 | **No per-request RPM tracking** | The Agents SDK makes internal LLM calls for tool-use loops that are invisible to the pipeline's rate tracking. A stage marked as "1 call" may actually be 4–5 API requests. | Implement an SDK middleware/hook that calls `log_model_call()` on each raw request. |
 | **Hardcoded gpt-5 entries** | `DAILY_LIMITS` and `RPM_LIMITS` include gpt-5 models that aren't in the fallback chain and have never been tested. | Remove or gate behind a feature flag. |
 | **No TPM-aware throttling** | Token counts are logged but not yet used for budgeting decisions. Daily limits are call-count-only. | Add token-per-minute checks to `check_model_budget()`. |
-| **Context compaction is lossy** | `_compact_research()` truncates at 3,000 chars — long research outputs lose subtopics and source details that the Writer/Editor might need. | Increase limit or use a 2-pass approach: full context for Writer, compacted for Editor. |
+| ~~**Context compaction is lossy**~~ ✅ Fixed | `_compact_research()` now uses an 8,000-char limit for the Writer (full subtopics, angles, sources) and a separate 2,500-char limit for the Editor (findings + sources only). Truncation cuts at the last complete line with a `search_corpus` hint. | Resolved — 2-pass approach implemented. |
 | **Single-threaded pipeline** | All 5 stages run sequentially. There's no parallelism even where stages are independent (e.g., image upload could overlap with editing). | Overlap image selection/upload with Editor stage. |
 | **No retry on Ghost API failure** | Publisher retries on LLM rate limits but the Ghost API call itself (`publish_file_to_ghost`) has its own 3-retry loop. If both fail, the post is lost. | Save draft locally before Ghost call; add a `PUBLISH:` recovery command (already exists). |
 | **Email polling interval** | 5-minute poll means up to 5 minutes latency between sending an email and the pipeline starting. | Reduce interval or use IMAP IDLE for push-based triggers. |
