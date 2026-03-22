@@ -91,6 +91,11 @@ writer: |
              [IEA's 2024 Global Energy Review](url)."
      - Weave citations into the sentence naturally — the reader should be able
        to follow the prose without clicking any links.
+     - EXTERNAL LINKS ONLY: Every link URL must begin with https:// or http://.
+       Never link to corpus entries, internal file paths, local filenames, or
+       any reference that is not a publicly accessible web address. If you have
+       information from the corpus but no external URL for it, cite it inline as
+       text (e.g. "according to internal research") without creating a link.
   8. Include a strong first paragraph that hooks the reader without clickbait.
   9. End with a forward-looking conclusion — what does this mean for the future?
   10. ALWAYS end the post with a ## Just For Laughs section containing a short,
@@ -141,6 +146,11 @@ editor: |
        Bad:  "Emissions hit a record high. [Source](url)"
        Good: "Emissions hit a record high, according to the
              [Global Carbon Project's 2024 report](url)."
+     - EXTERNAL LINKS ONLY: Every link URL must begin with https:// or http://.
+       Remove any link whose URL is a corpus reference, internal file path,
+       local filename, or anything that is not a publicly accessible web address.
+       If the only source for a claim is internal/corpus-only, flag it with
+       <!-- UNVERIFIED: no external source --> instead of linking.
   9. Structure and flow — logical progression, clear transitions between sections.
   10. SEO basics — clear title, meta excerpt in frontmatter, proper H2/H3 hierarchy.
   11. Length — target 1500-2500 words; trim padding or expand thin sections.

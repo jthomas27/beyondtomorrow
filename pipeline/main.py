@@ -219,12 +219,17 @@ def _compact_research(research_output: str, max_chars: int = 3000) -> str:
 
     parts: list[str] = []
 
-    # Key findings — keep finding text, confidence, and sources
+    def _is_external_url(url: str) -> bool:
+        """Return True only for http/https URLs (not file paths or corpus refs)."""
+        return isinstance(url, str) and url.startswith(("http://", "https://"))
+
+    # Key findings — keep finding text, confidence, and external sources only
     findings = data.get("key_findings", [])
     if findings:
         parts.append("KEY FINDINGS:")
         for f in findings:
-            src = ", ".join(f.get("sources", [])[:2])
+            ext_sources = [s for s in f.get("sources", []) if _is_external_url(s)]
+            src = ", ".join(ext_sources[:2])
             conf = f.get("confidence", "unknown")
             parts.append(f"- {f.get('finding', '')} [{conf}] ({src})")
 
@@ -244,11 +249,12 @@ def _compact_research(research_output: str, max_chars: int = 3000) -> str:
             for bp in s.get("bullet_points", []):
                 parts.append(f"    • {bp}")
 
-    # Source list — url + title only
+    # Source list — external URLs only (no corpus refs or file paths)
     sources = data.get("source_list", [])
-    if sources:
-        parts.append("\nSOURCES:")
-        for src in sources:
+    ext_sources = [s for s in sources if _is_external_url(s.get("url", ""))]
+    if ext_sources:
+        parts.append("\nSOURCES (external links only — use these for inline citations):")
+        for src in ext_sources:
             parts.append(f"- {src.get('title', 'Untitled')}: {src.get('url', '')}")
 
     compact = "\n".join(parts)

@@ -221,9 +221,12 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
         # Truncate content to 400 chars to stay within GitHub Models' 8k input limit
         snippet = row["content"][:400].rstrip() + ("..." if len(row["content"]) > 400 else "")
         score, label = display_scores.get(row["id"], (0.0, "score"))
+        # Indicate whether the source is a citable external URL or an internal ref
+        is_external = source.startswith(("http://", "https://"))
+        link_note = "(external URL — may cite)" if is_external else "(internal corpus ref — do NOT use as a blog link)"
         results.append(
             f"**[Corpus match \u2014 {label}: {score:.4f}]**\n"
-            f"Source: {source}{chunk_label}\n"
+            f"Source: {source}{chunk_label} {link_note}\n"
             f"Type: {doc_type}\n"
             f"Date: {meta.get('date', 'unknown')}\n\n"
             f"{snippet}"
