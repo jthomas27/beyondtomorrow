@@ -1,11 +1,12 @@
 """
-agents/tools/files.py — Research file I/O tools
+pipeline/tools/files.py — Research file I/O tools
 
-All files are stored under the research/ directory at the project root.
+Files are stored under research/ (drafts, edited posts, JSON findings) or
+reports/ (external PDFs and reference documents) at the project root.
 Paths are validated to prevent path traversal attacks.
 
 Tools:
-    read_research_file(filename)         — Read a file from research/
+    read_research_file(filename)         — Read a file from research/ or reports/
     write_research_file(filename, content) — Write a file to research/
 """
 
@@ -14,8 +15,9 @@ import pathlib
 import random
 from pipeline._sdk import function_tool
 
-# Resolve research/ directory relative to this file's location
+# Resolve research/ and reports/ directories relative to this file's location
 _RESEARCH_DIR = pathlib.Path(__file__).parents[2] / "research"
+_REPORTS_DIR  = pathlib.Path(__file__).parents[2] / "reports"
 
 # Resolve assets/images/ directory relative to this file's location
 _ASSETS_IMAGES_DIR = pathlib.Path(__file__).parents[2] / "assets" / "images"
@@ -23,36 +25,74 @@ _ASSETS_IMAGES_DIR = pathlib.Path(__file__).parents[2] / "assets" / "images"
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
 
-def _safe_path(filename: str) -> pathlib.Path:
-    """Return a resolved path under research/, raising ValueError on traversal."""
-    _RESEARCH_DIR.mkdir(parents=True, exist_ok=True)
-    # Strip a leading "research/" or "research\" prefix that LLMs sometimes add
-    # (the directory is already baked into _RESEARCH_DIR, so it must not be repeated).
-    for prefix in ("research/", "research\\"):
-        if filename.lower().startswith(prefix):
-            filename = filename[len(prefix):]
-            break
-    resolved = (_RESEARCH_DIR / filename).resolve()
-    if not str(resolved).startswith(str(_RESEARCH_DIR.resolve())):
+def _safe_path_in(base_dir: pathlib.Path, filename: str) -> pathlib.Path:
+    """Return a resolved path under base_dir, raising ValueError on traversal."""
+    base_dir.mkdir(parents=True, exist_ok=True)
+    resolved = (base_dir / filename).resolve()
+    if not str(resolved).startswith(str(base_dir.resolve())):
         raise ValueError(f"Path traversal attempt blocked: {filename}")
     return resolved
 
 
+def _safe_path(filename: str) -> pathlib.Path:
+    """Return a resolved path under research/ or reports/, raising ValueError on traversal.
+
+    Strips a leading 'research/' or 'reports/' prefix that LLMs sometimes add,
+    then routes to the correct base directory.  Unprefixed filenames default to
+    research/.
+    """
+    for prefix in ("research/", "research\\"):
+        if filename.lower().startswith(prefix):
+            return _safe_path_in(_RESEARCH_DIR, filename[len(prefix):])
+    for prefix in ("reports/", "reports\\"):
+        if filename.lower().startswith(prefix):
+            return _safe_path_in(_REPORTS_DIR, filename[len(prefix):])
+    # No explicit prefix — default to research/
+    return _safe_path_in(_RESEARCH_DIR, filename)
+
+
 @function_tool
 async def read_research_file(filename: str) -> str:
-    """Read a file from the research/ directory.
+    """Read a file from the research/ or reports/ directory.
+
+    Checks research/ first (respecting an explicit 'research/' prefix), then
+    falls back to reports/ for unprefixed filenames not found in research/.
+    Binary files such as PDFs are not readable via this tool — use the INDEX:
+    pipeline command to extract and index PDF content instead.
 
     Args:
-        filename: Name of the file to read (e.g. '2026-02-22-quantum.md').
-                  Subdirectories are allowed (e.g. 'reports/quantum.md').
+        filename: Name of the file to read (e.g. '2026-02-22-quantum.md' or
+                  'reports/WMO-1391-2025_en.pdf').
     """
     try:
         path = _safe_path(filename)
     except ValueError as exc:
         return f"Error: {exc}"
 
+    # If the file wasn't found and no explicit directory prefix was given,
+    # also check the other directory.
     if not path.exists():
-        return f"File not found: research/{filename}"
+        has_prefix = any(
+            filename.lower().startswith(p)
+            for p in ("research/", "research\\", "reports/", "reports\\")
+        )
+        if not has_prefix:
+            try:
+                alt_path = _safe_path_in(_REPORTS_DIR, filename)
+                if alt_path.exists():
+                    path = alt_path
+                else:
+                    return f"File not found in research/ or reports/: {filename}"
+            except ValueError:
+                pass
+        if not path.exists():
+            return f"File not found: {filename}"
+
+    if path.suffix.lower() == ".pdf":
+        return (
+            f"Binary PDF file — cannot read as text: {filename}. "
+            "Use the pipeline INDEX: command to extract and index its content."
+        )
 
     return path.read_text(encoding="utf-8")
 

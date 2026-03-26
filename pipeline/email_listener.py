@@ -470,15 +470,35 @@ async def poll_once() -> None:
 
 
 async def run_poll_loop() -> None:
-    """Run the email polling loop indefinitely."""
+    """Run the email polling loop indefinitely.
+
+    Also performs a startup scan of reports/ to index any new files, then
+    re-scans on every poll cycle so new reports dropped into the folder are
+    picked up automatically.
+    """
+    from pipeline.reports_watcher import scan_and_index_new_reports
+
     interval = int(os.environ.get("EMAIL_POLL_INTERVAL", str(DEFAULT_POLL_INTERVAL)))
     logger.info("Email listener starting — polling every %ds", interval)
+
+    # Startup scan: index any reports/ files not yet in the corpus.
+    try:
+        await scan_and_index_new_reports()
+    except Exception as exc:
+        logger.error("Startup reports scan failed: %s", exc)
 
     while True:
         try:
             await poll_once()
         except Exception as exc:
             logger.error("Poll cycle error: %s", exc)
+
+        # Re-scan reports/ each cycle to catch newly added files.
+        try:
+            await scan_and_index_new_reports()
+        except Exception as exc:
+            logger.error("Reports scan error: %s", exc)
+
         await asyncio.sleep(interval)
 
 

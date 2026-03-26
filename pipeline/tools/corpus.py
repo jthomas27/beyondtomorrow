@@ -234,6 +234,19 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
     return "\n\n---\n\n".join(results)
 
 
+async def _is_source_indexed(source: str) -> bool:
+    """Return True if a document with this source already exists in the corpus."""
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id FROM documents WHERE source = $1", source
+            )
+        return row is not None
+    except Exception:
+        return False
+
+
 async def _index_document_impl(content: str, source: str, doc_type: str, date: str = "") -> str:
     """Raw implementation of index_document (callable directly without FunctionTool wrapper).
 
