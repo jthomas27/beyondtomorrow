@@ -183,6 +183,11 @@ approved_domains:
     credibility: 5
     notes: "Carbon Tracker Initiative — financial analysis of fossil fuel risk and carbon budgets"
 
+  - domain: wmo.int
+    category: climate
+    credibility: 5
+    notes: "World Meteorological Organization — authoritative global weather, climate and water data"
+
   # --- Technology / AI / science -------------------------------------------
 
   - domain: technologyreview.com

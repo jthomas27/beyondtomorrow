@@ -32,6 +32,9 @@ build/
 
 # Research output — local only
 research/
+reports/
+scripts/
+tests/
 
 # Secrets — never commit credentials
 mailgun.txt

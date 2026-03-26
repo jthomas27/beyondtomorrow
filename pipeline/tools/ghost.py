@@ -247,6 +247,20 @@ async def publish_file_to_ghost(
         extensions=["extra", "sane_lists"],
     )
 
+    # --- Strip trailing editor artefacts after Just For Laughs ---
+    # The Editor agent sometimes appends its rationale notes (separated by <hr>)
+    # or reference lists after the joke.  Remove everything from the first <hr>
+    # or extra heading that appears after the JFL section.
+    _jfl_heading = re.search(r'<h2[^>]*>\s*Just For Laughs\s*</h2>', html_content, re.IGNORECASE)
+    if _jfl_heading:
+        _after = html_content[_jfl_heading.end():]
+        _trail = re.search(r'<hr\s*/?>|<h[23][^>]*>', _after, re.IGNORECASE)
+        if _trail:
+            _plain_trail = re.sub(r'<[^>]+>', '', _after[_trail.start():]).strip()
+            if _plain_trail:
+                html_content = html_content[:_jfl_heading.end()] + _after[:_trail.start()]
+    # --- End trailing artefact strip ---
+
     # --- Pre-publish validation ---
     # All items are required. Return MISSING: if any check fails so the
     # pipeline can resolve the problem before any API call is made.
