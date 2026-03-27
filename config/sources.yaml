@@ -275,7 +275,17 @@ approved_domains:
   - domain: ifrs.org
     category: policy
     credibility: 5
-    notes: "IFRS Foundation / ISSB — international sustainability and financial reporting standards"
+    notes: "IFRS Foundation / ISSB — international sustainability and financial reporting standards (IFRS S1, S2)"
+
+  - domain: carbonaccountingfinancials.com
+    category: policy
+    credibility: 5
+    notes: "PCAF (Partnership for Carbon Accounting Financials) — global standard for financial sector GHG accounting and disclosure"
+
+  - domain: ghgprotocol.org
+    category: policy
+    credibility: 5
+    notes: "GHG Protocol — the most widely used international standard for corporate and value chain greenhouse gas accounting"
 
   - domain: bankofengland.co.uk
     category: policy
@@ -318,6 +328,21 @@ approved_domains:
     category: news
     credibility: 4
     notes: "The Economist — data-driven analysis"
+
+  - domain: esgtoday.com
+    category: news
+    credibility: 4
+    notes: "ESG Today — sustainability, ESG investing, and corporate climate reporting news"
+
+  - domain: news.yahoo.com
+    category: news
+    credibility: 3
+    notes: "Yahoo News — aggregated news from multiple outlets; verify original source"
+
+  - domain: bloomberg.com
+    category: news
+    credibility: 4
+    notes: "Bloomberg — finance, markets, energy transition, and climate policy coverage"
 
   # --- Open data / datasets ------------------------------------------------
 

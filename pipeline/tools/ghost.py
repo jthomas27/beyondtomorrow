@@ -261,6 +261,13 @@ async def publish_file_to_ghost(
                 html_content = html_content[:_jfl_heading.end()] + _after[:_trail.start()]
     # --- End trailing artefact strip ---
 
+    # --- Excerpt guardrail — Ghost enforces a 300-char limit on custom_excerpt.
+    # Auto-trim at a word boundary so publish is never blocked by excerpt length alone.
+    _MAX_EXCERPT = 300
+    if len(excerpt) > _MAX_EXCERPT:
+        excerpt = excerpt[:_MAX_EXCERPT].rsplit(" ", 1)[0].rstrip(".,;:") + "…"
+        logger.info("Excerpt trimmed to %d chars to meet Ghost 300-char limit.", len(excerpt))
+
     # --- Pre-publish validation ---
     # All items are required. Return MISSING: if any check fails so the
     # pipeline can resolve the problem before any API call is made.
