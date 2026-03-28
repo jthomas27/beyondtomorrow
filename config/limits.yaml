@@ -66,7 +66,7 @@ search:
     default_top_k: 3                  # production: 5
     hard_max_top_k: 5                 # production: 20
     # Minimum cosine similarity score (0.0–1.0).
-    min_similarity_threshold: 0.40   # raised from 0.30 — reduces noise
+    min_similarity_threshold: 0.30   # lowered — bge-small produces tighter similarity scores
 
 # ---------------------------------------------------------------------------
 # Synthesis limits — controls Writer / Editor LLM output length
@@ -111,8 +111,8 @@ task:
 # ---------------------------------------------------------------------------
 
 chunking:
-  max_words_per_chunk: 500           # unchanged — model constraint, not cost
-  overlap_words: 50
+  max_words_per_chunk: 350           # bge-small-en-v1.5 supports 512 tokens (~350 words)
+  overlap_words: 35                  # ~10% overlap — enough for cross-boundary context
 
 # ---------------------------------------------------------------------------
 # Embedding limits
@@ -120,4 +120,4 @@ chunking:
 
 embeddings:
   batch_size: 16                      # production: 64
-  model_max_input_tokens: 256        # model hard limit — do not increase
+  model_max_input_tokens: 512        # bge-small-en-v1.5 hard limit

@@ -17,7 +17,7 @@ A blog that publishes new posts automatically. Python agents (powered by the [Op
 | Automation       | GitHub Actions       | Triggers agent runs (schedule or event)   |
 | Email            | Hostinger Business Email | Receives inbound emails (beyondtomorrow.world) |
 | AI               | [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) via GitHub Models API | Powers research, writing, publishing agents with built-in agent loop, `@function_tool` decorators, handoffs between agents, guardrails, and tracing — zero LLM cost via Copilot Pro |
-| Embeddings       | all-MiniLM-L6-v2 (sentence-transformers, local) | Creates 384-dim vector embeddings for semantic search — runs on Railway compute, zero API cost |
+| Embeddings       | BAAI/bge-small-en-v1.5 (sentence-transformers, local) | Creates 384-dim vector embeddings for semantic search — 512-token context, runs on Railway compute, zero API cost |
 | Media Storage    | Railway Object Storage | Stores images and documents             |
 | Knowledge Corpus | Railway Object Storage | Stores raw PDFs, emails, webpages       |
 | Monitoring       | Railway Logs + Slack | Alerts on success/failure                 |
@@ -40,7 +40,7 @@ Two databases serve distinct purposes, both hosted on Railway:
 
 **How they connect:**
 - Agents query the vector database to find relevant knowledge chunks before writing
-- The local `all-MiniLM-L6-v2` model (via `sentence-transformers`) converts text chunks into 384-dimension vectors for storage and search — runs on Railway compute with zero API cost
+- The local `BAAI/bge-small-en-v1.5` model (via `sentence-transformers`) converts text chunks into 384-dimension vectors for storage and search — runs on Railway compute with zero API cost
 - Agents publish finished posts to Ghost via its Admin API (which writes to MySQL)
 - Raw documents (PDFs, emails) live in Railway Object Storage; only their embeddings go to PostgreSQL
 
@@ -116,8 +116,8 @@ Two databases serve distinct purposes, both hosted on Railway:
 
 1. **Upload** — PDFs and emails are saved to Railway Object Storage
 2. **Extract** — Python worker extracts text from documents
-3. **Chunk** — Text is split into smaller pieces (500-1000 words each)
-4. **Embed** — Local `all-MiniLM-L6-v2` model (via `sentence-transformers`) creates 384-dim embeddings for each chunk — runs on Railway compute, no API calls
+3. **Chunk** — Text is split into smaller pieces (~350 words each)
+4. **Embed** — Local `BAAI/bge-small-en-v1.5` model (via `sentence-transformers`) creates 384-dim embeddings for each chunk — runs on Railway compute, no API calls
 5. **Index** — Embeddings are stored in PostgreSQL via pgvector
 6. **Query** — Research agent searches corpus by topic before writing
 
@@ -144,7 +144,7 @@ knowledge-corpus/
 | Railway Object Storage | Store raw files | Included in Railway plan |
 | PostgreSQL + pgvector | Vector search | Included in Railway plan |
 | PyPDF2 | Extract text from PDFs | Free (Python library) |
-| sentence-transformers + all-MiniLM-L6-v2 | Generate 384-dim embeddings locally | Free (Python library, runs on CPU) |
+| sentence-transformers + BAAI/bge-small-en-v1.5 | Generate 384-dim embeddings locally | Free (Python library, runs on CPU) |
 | LangChain (optional) | Simplify chunking + embedding | Free (Python library) |
 
 
@@ -231,7 +231,7 @@ Each agent is defined via the OpenAI Agents SDK `Agent()` class with its own mod
 | Railway          | Hosting + MySQL + PostgreSQL             | $5–25        |
 | LLM Calls        | GitHub Models API (included in Copilot Pro) | $0 |
 | Agent Framework  | OpenAI Agents SDK (open source, MIT)     | $0           |
-| Embeddings       | Local `all-MiniLM-L6-v2` on Railway compute | $0 |
+| Embeddings       | Local `BAAI/bge-small-en-v1.5` on Railway compute | $0 |
 | Hostinger Email  | Included with domain hosting             | $0           |
 | GitHub Actions   | Workflow minutes                         | Free         |
 | Railway Storage  | Included in Railway hosting              | $0           |
@@ -276,8 +276,8 @@ CORPUS UPDATE FLOW
 1. New PDF uploaded to Railway Object Storage (manual or via email)
 2. Indexer agent receives document via orchestrator handoff
 3. Text extracted from PDF
-4. Text chunked into smaller pieces (500-1000 tokens, paragraph boundaries)
-5. Embeddings created locally via `all-MiniLM-L6-v2` (sentence-transformers) — no API calls
+4. Text chunked into smaller pieces (~350 words, paragraph boundaries)
+5. Embeddings created locally via `BAAI/bge-small-en-v1.5` (sentence-transformers) — no API calls
 6. Chunks indexed in PostgreSQL (pgvector) with metadata
 7. Document available for future research via search_corpus tool
 ```

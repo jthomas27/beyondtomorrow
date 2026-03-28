@@ -51,8 +51,8 @@ Three database writes happen in a single transaction:
 | Table | What is stored |
 |---|---|
 | `documents` | Full extracted text, source path, doc type, date — upserted on `source` key |
-| `chunks` | Overlapping word-boundary segments (~200 words each, 30-word overlap) |
-| `embeddings` | 384-dim vector per chunk (all-MiniLM-L6-v2) + JSONB metadata |
+| `chunks` | Overlapping word-boundary segments (~350 words each, 35-word overlap) |
+| `embeddings` | 384-dim vector per chunk (BAAI/bge-small-en-v1.5) + JSONB metadata |
 
 The full text is always stored in `documents.content`. Chunks and embeddings are rebuilt from scratch on re-index (old rows deleted first).
 

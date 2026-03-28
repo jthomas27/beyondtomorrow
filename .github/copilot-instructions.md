@@ -12,7 +12,7 @@ This workspace runs an automated research-and-publish pipeline for **BeyondTomor
 | Hosting | Railway (`caring-alignment` project) | Ghost + agent worker services |
 | Vector DB | PostgreSQL + pgvector (Railway) | 384-dim embeddings for semantic search |
 | AI Framework | OpenAI Agents SDK + GitHub Models API | `gpt-4.1` for research/write/edit; `gpt-4.1-mini` for orchestrate/publish/index |
-| Embeddings | `all-MiniLM-L6-v2` (sentence-transformers) | Runs locally; zero API cost |
+| Embeddings | `BAAI/bge-small-en-v1.5` (sentence-transformers) | 384-dim; 512-token context; runs locally; zero API cost |
 | Email trigger | Hostinger IMAP (`admin@beyondtomorrow.world`) | Polled by `pipeline/email_listener.py` |
 
 ---
@@ -323,8 +323,8 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 
 ## RAG / Corpus
 
-- **Vector DB**: PostgreSQL + pgvector on Railway; 384-dim vectors from `all-MiniLM-L6-v2`
-- **Chunk size**: 500–1000 words per chunk
+- **Vector DB**: PostgreSQL + pgvector on Railway; 384-dim vectors from `BAAI/bge-small-en-v1.5`
+- **Chunk size**: ~350 words per chunk (fits within model's 512-token limit)
 - **Search fallback**: pgvector fails → keyword search; web search returns nothing → corpus only
 - **Corpus storage layout** (Railway Object Storage):
   ```

@@ -257,21 +257,26 @@ async def _search_and_index_impl(query: str, max_results: int = 8) -> str:
                     await conn.execute(
                         "DELETE FROM chunks WHERE document_id = $1", doc_id
                     )
-                    for i, (chunk, vector) in enumerate(zip(page["chunks"], page["vectors"])):
-                        chunk_id = await conn.fetchval(
-                            """
-                            INSERT INTO chunks (document_id, chunk_index, content)
-                            VALUES ($1, $2, $3) RETURNING id
-                            """,
-                            doc_id, i, chunk,
-                        )
-                        await conn.execute(
-                            """
-                            INSERT INTO embeddings (chunk_id, content, embedding, metadata)
-                            VALUES ($1, $2, $3::vector, $4)
-                            """,
-                            chunk_id, chunk, vector, metadata,
-                        )
+                    chunk_ids = await conn.fetch(
+                        """
+                        INSERT INTO chunks (document_id, chunk_index, content)
+                        SELECT $1, unnest($2::int[]), unnest($3::text[])
+                        RETURNING id
+                        """,
+                        doc_id,
+                        list(range(len(page["chunks"]))),
+                        page["chunks"],
+                    )
+                    await conn.executemany(
+                        """
+                        INSERT INTO embeddings (chunk_id, content, embedding, metadata)
+                        VALUES ($1, $2, $3::vector, $4)
+                        """,
+                        [
+                            (row["id"], chunk, vector, metadata)
+                            for row, chunk, vector in zip(chunk_ids, page["chunks"], page["vectors"])
+                        ],
+                    )
                     indexed.append(f'"{page["title"]}"')
 
     lines = [f"Indexed {len(indexed)} pages into pgvector corpus (query: '{used_variant}')."]

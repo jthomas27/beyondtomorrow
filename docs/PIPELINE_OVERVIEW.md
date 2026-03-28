@@ -62,7 +62,7 @@ This document describes the full research-and-publish pipeline: how each agent w
 | LLM | GitHub Models API (gpt-4.1, gpt-4.1-mini, gpt-4.1-nano) | Research, writing, editing, publishing decisions |
 | Agent SDK | OpenAI Agents SDK (`agents` package) | Runs each agent with tool calling |
 | Vector DB | PostgreSQL + pgvector (Railway) | 384-dim embeddings + tsvector full-text for hybrid search |
-| Embeddings | `all-MiniLM-L6-v2` (sentence-transformers) | Runs locally, zero API cost |
+| Embeddings | `BAAI/bge-small-en-v1.5` (sentence-transformers) | Runs locally, zero API cost; 512-token context |
 | CMS | Ghost 5.x (self-hosted, Railway) | Blog publishing via Admin API |
 | Email | Hostinger IMAP/SMTP | Trigger pipeline via email |
 | HTTP | httpx | Ghost API calls (Cloudflare blocks urllib) |
@@ -202,8 +202,8 @@ The Indexer agent was bypassed to avoid 413 Payload Too Large errors. The SDK co
 
 **Process:**
 1. Reads edited file from disk
-2. Chunks text (500 words max, 50-word overlap)
-3. Batch-embeds all chunks via `all-MiniLM-L6-v2`
+2. Chunks text (350 words max, 35-word overlap)
+3. Batch-embeds all chunks via `BAAI/bge-small-en-v1.5`
 4. Upserts document + chunks + embeddings into pgvector
 
 ---
@@ -413,7 +413,7 @@ The `ts` column is a `GENERATED ALWAYS AS (to_tsvector('english', content)) STOR
 ### How Content is Retrieved
 
 1. **`search_corpus(query, top_k)`** — hybrid search via **Reciprocal Rank Fusion (RRF)**:
-   - **Vector leg** — embeds query → pgvector cosine similarity, filters at threshold 0.40, fetches `top_k × 2` candidates
+   - **Vector leg** — embeds query → pgvector cosine similarity, filters at threshold 0.30, fetches `top_k × 2` candidates
    - **Full-text leg** — `plainto_tsquery('english', query)` matched against the generated `ts tsvector` column via GIN index, ranked by `ts_rank`
    - Both result lists are merged: `score = Σ 1 / (60 + rank)`. Rows appearing in both lists receive a combined score boost.
    - Top `top_k` by RRF score are returned, labelled `hybrid: 0.XXXX` in the output
@@ -422,10 +422,10 @@ The `ts` column is a `GENERATED ALWAYS AS (to_tsvector('english', content)) STOR
 
 ### Chunking Strategy
 
-- Max 500 words per chunk, 50-word overlap
+- Max 350 words per chunk, 35-word overlap
 - Splits at paragraph boundaries (double newlines)
 - Respects markdown heading breaks
-- Embeddings: 384 dimensions via `all-MiniLM-L6-v2` (local, zero cost)
+- Embeddings: 384 dimensions via `BAAI/bge-small-en-v1.5` (local, zero cost; 512-token context window)
 
 ---
 
@@ -490,7 +490,7 @@ The `ts` column is a `GENERATED ALWAYS AS (to_tsvector('english', content)) STOR
 | **Pre-publish validation** | 5 checks (title, body, image, excerpt, Just For Laughs) prevent broken posts from reaching Ghost |
 | **Recovery flows** | Publisher validation failures trigger automated Editor recovery before retrying; Writer failures trigger explicit retry |
 | **Direct indexing** | Bypasses the Indexer LLM agent, avoiding 413 payload errors and saving API calls |
-| **Zero-cost embeddings** | `all-MiniLM-L6-v2` runs locally — no API cost for corpus operations |
+| **Zero-cost embeddings** | `BAAI/bge-small-en-v1.5` runs locally — no API cost for corpus operations |
 | **Corpus persistence** | All web searches are indexed permanently via `search_and_index` — knowledge accumulates across runs |
 
 ### Weaknesses

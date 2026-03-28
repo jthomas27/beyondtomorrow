@@ -1003,7 +1003,7 @@ scripts/
 | **Heavy Tasks Model** | openai/gpt-4.1 (research/write/edit) | Reliable reasoning + tool-calling; 1M context |
 | **Light Tasks Model** | openai/gpt-4.1-mini (publish/index/orchestrate) | Fast, 1M context |
 | **Fallback Chain** | gpt-4.1 → gpt-4.1-mini → gpt-4.1-nano | Automatic degradation on rate limits |
-| **Embeddings** | Local all-MiniLM-L6-v2 | Free, runs on Railway CPU, no API calls |
+| **Embeddings** | Local BAAI/bge-small-en-v1.5 | Free, runs on Railway CPU, no API calls; 512-token context |
 | **Async Driver** | asyncpg | Native async PostgreSQL, works with asyncio agent loop |
 | **Session Persistence** | PostgreSQL agent_sessions table | Resumable tasks, full audit trail, debugging |
 | **Summariser Agent** | Merged into Researcher | Saves 1 LLM call per run; Researcher outputs structured JSON directly |
@@ -1017,7 +1017,7 @@ scripts/
 |---|---|---|
 | Railway | Hosting + MySQL + PostgreSQL | $5–25 |
 | LLM Calls | GitHub Models API (Copilot Pro) | $0 |
-| Embeddings | Local all-MiniLM-L6-v2 on Railway CPU | $0 |
+| Embeddings | Local BAAI/bge-small-en-v1.5 on Railway CPU | $0 |
 | OpenAI Agents SDK | Open source (MIT license) | $0 |
 | Hostinger Email | Included with domain hosting | $0 |
 | GitHub Actions | Workflow minutes | Free |

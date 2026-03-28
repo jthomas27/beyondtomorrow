@@ -1,5 +1,5 @@
 """
-embeddings.py — Local embedding module using all-MiniLM-L6-v2
+embeddings.py — Local embedding module using BAAI/bge-small-en-v1.5
 
 Provides a simple interface for generating 384-dim embeddings locally
 on Railway compute using the sentence-transformers library. No API calls,
@@ -22,9 +22,9 @@ from typing import Union
 # Config
 # ---------------------------------------------------------------------------
 
-MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-DIMENSIONS = 384  # all-MiniLM-L6-v2 output size
-MAX_INPUT_TOKENS = 256  # model max input (word pieces, ~200 words)
+MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+DIMENSIONS = 384  # bge-small-en-v1.5 output size (same as MiniLM)
+MAX_INPUT_TOKENS = 512  # model max input (word pieces, ~350 words)
 
 
 # ---------------------------------------------------------------------------

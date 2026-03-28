@@ -203,18 +203,18 @@ Instead of paying OpenAI for the `text-embedding-3-small` API, run a free embedd
 
 | Model | Dimensions | Download Size | RAM Usage | Quality | Speed |
 |---|---|---|---|---|---|
-| **`all-MiniLM-L6-v2`** | 384 | 80 MB | ~250 MB | Good | Very fast |
+| **`BAAI/bge-small-en-v1.5`** ✅ | 384 | 130 MB | ~300 MB | Very good | Fast |
+| `all-MiniLM-L6-v2` | 384 | 80 MB | ~250 MB | Good | Very fast |
 | `all-mpnet-base-v2` | 768 | 420 MB | ~600 MB | Better | Fast |
-| `bge-small-en-v1.5` | 384 | 130 MB | ~300 MB | Good | Fast |
 | `nomic-embed-text-v1.5` | 768 | 550 MB | ~700 MB | Very good | Moderate |
 
 ### Recommendation
 
-Start with **`all-MiniLM-L6-v2`**:
-- Smallest download (80 MB) — fits easily on Railway
-- Very fast inference on CPU
-- 384 dimensions is enough for a knowledge base under 100K chunks
-- Upgrade to `all-mpnet-base-v2` later if retrieval quality needs improvement
+Use **`BAAI/bge-small-en-v1.5`** (current):
+- Same 384 dimensions — no schema migration needed
+- 512-token context (2× MiniLM's 256) — supports ~350-word chunks without truncation
+- Stronger MTEB retrieval benchmarks than MiniLM at same dimensions
+- Upgrade to `nomic-embed-text-v1.5` (768 dims, 8192-token context) if retrieval quality needs improvement
 
 
 ### Module Interface
@@ -1175,7 +1175,7 @@ scripts/
 | **LLM Provider** | GitHub Models API | Zero cost — included in Copilot Pro+ subscription |
 | **Primary Model** | `openai/gpt-4.1` (researcher/writer/editor) | Reliable reasoning + tool-calling; 1M context |
 | **Light Model** | `openai/gpt-4.1-mini` (orchestrator, publisher, indexer) | Fast, 1M context; lightweight for routing and indexing |
-| **Embeddings** | Local `all-MiniLM-L6-v2` | Free, runs on Railway CPU, no API calls |
+| **Embeddings** | Local `BAAI/bge-small-en-v1.5` | Free, runs on Railway CPU, no API calls; 512-token context |
 | **Embedding Dimensions** | 384 (down from 1536) | Requires pgvector migration; good enough for <100K chunks |
 | **Summariser** | Merged into Researcher agent | One fewer LLM call per pipeline run; researcher outputs structured JSON directly |
 | **Agent Persistence** | `agent_sessions` PostgreSQL table | Enables resumable runs and debugging via conversation replay |

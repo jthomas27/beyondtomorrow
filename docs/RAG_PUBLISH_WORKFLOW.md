@@ -14,7 +14,7 @@ Quick reference for understanding and working on RAG agent publish requests.
 | Vector DB | PostgreSQL + pgvector (Railway) | Stores 384-dim embeddings + generated tsvector column for hybrid search |
 | Object Storage | Railway Object Storage | Raw PDFs, emails, images, knowledge corpus |
 | AI Framework | OpenAI Agents SDK + GitHub Models API | `gpt-4.1` for research/write/edit; `gpt-4.1-mini` for orch/publish/index |
-| Embeddings | `all-MiniLM-L6-v2` (sentence-transformers, local) | Runs on Railway compute; zero API cost |
+| Embeddings | `BAAI/bge-small-en-v1.5` (sentence-transformers, local) | Runs on Railway compute; zero API cost; 512-token context (2× MiniLM) |
 | Trigger | GitHub Actions (cron or manual dispatch) | Also triggered by inbound email via IMAP |
 | Email | Hostinger Business Email (`admin@beyondtomorrow.world`) | IMAP-polled by `email_listener.py` |
 | Alerts | Slack webhook | Success/failure notifications |
@@ -54,7 +54,7 @@ Quick reference for understanding and working on RAG agent publish requests.
 | `pipeline/main.py` | Pipeline entry point — `python -m pipeline.main "BLOG: topic"` |
 | `pipeline/email_listener.py` | IMAP polling; triggers agent runs from inbound email |
 | `pipeline/definitions.py` | Agent definitions (Orchestrator, Researcher, Writer, Editor, Publisher, Indexer) |
-| `pipeline/embeddings.py` | Embedding generation (all-MiniLM-L6-v2) and pgvector operations |
+| `pipeline/embeddings.py` | Embedding generation (BAAI/bge-small-en-v1.5) and pgvector operations |
 | `pipeline/tools/ghost.py` | Ghost Admin API calls — JWT auth, post creation/update |
 | `pipeline/tools/search.py` | Web search + hybrid corpus search (pgvector + tsvector RRF) |
 | `pipeline/tools/corpus.py` | Knowledge corpus reads/writes (Railway Object Storage) |
@@ -94,8 +94,8 @@ Quick reference for understanding and working on RAG agent publish requests.
 
 ## RAG / Corpus — Key Facts
 
-- **Vector DB**: PostgreSQL + pgvector on Railway; 384-dim vectors from `all-MiniLM-L6-v2`
-- **Chunk size**: 500–1000 words per chunk
+- **Vector DB**: PostgreSQL + pgvector on Railway; 384-dim vectors from `BAAI/bge-small-en-v1.5`
+- **Chunk size**: ~350 words per chunk (fits within model's 512-token limit)
 - **Corpus storage layout** (Railway Object Storage):
   ```
   knowledge-corpus/

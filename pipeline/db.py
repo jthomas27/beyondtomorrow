@@ -66,6 +66,15 @@ async def get_pool() -> asyncpg.Pool:
             ssl=_ssl,
             init=_setup_vector_codec,
         )
+        # Ensure HNSW index exists (idempotent — safe to run every startup)
+        async with _pool.acquire() as conn:
+            await conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx
+                    ON embeddings USING hnsw (embedding vector_cosine_ops)
+                    WITH (m = 16, ef_construction = 64)
+                """
+            )
     return _pool
 
 

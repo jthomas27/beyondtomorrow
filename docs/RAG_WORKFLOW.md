@@ -352,9 +352,9 @@ When you search for information, the system compares your query's embedding agai
 
 | Model | Provider | Dimensions | Best For |
 |-------|----------|------------|----------|
-| **all-MiniLM-L6-v2** ✅ | Sentence Transformers (Open Source) | 384 | Free; runs locally; our chosen model |
+| **BAAI/bge-small-en-v1.5** ✅ | BAAI (Open Source) | 384 | Free; runs locally; our chosen model |
 | **all-mpnet-base-v2** | Sentence Transformers (Open Source) | 768 | Free; higher quality upgrade path |
-| **bge-small-en-v1.5** | BAAI (Open Source) | 384 | Free; high quality |
+| **all-MiniLM-L6-v2** | Sentence Transformers (Open Source) | 384 | Free; previous model (replaced) |
 | **nomic-embed-text-v1.5** | Nomic AI (Open Source) | 768 | Free; very good quality |
 | **BGE-large-en** | BAAI (Open Source) | 1,024 | Free; best open-source quality |
 | **text-embedding-3-small** | OpenAI | 1,536 | Paid API; cost-effective general use |
@@ -366,7 +366,7 @@ When you search for information, the system compares your query's embedding agai
 
 ---
 
-### Our Choice: Local Embeddings with `all-MiniLM-L6-v2`
+### Our Choice: Local Embeddings with `BAAI/bge-small-en-v1.5`
 
 We use a **free, open-source embedding model** that runs locally on Railway's compute — no API calls, no API keys, no per-token costs. The model is loaded once when the worker starts and stays in memory.
 
@@ -381,22 +381,22 @@ We use a **free, open-source embedding model** that runs locally on Railway's co
 | **Rate Limits** | None — limited only by CPU | Per-minute/per-day token limits |
 | **Setup** | `pip install sentence-transformers` | API key + billing account |
 
-#### Our Chosen Model: `all-MiniLM-L6-v2`
+#### Our Chosen Model: `BAAI/bge-small-en-v1.5`
 
 | Property | Value |
 |----------|-------|
-| **Provider** | Sentence Transformers (Open Source) |
+| **Provider** | BAAI (Open Source) |
 | **Dimensions** | 384 |
-| **Download Size** | 80 MB |
-| **RAM Usage** | ~250 MB |
-| **Max Input** | 256 word pieces (~200 words) |
-| **Speed** | Very fast on CPU (no GPU needed) |
-| **Quality** | Good — sufficient for knowledge bases under 100K chunks |
-| **License** | Apache 2.0 (fully open) |
+| **Download Size** | 130 MB |
+| **RAM Usage** | ~300 MB |
+| **Max Input** | 512 tokens (~350 words) |
+| **Speed** | Fast on CPU (no GPU needed) |
+| **Quality** | Very good — strong MTEB retrieval scores; better than MiniLM at same dimensions |
+| **License** | MIT (fully open) |
 
 **How it works:**
 1. Install the `sentence-transformers` Python package
-2. Load the model once at worker startup: `model = SentenceTransformer('all-MiniLM-L6-v2')`
+2. Load the model once at worker startup: `model = SentenceTransformer('BAAI/bge-small-en-v1.5')`
 3. Embed text: `vector = model.encode("your text here")` → returns a 384-dimension vector
 4. Store the vector in PostgreSQL via pgvector
 5. Query by embedding your search text with the same model and using cosine similarity
@@ -407,10 +407,10 @@ If retrieval quality needs improvement later, switch to a larger local model:
 
 | Model | Dimensions | Size | Quality | Speed | When to Switch |
 |-------|-----------|------|---------|-------|----------------|
-| **`all-MiniLM-L6-v2`** ✅ | 384 | 80 MB | Good | Very fast | Current choice |
+| **`BAAI/bge-small-en-v1.5`** ✅ | 384 | 130 MB | Very good | Fast | Current choice |
+| `all-MiniLM-L6-v2` | 384 | 80 MB | Good | Very fast | Previous model (replaced) |
 | `all-mpnet-base-v2` | 768 | 420 MB | Better | Fast | If retrieval precision drops |
-| `bge-small-en-v1.5` | 384 | 130 MB | Good | Fast | Alternative at same dimensions |
-| `nomic-embed-text-v1.5` | 768 | 550 MB | Very good | Moderate | For larger knowledge bases |
+| `nomic-embed-text-v1.5` | 768 | 550 MB | Very good | Moderate | For larger knowledge bases (8192-token context) |
 
 Switching models requires re-embedding all existing documents and updating the pgvector column dimensions. This is a one-time migration.
 
@@ -448,7 +448,7 @@ If you later decide to use a paid embedding service (e.g., for higher quality or
 
 | Factor | Guidance |
 |--------|----------|
-| **Model Choice** | We use `all-MiniLM-L6-v2` (384 dims, local, free). Upgrade to `all-mpnet-base-v2` (768 dims) if retrieval quality needs improvement |
+| **Model Choice** | We use `BAAI/bge-small-en-v1.5` (384 dims, 512-token context, local, free). Upgrade to `nomic-embed-text-v1.5` (768 dims, 8192 tokens) if retrieval quality needs improvement |
 | **Dimension Trade-off** | Higher dimensions = better quality but more storage and slower search. 384 is sufficient for <100K chunks |
 | **Batch Processing** | Embed multiple chunks in a single `model.encode()` call for efficiency |
 | **Caching** | Store embeddings permanently in pgvector; re-embedding is wasteful even when free (costs compute time) |
@@ -459,8 +459,8 @@ If you later decide to use a paid embedding service (e.g., for higher quality or
 
 | Pitfall | Problem | Solution |
 |---------|---------|----------|
-| **Mixing Models** | Query and document embeddings from different models won't match | Use `all-MiniLM-L6-v2` consistently for both indexing and querying |
-| **Ignoring Token Limits** | Text exceeding model limits gets truncated silently | Chunk text to 500–1,000 tokens before embedding (MiniLM max: ~256 word pieces) |
+| **Mixing Models** | Query and document embeddings from different models won't match | Use `BAAI/bge-small-en-v1.5` consistently for both indexing and querying |
+| **Ignoring Token Limits** | Text exceeding model limits gets truncated silently | Chunk text to ~350 words before embedding (bge-small-en-v1.5 max: 512 tokens) |
 | **No Preprocessing** | Garbage in = garbage out | Clean text (remove noise, normalize formatting) |
 | **Embedding Entire Documents** | Single embedding loses detail | Chunk first, then embed each chunk |
 | **Switching Models Without Re-embedding** | Old embeddings are incompatible with new model dimensions | Re-embed all documents when changing models |
@@ -851,8 +851,8 @@ Your vector database on Railway needs to support hybrid search. Options include:
 | **Qdrant** | Fast, supports sparse vectors natively | Learning curve |
 
 #### 4. **Embedding Model Choice**
-- `all-MiniLM-L6-v2` ✅ → Free, local, 384 dimensions — our chosen model
-- `all-mpnet-base-v2` → Free, local, 768 dimensions — upgrade if retrieval quality needs improvement
+- `BAAI/bge-small-en-v1.5` ✅ → Free, local, 384 dimensions, 512-token context — our chosen model
+- `nomic-embed-text-v1.5` → Free, local, 768 dimensions, 8192-token context — upgrade path
 - Paid alternatives (OpenAI, Voyage AI) available if budget allows in the future
 
 ---
@@ -870,7 +870,7 @@ Your vector database on Railway needs to support hybrid search. Options include:
 | **Chunk Overlap** | Shared text between consecutive chunks to preserve context at boundaries |
 | **Embedding** | A list of numbers that represents the meaning of text |
 | **Vector** | Another name for an embedding; a list of numbers in mathematical space |
-| **Dimensions** | The count of numbers in an embedding (e.g., 384 dimensions = 384 numbers for `all-MiniLM-L6-v2`) |
+| **Dimensions** | The count of numbers in an embedding (e.g., 384 dimensions = 384 numbers for `BAAI/bge-small-en-v1.5`) |
 | **Cosine Similarity** | A mathematical formula to measure how similar two embeddings are |
 | **Token** | A unit of text (roughly 4 characters or ¾ of a word in English) |
 | **Vector Database** | A database optimized for storing and searching embeddings quickly |
