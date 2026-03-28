@@ -80,6 +80,7 @@
 <script>
 (function () {
   var celebrated = false;
+  var subscribePending = false; // true only when a subscribe/signup action was initiated
 
   function showModal() {
     var overlay = document.getElementById('bt-welcome-overlay');
@@ -99,6 +100,7 @@
   function celebrate() {
     if (celebrated) return;
     celebrated = true;
+    subscribePending = false;
     confetti({ particleCount: 100, angle: 60, spread: 65, origin: { x: 0, y: 0.6 }, colors: ['#c8b8ff', '#a78bfa', '#818cf8', '#6366f1', '#ffd6a5', '#f9a8d4'] });
     confetti({ particleCount: 100, angle: 120, spread: 65, origin: { x: 1, y: 0.6 }, colors: ['#c8b8ff', '#a78bfa', '#818cf8', '#6366f1', '#ffd6a5', '#f9a8d4'] });
     setTimeout(function () {
@@ -108,15 +110,33 @@
     setTimeout(function () { celebrated = false; }, 15000);
   }
 
-  /* Detect signup success by watching the Portal iframe DOM.
-     Handles two distinct Ghost Portal UI states:
-       1. New subscriber success PAGE — after magic-link email is sent,
-          Portal replaces the form with ".gh-portal-main-title" containing
-          "Please check your inbox." (Ghost 5.x Portal 2.x default text).
-       2. Logged-in member toast NOTIFICATION — ".gh-portal-notification-icon.success"
-          shown after profile updates etc.
+  /* Scan the Portal iframe for signup-form indicators and set subscribePending.
+     The Ghost Portal signup page always shows an "Already a member? Sign in" link
+     that is absent from the signin page — this is the reliable differentiator.
      This approach is read-only — does NOT override window.fetch or any global. */
+  function scanIframeForSignup(iframe) {
+    try {
+      var doc = iframe.contentDocument;
+      if (!doc || !doc.body) return;
+      var bodyText = doc.body.textContent.toLowerCase();
+      // These phrases appear ONLY on the signup form, never on the signin form
+      if (
+        bodyText.indexOf('already a member') !== -1 ||
+        bodyText.indexOf('already have an account') !== -1 ||
+        bodyText.indexOf('sign in instead') !== -1
+      ) {
+        subscribePending = true;
+      }
+    } catch (e) { /* cross-origin or not ready */ }
+  }
+
+  /* Detect subscription confirmation success in the Portal iframe.
+     Only fires when subscribePending is true (i.e. a signup form was seen first
+     or an inline subscribe form was submitted). This prevents the modal from
+     showing during normal sign-in flows, which also display a "check your inbox"
+     page after sending a magic link. */
   function scanIframeForSuccess(iframe) {
+    if (!subscribePending) return false; // guard: only trigger for subscribe flows
     try {
       var doc = iframe.contentDocument;
       if (!doc || !doc.body) return false;
@@ -135,14 +155,8 @@
         var ht = headings[h].textContent.toLowerCase();
         if (ht.indexOf('inbox') !== -1 || ht.indexOf('check your email') !== -1) return true;
       }
-
-      // 3. Logged-in member toast notification (original selectors — kept as fallback)
-      var el = doc.querySelector('.gh-portal-notification-icon.success');
-      if (el) return true;
-      var ps = doc.querySelectorAll('.gh-portal-notification p');
-      for (var i = 0; i < ps.length; i++) {
-        if (ps[i].textContent.indexOf('Check your email') !== -1) return true;
-      }
+      // NOTE: The broad .gh-portal-notification-icon.success check was removed —
+      // it fires on sign-in success toasts too, not just new subscriptions.
     } catch (e) { /* cross-origin or not ready */ }
     return false;
   }
@@ -152,6 +166,7 @@
     if (!root) return;
     var iframes = root.querySelectorAll('iframe');
     for (var i = 0; i < iframes.length; i++) {
+      scanIframeForSignup(iframes[i]); // update subscribe-pending state on every mutation
       if (scanIframeForSuccess(iframes[i])) {
         celebrate();
         return;
@@ -189,6 +204,8 @@
 
     new MutationObserver(function () {
       var iframes = root.querySelectorAll('iframe');
+      // Portal closed (iframe removed) — reset subscribe-pending flag
+      if (iframes.length === 0) { subscribePending = false; }
       for (var j = 0; j < iframes.length; j++) watchIframe(iframes[j]);
       checkPortal();
     }).observe(root, { childList: true, subtree: true });
@@ -199,6 +216,16 @@
     watchPortalRoot();
     new MutationObserver(watchPortalRoot)
       .observe(document.body, { childList: true, subtree: false });
+
+    // Detect inline subscribe form submissions (forms outside the Portal popup).
+    // data-members-form="subscribe" / "free" / etc. — set subscribePending so
+    // the modal fires when Ghost Portal opens to show the confirmation screen.
+    var forms = document.querySelectorAll('form[data-members-form]');
+    for (var f = 0; f < forms.length; f++) {
+      if (forms[f].getAttribute('data-members-form') !== 'signin') {
+        forms[f].addEventListener('submit', function () { subscribePending = true; });
+      }
+    }
   }
 
   if (document.body) init();

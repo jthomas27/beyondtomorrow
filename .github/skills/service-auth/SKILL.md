@@ -30,6 +30,8 @@ RAILWAY_TOKEN=...
 # Ghost CMS
 GHOST_URL=https://beyondtomorrow.world
 GHOST_ADMIN_KEY=id:secret
+GHOST_ADMIN_EMAIL=admin@beyondtomorrow.world   # owner account email (required for Code Injection / settings API)
+GHOST_ADMIN_PASSWORD=...                       # owner account password (required for Code Injection / settings API)
 
 # Hostinger IMAP (email listener)
 EMAIL_HOST=imap.hostinger.com
@@ -70,6 +72,7 @@ The script will:
 | `Railway: Unauthorized` | Token expired — create a new one at railway.app/account/tokens |
 | `Ghost: 401 Unauthorized` | `GHOST_ADMIN_KEY` wrong or expired — copy fresh key from Ghost Admin → Settings → Integrations |
 | `Ghost: 403 Forbidden` | Using `urllib` — always use `httpx` for Ghost calls |
+| `Ghost settings API: 501 Not Implemented` | Custom integration keys cannot edit settings — use session auth via `node scripts/inject-code.js`. Requires `GHOST_ADMIN_EMAIL` + `GHOST_ADMIN_PASSWORD` in `.env` (owner account credentials, same as Ghost Admin login). |
 | `Ghost: HTTP 530 / 521 / timeout` | Railway Ghost service is down — restart it at railway.app → caring-alignment → ghost service → Deployments → Restart. The auth check retries 3× automatically. |
 | `Hostinger IMAP: auth failed` | `EMAIL_PASS` wrong — verify in Hostinger webmail settings |
 | `Hostinger SMTP: auth failed` | Set `SMTP_USER` and `SMTP_PASS` explicitly in `.env` if they differ from IMAP credentials |
