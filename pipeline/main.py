@@ -69,7 +69,12 @@ def _is_rate_limit_error(exc: Exception) -> bool:
         return True
     if isinstance(exc, BadRequestError):
         msg = str(exc).lower()
-        return "unsupported parameter" in msg or "unsupported value" in msg
+        if "unsupported parameter" in msg or "unsupported value" in msg:
+            return True
+        # Azure content filter false positives — retry with fallback model
+        if "content_filter" in msg or "content management policy" in msg:
+            return True
+        return False
     if isinstance(exc, APIStatusError) and exc.status_code in (413, 429):
         return True
     msg = str(exc)
@@ -474,11 +479,8 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             if not new_drafts:
                 logger.warning("Writer did not save a file — retrying with explicit instruction...")
                 retry_input = (
-                    f"CRITICAL: You MUST call write_research_file('{draft_filename}', ...) "
-                    f"as your very first action. Do not respond without saving the file first.\n\n"
                     f"Write a blog post about: {topic}\n"
-                    f"You MUST call write_research_file with filename '{draft_filename}' "
-                    f"to save the post before you finish — do not stop without saving.\n\n"
+                    f"Save the post by calling write_research_file with filename '{draft_filename}'.\n\n"
                     f"Research findings:\n{research_compact_writer}"
                 )
                 _, wr_tin, wr_tout = await _run_agent_with_fallback(
