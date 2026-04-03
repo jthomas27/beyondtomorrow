@@ -135,7 +135,7 @@ async def _search_and_index_impl(query: str, max_results: int = 8) -> str:
     wrapper and by _prefetch_topic (which runs outside the LLM loop)."""
     from pipeline.embeddings import embed_batch
     from pipeline.db import get_pool
-    from pipeline.tools.corpus import _chunk_text, _get_chunk_params
+    from pipeline.tools.corpus import _chunk_text, _get_chunk_params, _sanitize_for_pg
 
     # Read config
     limits = _get_limits()
@@ -223,6 +223,8 @@ async def _search_and_index_impl(query: str, max_results: int = 8) -> str:
 
             if len(text) > cfg_max_chars:
                 text = text[:cfg_max_chars] + "\n\n[... truncated]"
+
+            text = _sanitize_for_pg(text)
 
             # Chunk and embed (CPU-only, no DB yet)
             chunks = _chunk_text(text, max_words=max_w, overlap_words=overlap_w)

@@ -43,6 +43,24 @@ from pipeline.db import get_pool
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Text sanitisation
+# ---------------------------------------------------------------------------
+
+def _sanitize_for_pg(text: str) -> str:
+    """Remove characters that PostgreSQL TEXT cannot store.
+
+    Null bytes (\\x00) are the primary cause of 'invalid byte sequence for
+    encoding UTF8: 0x00' errors. They appear in scraped web pages and PDF
+    extracts. Other ASCII control characters (except tab, LF, CR) are also
+    stripped as they corrupt tsvector full-text indexes.
+    """
+    # Null bytes — the only character PostgreSQL TEXT flat-out rejects
+    text = text.replace('\x00', '')
+    # Strip remaining C0 control chars that break tsvector (keep \t \n \r)
+    return _re.sub(r'[\x01-\x08\x0b\x0c\x0e-\x1f]', '', text)
+
 # ---------------------------------------------------------------------------
 # Cached config — loaded once per process, not on every tool call
 # ---------------------------------------------------------------------------
@@ -261,6 +279,7 @@ async def _index_document_impl(content: str, source: str, doc_type: str, date: s
         date: ISO date string (YYYY-MM-DD) when the document was created or retrieved.
     """
     max_w, overlap_w = _get_chunk_params()
+    content = _sanitize_for_pg(content)
     chunks = _chunk_text(content, max_words=max_w, overlap_words=overlap_w)
     if not chunks:
         return "No content to index."
@@ -356,6 +375,7 @@ async def embed_and_store(text: str, source: str, metadata_json: str = "{}") -> 
         metadata_json: JSON string with additional metadata (e.g. '{"type":"research"}').
     """
     vector = embed(text)  # list[float] — codec encodes automatically
+    text = _sanitize_for_pg(text)
 
     try:
         meta = json.loads(metadata_json)
