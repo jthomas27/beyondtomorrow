@@ -44,6 +44,8 @@ from email.header import decode_header
 from email.message import Message
 from typing import Optional
 
+from pipeline.pipeline_logger import _write_entry as _log
+
 logger = logging.getLogger("pipeline.email_listener")
 
 # Load .env at module level so EMAIL_USER/EMAIL_PASS are available when the
@@ -416,10 +418,12 @@ async def poll_once() -> None:
 
         if not command or not topic:
             logger.info("Ignoring email from %s — no valid command in subject.", sender)
+            _log({"event": "email_ignored", "from": sender, "subject": parsed["subject"], "reason": "no_valid_command"})
             continue
 
         if not is_sender_allowed(sender, allowlist):
             logger.warning("Rejected email from unapproved sender: %s", sender)
+            _log({"event": "email_rejected", "from": sender, "subject": parsed["subject"], "reason": "sender_not_in_allowlist"})
             continue
 
         task_str = f"{command}: {topic}"
@@ -430,6 +434,7 @@ async def poll_once() -> None:
         if "<" in sender and ">" in sender:
             reply_to = sender.split("<")[-1].rstrip(">")
 
+        _log({"event": "email_received", "from": reply_to, "command": command, "topic": topic})
         # Acknowledge receipt immediately
         send_reply(
             reply_to,
@@ -441,6 +446,7 @@ async def poll_once() -> None:
             result = await _run_blog_pipeline(task_str)
             if result.get("status") == "published":
                 logger.info("Task complete: %s", task_str)
+                _log({"event": "email_task_complete", "command": command, "topic": topic, "url": result.get("published_url", "")})
                 send_reply(
                     reply_to,
                     f"[BeyondTomorrow] Published: {topic}",
@@ -450,6 +456,7 @@ async def poll_once() -> None:
                 run_log = result.get("run_log")
                 failed_stage = run_log.summary().get("failed_stage") if run_log else "Unknown"
                 logger.error("Task failed: %s — stage: %s", task_str, failed_stage)
+                _log({"event": "email_task_failed", "command": command, "topic": topic, "failed_stage": failed_stage})
                 send_reply(
                     reply_to,
                     f"[BeyondTomorrow] Failed: {command}: {topic}",
@@ -457,6 +464,7 @@ async def poll_once() -> None:
                 )
         except Exception as exc:
             logger.error("Task raised unhandled exception: %s — %s", task_str, exc, exc_info=True)
+            _log({"event": "email_task_failed", "command": command, "topic": topic, "failed_stage": "unhandled", "error_type": type(exc).__name__, "error_message": str(exc)})
             send_reply(
                 reply_to,
                 f"[BeyondTomorrow] Failed: {command}: {topic}",
