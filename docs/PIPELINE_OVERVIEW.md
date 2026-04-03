@@ -111,8 +111,16 @@ This document describes the full research-and-publish pipeline: how each agent w
                     ┌────────▼────────┐
                     │  4. PUBLISHER   │  gpt-4.1-mini  temp=0.0
                     │  pick_image     │  max_turns=6
-                    │  upload_image   │  Output: live URL
+                    │  upload_image   │  Output: live Ghost URL
                     │  publish_to_ghost│
+                    └────────┬────────┘
+                             │ (no cooldown)
+                    ┌────────▼────────┐
+                    │  4b. LINKEDIN   │  No LLM — direct call
+                    │  _linkedin_post │  Reads frontmatter directly
+                    │  _direct()      │  3 retries (10s/30s backoff)
+                    │  Tracked in     │  stage_ok/error/skipped
+                    │  run_log        │  Shown in email notification
                     └────────┬────────┘
                              │ 20s cooldown
                     ┌────────▼────────┐
@@ -193,6 +201,30 @@ This document describes the full research-and-publish pipeline: how each agent w
 The Publisher does NOT read files directly — `publish_file_to_ghost` handles file reading, frontmatter parsing, and markdown-to-HTML conversion internally.
 
 **Pre-publish validation** is enforced by the `publish_file_to_ghost` tool before the Ghost API call (see [Pre-Publish Guardrails](#pre-publish-guardrails)).
+
+### Stage 4b: LinkedIn Cross-Post
+
+**No LLM** — direct call to `_linkedin_post_direct()` in `main.py` immediately after Ghost publish.
+
+Frontmatter (title, excerpt, tags) is read directly from the edited file; the LLM is not in the loop so these values are always accurate.
+
+**Controls:**
+- Tracked as a named pipeline stage (`LinkedIn`) in `PipelineRunLogger` — status appears in the Stages table of email notifications
+- If the Ghost URL cannot be parsed from the publisher output → `stage_error`, not a silent skip
+- **Retry: up to 3 attempts** with 10s and 30s delays between attempts on any `Error:` result
+- `SKIPPED: LinkedIn not configured` (missing env vars) → `stage_skipped`, not an error
+- Token expiry warning logged before every attempt when `LINKEDIN_TOKEN_EXPIRES` is set
+- Email notification subject includes `(LinkedIn failed)` if Ghost published but LinkedIn errored
+
+**Required env vars on Railway:**
+
+| Variable | Description |
+|---|---|
+| `LINKEDIN_ACCESS_TOKEN` | OAuth 2.0 bearer token — expires 60 days after issue |
+| `LINKEDIN_PERSON_URN` | `urn:li:person:{id}` — your LinkedIn member ID |
+| `LINKEDIN_TOKEN_EXPIRES` | `YYYY-MM-DD` expiry date — pipeline warns when ≤7 days remain |
+
+Refresh credentials before expiry: `.venv/bin/python scripts/linkedin_auth.py`
 
 ### Stage 5: Index
 

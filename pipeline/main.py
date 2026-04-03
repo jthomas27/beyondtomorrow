@@ -754,17 +754,69 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         # The publisher agent only publishes to Ghost. LinkedIn is handled
         # here by reading frontmatter directly from the edited file, so
         # excerpt and tags are always correct rather than guessed by an LLM.
+        #
+        # Controls:
+        #   - Tracked as a named pipeline stage so failures appear in emails
+        #   - Empty ghost_url (parse failure) → stage_error, not silent skip
+        #   - Error results → up to 3 retries with 10s/30s backoff
+        #   - SKIPPED (not configured) → stage_skipped, not stage_error
         # =============================================================
+        _current_stage = "LinkedIn"
+        run_log.stage_start("LinkedIn")
+        _t0_li = monotonic()
         ghost_url, feature_image_url = _parse_publish_output(publish_output)
-        if ghost_url:
-            edited_path = research_dir / edited_filename
-            linkedin_result = await _linkedin_post_direct(
-                ghost_url, feature_image_url, edited_path, run_log=run_log,
+        if not ghost_url:
+            _li_parse_exc = RuntimeError(
+                f"Could not parse Ghost URL from publisher output — "
+                f"LinkedIn blocked. Output was: {publish_output[:200]}"
             )
-            logger.info("LinkedIn: %s", linkedin_result)
-            publish_output = f"{publish_output} | LinkedIn: {linkedin_result}"
+            logger.error("LinkedIn: %s", _li_parse_exc)
+            run_log.stage_error("LinkedIn", _li_parse_exc)
+            linkedin_result = f"Error: {_li_parse_exc}"
         else:
-            logger.warning("Could not parse Ghost URL from publish output — LinkedIn skipped.")
+            edited_path = research_dir / edited_filename
+            linkedin_result = ""
+            _li_ok = False
+            _li_skipped = False
+            _li_delays = [10, 30]  # seconds before retry 2, retry 3
+            for _li_attempt in range(3):
+                if _li_attempt > 0:
+                    _li_delay = _li_delays[_li_attempt - 1]
+                    logger.info(
+                        "LinkedIn: retry %d/3 after %ds...", _li_attempt + 1, _li_delay
+                    )
+                    await asyncio.sleep(_li_delay)
+                # pass run_log=None — we handle stage tracking here
+                linkedin_result = await _linkedin_post_direct(
+                    ghost_url, feature_image_url, edited_path, run_log=None,
+                )
+                if linkedin_result.startswith("SKIPPED:"):
+                    _li_skipped = True
+                    break
+                if "Error:" not in linkedin_result:
+                    _li_ok = True
+                    break
+                logger.warning(
+                    "LinkedIn attempt %d/3 failed: %s", _li_attempt + 1, linkedin_result
+                )
+
+            if _li_skipped:
+                _li_skip_reason = linkedin_result.replace("SKIPPED:", "").strip()
+                run_log.stage_skipped("LinkedIn", _li_skip_reason)
+                logger.info("LinkedIn skipped: %s", _li_skip_reason)
+            elif _li_ok:
+                run_log.stage_ok(
+                    "LinkedIn",
+                    elapsed_s=round(monotonic() - _t0_li, 1),
+                    result=linkedin_result,
+                )
+                logger.info("LinkedIn posted: %s", linkedin_result)
+            else:
+                _li_exc = RuntimeError(linkedin_result)
+                run_log.stage_error("LinkedIn", _li_exc)
+                logger.error("LinkedIn failed after 3 attempts: %s", linkedin_result)
+
+        publish_output = f"{publish_output} | LinkedIn: {linkedin_result}"
 
         # =============================================================
         # Step 5: Index to corpus
@@ -856,20 +908,40 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
         )
         logger.info("Ghost result: %s", publish_output)
 
-        # LinkedIn direct post
+        # LinkedIn direct post — with retry on transient failures
         ghost_url, feature_image_url = _parse_publish_output(publish_output)
-        if ghost_url:
+        if not ghost_url:
+            logger.error(
+                "Could not parse Ghost URL from publisher output — LinkedIn blocked. "
+                "Output was: %s", publish_output[:200]
+            )
+        else:
             from pathlib import Path as _Path
             research_dir = _Path(__file__).parent.parent / "research"
             edited_path = research_dir / filename
             if not edited_path.exists():
-                logger.warning("File not found for LinkedIn: %s", edited_path)
+                logger.error("File not found for LinkedIn: %s", edited_path)
             else:
-                linkedin_result = await _linkedin_post_direct(ghost_url, feature_image_url, edited_path)
-                logger.info("LinkedIn: %s", linkedin_result)
-                publish_output = f"{publish_output} | LinkedIn: {linkedin_result}"
-        else:
-            logger.warning("Could not parse Ghost URL from publish output — LinkedIn skipped.")
+                _li_result = ""
+                _li_delays = [10, 30]
+                for _li_attempt in range(3):
+                    if _li_attempt > 0:
+                        _li_delay = _li_delays[_li_attempt - 1]
+                        logger.info(
+                            "LinkedIn: retry %d/3 after %ds...", _li_attempt + 1, _li_delay
+                        )
+                        await asyncio.sleep(_li_delay)
+                    _li_result = await _linkedin_post_direct(ghost_url, feature_image_url, edited_path)
+                    if _li_result.startswith("SKIPPED:") or "Error:" not in _li_result:
+                        break
+                    logger.warning(
+                        "LinkedIn attempt %d/3 failed: %s", _li_attempt + 1, _li_result
+                    )
+                if "Error:" in _li_result:
+                    logger.error("LinkedIn failed after 3 attempts: %s", _li_result)
+                else:
+                    logger.info("LinkedIn: %s", _li_result)
+                publish_output = f"{publish_output} | LinkedIn: {_li_result}"
 
         logger.info("Result: %s", publish_output)
     finally:

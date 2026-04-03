@@ -301,6 +301,13 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=1000`. Tools: `pick_random
 
 **LinkedIn cross-posting is handled by `pipeline/main.py` directly after the publisher returns** — not by the publisher agent. `main.py` reads frontmatter from the edited file and calls `_post_to_linkedin_impl` so excerpt and tags are always correct.
 
+**LinkedIn reliability controls** (implemented in Step 4b of `_run_blog_pipeline`):
+- Tracked as a named `PipelineRunLogger` stage (`LinkedIn`) — success/failure/skipped appears in email notifications
+- If the Ghost URL cannot be parsed from publisher output → `stage_error`, not a silent skip
+- Up to **3 retries** with 10s/30s delays on any `Error:` result
+- `SKIPPED: LinkedIn not configured` (missing env vars) → `stage_skipped`, not an error
+- Email subject includes `(LinkedIn failed)` when Ghost published but LinkedIn errored
+
 **Pre-publish validation** — `publish_file_to_ghost` validates before calling Ghost:
 - `title` (from frontmatter, 5–10 words)
 - `body_content` (at least 500 words)

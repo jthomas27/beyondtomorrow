@@ -324,18 +324,37 @@ def _fmt_stages(stages: list) -> str:
     return "\n".join(lines) if lines else "  (no stages recorded)"
 
 
+def _fmt_linkedin_status(stages: list) -> str:
+    """Extract a human-readable LinkedIn status line from the run_log stages list."""
+    for stage in stages:
+        if stage.get("stage") == "LinkedIn":
+            li_status = stage.get("status")
+            if li_status == "ok":
+                result = stage.get("result", "")
+                # Strip the "Personal: " prefix for brevity
+                result = result.replace("Personal: ", "").strip()
+                return f"LinkedIn : Posted — {result}"
+            if li_status == "error":
+                return f"LinkedIn : FAILED — {stage.get('error_message', 'unknown error')}"
+            if li_status == "skipped":
+                return f"LinkedIn : Skipped — {stage.get('reason', '')}"
+    return ""
+
+
 def _build_success_email(command: str, topic: str, result: dict) -> str:
     run_log = result.get("run_log")
     summary = run_log.summary() if run_log else {}
     duration = _fmt_duration(result.get("total_elapsed_s", 0))
     url = result.get("published_url", "https://beyondtomorrow.world")
     stage_lines = _fmt_stages(summary.get("stages", []))
+    linkedin_line = _fmt_linkedin_status(summary.get("stages", []))
     return (
         f"Command  : {command}\n"
         f"Topic    : {topic}\n"
         f"Status   : Published\n"
         f"URL      : {url}\n"
-        f"Duration : {duration}\n"
+        + (f"{linkedin_line}\n" if linkedin_line else "")
+        + f"Duration : {duration}\n"
         f"\nStages:\n{stage_lines}"
     )
 
@@ -446,11 +465,26 @@ async def poll_once() -> None:
         try:
             result = await _run_blog_pipeline(task_str)
             if result.get("status") == "published":
-                logger.info("Task complete: %s", task_str)
-                _log({"event": "email_task_complete", "command": command, "topic": topic, "url": result.get("published_url", "")})
+                # Check whether LinkedIn also succeeded
+                run_log_obj = result.get("run_log")
+                summary = run_log_obj.summary() if run_log_obj else {}
+                li_stage = next(
+                    (s for s in summary.get("stages", []) if s.get("stage") == "LinkedIn"),
+                    None,
+                )
+                li_failed = li_stage and li_stage.get("status") == "error"
+                subject_suffix = " (LinkedIn failed)" if li_failed else ""
+                logger.info("Task complete: %s%s", task_str, " [LinkedIn failed]" if li_failed else "")
+                _log({
+                    "event": "email_task_complete",
+                    "command": command,
+                    "topic": topic,
+                    "url": result.get("published_url", ""),
+                    "linkedin_ok": not li_failed,
+                })
                 send_reply(
                     reply_to,
-                    f"[BeyondTomorrow] Published: {topic}",
+                    f"[BeyondTomorrow] Published: {topic}{subject_suffix}",
                     _build_success_email(command, topic, result),
                 )
             else:
