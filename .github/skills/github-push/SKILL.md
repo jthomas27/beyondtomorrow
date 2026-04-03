@@ -23,7 +23,18 @@ Check:
 - **Deleted** files: removals that need staging
 - Any files that should NOT be committed (check `.gitignore`)
 
-### Step 2 — Stage files
+### Step 2 — Check `.gitignore` before staging
+
+Before staging any file, verify it is not excluded by `.gitignore`:
+
+```bash
+git check-ignore -v <file>
+```
+
+- If the command returns output, the file is ignored — **do NOT stage it** unless you have an explicit reason and user approval to force-add it with `git add -f`.
+- If it returns nothing, the file is safe to stage normally.
+
+For new files in directories that may be blanket-ignored (e.g. `scripts/`, `logs/`, `reports/`), always run this check first.
 
 Stage everything relevant:
 ```bash
@@ -33,6 +44,7 @@ git add <files...>
 Do NOT stage:
 - `.env` or any file containing credentials
 - `research/`, `reports/`, `logs/` — runtime/output directories (gitignored)
+- `scripts/` — gitignored by default in this project; individual files may be tracked via force-add, but only when explicitly requested
 - `__pycache__/`, `.venv/`, `.DS_Store`
 
 To verify what's staged:
@@ -93,5 +105,6 @@ The commit hash should appear on both `HEAD -> main` and `origin/main`.
 
 - **Never commit `.env`** — always in `.gitignore`; verify before `git add .`
 - **Never use `git add .` blindly** — stage files explicitly to avoid committing secrets or large binaries
+- **Check `.gitignore` before staging** — run `git check-ignore -v <file>` on any new or unfamiliar file; if it is ignored, do not force-add without explicit user instruction
 - **Branch**: always push to `main` unless the user specifies otherwise
 - **No force push** — do not use `--force` or `--force-with-lease` without explicit user instruction
