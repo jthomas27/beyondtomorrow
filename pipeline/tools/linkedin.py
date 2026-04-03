@@ -1,18 +1,12 @@
 """
 pipeline/tools/linkedin.py — LinkedIn cross-posting tool.
 
-Posts a blog article card to both the personal profile and the company page
-(https://www.linkedin.com/company/beyond-tomorrow-world/) immediately after Ghost publish.
+Posts a blog article card to the personal profile immediately after Ghost publish.
 
 Required env vars (all optional — missing vars cause graceful SKIPPED return):
     LINKEDIN_ACCESS_TOKEN  — OAuth 2.0 bearer token (expires 60 days after issue)
     LINKEDIN_PERSON_URN    — urn:li:person:{id} for the posting member
     LINKEDIN_TOKEN_EXPIRES — YYYY-MM-DD expiry date (set by scripts/linkedin_auth.py)
-
-Optional env vars for company page posting:
-    LINKEDIN_COMPANY_URN   — urn:li:organization:{id} for the company page
-                             Requires w_organization_social scope in the access token.
-                             Set by scripts/linkedin_auth.py or add manually.
 
 Re-run scripts/linkedin_auth.py to refresh the token before expiry.
 """
@@ -274,35 +268,15 @@ async def _post_as_author(
     )
 
 
-@function_tool
-async def post_to_linkedin(
+async def _post_to_linkedin_impl(
     title: str,
     excerpt: str,
     post_url: str,
     tags: str = "",
     feature_image_url: str = "",
 ) -> str:
-    """Post a blog article card to the LinkedIn personal profile and company page.
-
-    Posts as the authenticated member (LINKEDIN_PERSON_URN) and, if
-    LINKEDIN_COMPANY_URN is set, also as the Beyond Tomorrow company page.
-    Each destination is posted independently — a failure on one does not block
-    the other.
-
-    Args:
-        title:             Blog post title (used as the article card title).
-        excerpt:           One-to-two sentence summary (used as commentary and card description).
-        post_url:          Canonical Ghost URL of the published post.
-        tags:              Comma-separated post tags, converted to hashtags (optional).
-        feature_image_url: Ghost CDN URL of the feature image (optional). Uploaded
-                           separately for each destination so thumbnails are always correct.
-
-    Returns:
-        'Personal: urn:li:share:{id} | Company: urn:li:share:{id}'  both succeeded
-        'Personal: urn:li:share:{id}'                                personal only
-        'SKIPPED: LinkedIn not configured'                           env vars missing
-        'Error: {details}'                                           API failure
-    """
+    """Core LinkedIn posting logic. Called directly by main.py so the LLM is
+    not in the loop. Also wrapped as a @function_tool below for agent use."""
     access_token = os.environ.get("LINKEDIN_ACCESS_TOKEN", "").strip()
     person_urn = os.environ.get("LINKEDIN_PERSON_URN", "").strip()
 
@@ -316,16 +290,6 @@ async def post_to_linkedin(
             f"Error: LINKEDIN_PERSON_URN has invalid format: {person_urn!r}. "
             "Expected urn:li:person:{id}"
         )
-
-    # Optional company page URN
-    company_urn = os.environ.get("LINKEDIN_COMPANY_URN", "").strip()
-    if company_urn and not company_urn.startswith("urn:li:organization:"):
-        logger.warning(
-            "LINKEDIN_COMPANY_URN has unexpected format %r — skipping company post. "
-            "Expected urn:li:organization:{id}.",
-            company_urn,
-        )
-        company_urn = ""
 
     # Warn if token is close to expiry (non-blocking)
     token_expires = os.environ.get("LINKEDIN_TOKEN_EXPIRES", "").strip()
@@ -348,7 +312,7 @@ async def post_to_linkedin(
         except ValueError:
             logger.warning("LINKEDIN_TOKEN_EXPIRES has invalid date format: %r", token_expires)
 
-    # Build shared commentary (same text for both personal and company posts)
+    # Build commentary
     excerpt_clean = excerpt.strip()
     hashtags = _build_hashtags(tags)
     commentary = excerpt_clean
@@ -395,24 +359,29 @@ async def post_to_linkedin(
             else:
                 results.append(f"Personal: {personal_result}")
 
-        # ── Company post (optional) ────────────────────────────────────────
-        if company_urn:
-            company_log_key = f"{post_url}|{company_urn}"
-            if company_log_key in posts_log:
-                existing = posts_log[company_log_key]
-                logger.info("LinkedIn company: already posted as %s — skipping.", existing)
-                results.append(f"Company: SKIPPED (already posted as {existing})")
-            else:
-                company_result = await _post_as_author(
-                    client, company_urn, "company",
-                    commentary, title, post_url, description,
-                    feature_image_url, access_token, headers,
-                )
-                if company_result.startswith("urn:li:share:"):
-                    posts_log[company_log_key] = company_result
-                    _save_posts_log(posts_log)
-                    results.append(f"Company: {company_result}")
-                else:
-                    results.append(f"Company: {company_result}")
-
     return " | ".join(results)
+
+
+@function_tool
+async def post_to_linkedin(
+    title: str,
+    excerpt: str,
+    post_url: str,
+    tags: str = "",
+    feature_image_url: str = "",
+) -> str:
+    """Post a blog article card to the LinkedIn personal profile.
+
+    Args:
+        title:             Blog post title (used as the article card title).
+        excerpt:           One-to-two sentence summary.
+        post_url:          Canonical Ghost URL of the published post.
+        tags:              Comma-separated post tags (optional).
+        feature_image_url: Ghost CDN URL of the feature image (optional).
+
+    Returns:
+        'Personal: urn:li:share:{id}'       success
+        'SKIPPED: LinkedIn not configured'  env vars missing
+        'Error: {details}'                  API failure
+    """
+    return await _post_to_linkedin_impl(title, excerpt, post_url, tags, feature_image_url)

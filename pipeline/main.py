@@ -297,17 +297,92 @@ _load_dotenv()
 def _build_publish_input(filename: str) -> str:
     """Build the Publisher agent prompt for a given edited markdown filename."""
     return (
-        f"Publish the blog post file '{filename}' to Ghost, then cross-post to LinkedIn.\n"
+        f"Publish the blog post file '{filename}' to Ghost.\n"
         f"Step 1: call pick_random_asset_image()\n"
         f"Step 2: call upload_image_to_ghost(image_path=<path from step 1>)\n"
         f"Step 3: call publish_file_to_ghost(filename='{filename}', "
         f"feature_image_url=<url from step 2>, status='published')\n"
-        f"Step 4: call post_to_linkedin(title=<title from frontmatter>, "
-        f"excerpt=<excerpt from frontmatter>, post_url=<ghost url from step 3>, "
-        f"tags=<tags from frontmatter>, feature_image_url=<url from step 2>). "
-        f"If result starts with 'SKIPPED:' or 'Error:', log it and continue.\n"
-        f"Return the Ghost URL from step 3 and the LinkedIn result from step 4."
+        f"Step 4: return EXACTLY: PUBLISHED: <ghost_url from step 3> | FEATURE_IMAGE: <url from step 2>"
     )
+
+
+def _parse_publish_output(publish_output: str) -> tuple[str, str]:
+    """Extract (ghost_url, feature_image_url) from publisher agent output.
+
+    Returns ('', '') if not parseable.
+    """
+    import re as _re
+    ghost_url = ""
+    feature_image_url = ""
+    # Look for PUBLISHED: <url> marker first (structured format)
+    m = _re.search(r'PUBLISHED:\s*(https://[^\s|]+)', publish_output, _re.IGNORECASE)
+    if m:
+        ghost_url = m.group(1).rstrip("/") + "/"
+    else:
+        # Fallback: any beyondtomorrow.world URL
+        m = _re.search(r'(https://beyondtomorrow\.world/[^\s|]+)', publish_output)
+        if m:
+            ghost_url = m.group(1)
+    # Feature image
+    m = _re.search(r'FEATURE_IMAGE:\s*(https://[^\s|\n]+)', publish_output, _re.IGNORECASE)
+    if m:
+        feature_image_url = m.group(1)
+    else:
+        # Fallback: look for feature_image in publish_file_to_ghost return embedded in output
+        m = _re.search(r'feature[_-]?image:\s*(https://[^\s|\n]+)', publish_output, _re.IGNORECASE)
+        if m:
+            feature_image_url = m.group(1)
+    return ghost_url, feature_image_url
+
+
+async def _linkedin_post_direct(
+    ghost_url: str,
+    feature_image_url: str,
+    edited_path,
+    run_log=None,
+) -> str:
+    """Post a published Ghost article to LinkedIn by reading frontmatter directly.
+
+    Called from main.py after the publisher step — keeps the LLM out of the
+    LinkedIn loop entirely so excerpt/tags are always read from the actual file.
+    Returns the LinkedIn result string.
+    """
+    from pathlib import Path
+    from pipeline.tools.linkedin import _post_to_linkedin_impl
+    from pipeline.tools.ghost import _parse_frontmatter
+
+    try:
+        raw = Path(edited_path).read_text(encoding="utf-8")
+        meta, _ = _parse_frontmatter(raw)
+    except Exception as exc:
+        logger.warning("LinkedIn direct: could not read frontmatter from %s: %s", edited_path, exc)
+        return f"SKIPPED: could not read frontmatter — {exc}"
+
+    title = meta.get("title", "").strip()
+    excerpt = meta.get("excerpt", "").strip()
+    tags = meta.get("tags", "").strip()
+
+    if not title or not excerpt:
+        logger.warning("LinkedIn direct: missing title or excerpt in frontmatter — skipping.")
+        return "SKIPPED: missing title or excerpt in frontmatter"
+
+    logger.info("LinkedIn direct: posting '%s' → %s", title, ghost_url)
+    try:
+        result = await _post_to_linkedin_impl(
+            title=title,
+            excerpt=excerpt,
+            post_url=ghost_url,
+            tags=tags,
+            feature_image_url=feature_image_url,
+        )
+    except Exception as exc:
+        result = f"Error: {exc}"
+        logger.error("LinkedIn direct: unexpected error: %s", exc)
+
+    logger.info("LinkedIn direct result: %s", result)
+    if run_log:
+        run_log.stage_ok("LinkedIn", url=ghost_url, result=result)
+    return result
 
 
 async def _check_status() -> None:
@@ -353,15 +428,6 @@ async def _check_status() -> None:
         else:
             expiry_info = " (expiry unknown — re-run scripts/linkedin_auth.py to set LINKEDIN_TOKEN_EXPIRES)"
         logger.info("  ✓ %-20s LinkedIn cross-posting%s", "LINKEDIN_ACCESS_TOKEN", expiry_info)
-        li_company = os.environ.get("LINKEDIN_COMPANY_URN", "").strip()
-        if li_company:
-            logger.info("  ✓ %-20s LinkedIn company page (%s)", "LINKEDIN_COMPANY_URN", li_company)
-        else:
-            logger.info(
-                "  - %-20s LinkedIn company page not configured "
-                "(set LINKEDIN_COMPANY_URN to also post to the Beyond Tomorrow page)",
-                "LINKEDIN_COMPANY_URN",
-            )
     else:
         logger.info("  - %-20s LinkedIn not configured (optional — pipeline will skip cross-posting)", "LINKEDIN")
 
@@ -418,16 +484,19 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
     logger.info("Starting BLOG pipeline")
     logger.info("Topic: %s", topic)
 
-    from pipeline.pipeline_logger import PipelineRunLogger
-    run_log = PipelineRunLogger(topic=topic, command="BLOG")
     _current_stage = "init"
     _pipeline_t0 = monotonic()
+    run_log = None
     _pipeline_result: dict = {
-        "status": "failed", "published_url": "", "run_log": run_log, "total_elapsed_s": 0.0
+        "status": "failed", "published_url": "", "run_log": None, "total_elapsed_s": 0.0
     }
 
     try:
         pool = await get_pool()
+        from pipeline.pipeline_logger import PipelineRunLogger, set_db_pool
+        set_db_pool(pool)
+        run_log = PipelineRunLogger(topic=topic, command="BLOG")
+        _pipeline_result["run_log"] = run_log
         _pipeline_t0 = monotonic()
 
         # =============================================================
@@ -681,6 +750,23 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         logger.info("[4/5] Publish done in %.1fs", monotonic() - _t0)
 
         # =============================================================
+        # Step 4b: LinkedIn (direct — no LLM in the loop)
+        # The publisher agent only publishes to Ghost. LinkedIn is handled
+        # here by reading frontmatter directly from the edited file, so
+        # excerpt and tags are always correct rather than guessed by an LLM.
+        # =============================================================
+        ghost_url, feature_image_url = _parse_publish_output(publish_output)
+        if ghost_url:
+            edited_path = research_dir / edited_filename
+            linkedin_result = await _linkedin_post_direct(
+                ghost_url, feature_image_url, edited_path, run_log=run_log,
+            )
+            logger.info("LinkedIn: %s", linkedin_result)
+            publish_output = f"{publish_output} | LinkedIn: {linkedin_result}"
+        else:
+            logger.warning("Could not parse Ghost URL from publish output — LinkedIn skipped.")
+
+        # =============================================================
         # Step 5: Index to corpus
         # =============================================================
         _current_stage = "Index"
@@ -722,8 +808,9 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         }
     except Exception as exc:
         _total = monotonic() - _pipeline_t0
-        run_log.stage_error(_current_stage, exc)
-        run_log.run_failed(_current_stage, exc, total_elapsed_s=_total)
+        if run_log is not None:
+            run_log.stage_error(_current_stage, exc)
+            run_log.run_failed(_current_stage, exc, total_elapsed_s=_total)
         _pipeline_result = {
             "status": "failed",
             "published_url": "",
@@ -760,11 +847,30 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
 
     try:
         pool = await get_pool()
+        from pipeline.pipeline_logger import set_db_pool
+        set_db_pool(pool)
         publish_input = _build_publish_input(filename)
         publish_output, _, _ = await _run_agent_with_fallback(
             publisher, publish_input,
             agent_name="Publisher", pool=pool, max_turns=6,
         )
+        logger.info("Ghost result: %s", publish_output)
+
+        # LinkedIn direct post
+        ghost_url, feature_image_url = _parse_publish_output(publish_output)
+        if ghost_url:
+            from pathlib import Path as _Path
+            research_dir = _Path(__file__).parent.parent / "research"
+            edited_path = research_dir / filename
+            if not edited_path.exists():
+                logger.warning("File not found for LinkedIn: %s", edited_path)
+            else:
+                linkedin_result = await _linkedin_post_direct(ghost_url, feature_image_url, edited_path)
+                logger.info("LinkedIn: %s", linkedin_result)
+                publish_output = f"{publish_output} | LinkedIn: {linkedin_result}"
+        else:
+            logger.warning("Could not parse Ghost URL from publish output — LinkedIn skipped.")
+
         logger.info("Result: %s", publish_output)
     finally:
         await close_pool()
@@ -789,6 +895,8 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> None:
 
     try:
         pool = await get_pool()
+        from pipeline.pipeline_logger import set_db_pool
+        set_db_pool(pool)
 
         research_input = (
             f"Research this topic thoroughly: {topic}\n\n"

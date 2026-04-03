@@ -79,7 +79,7 @@ Required only for LinkedIn publishing. Set by running `scripts/linkedin_auth.py`
 | `LINKEDIN_ACCESS_TOKEN` | OAuth 2.0 bearer token — expires 60 days after issue |
 | `LINKEDIN_PERSON_URN` | `urn:li:person:{id}` — your LinkedIn member ID |
 | `LINKEDIN_TOKEN_EXPIRES` | `YYYY-MM-DD` expiry date — pipeline warns when ≤7 days remain |
-| `LINKEDIN_COMPANY_URN` | `urn:li:organization:{id}` — Beyond Tomorrow company page (optional; requires `w_organization_social` scope) |
+
 
 To obtain/refresh LinkedIn credentials:
 ```bash
@@ -113,7 +113,7 @@ BLOG: topic
         ├─► Researcher   → structured JSON findings (saved to research/)
         ├─► Writer       → Markdown draft (saved to research/YYYY-MM-DD-slug.md)
         ├─► Editor       → polished post (saved as YYYY-MM-DD-slug-edited.md)
-        ├─► Publisher    → Ghost CMS (live post) + LinkedIn personal profile + company page
+        ├─► Publisher    → Ghost CMS (live post) + LinkedIn personal profile
         └─► Indexer      → chunks + embeddings stored in pgvector corpus
 ```
 
@@ -125,7 +125,7 @@ BLOG: topic
 | `pipeline/definitions.py` | All six agent definitions (Orchestrator, Researcher, Writer, Editor, Publisher, Indexer) |
 | `pipeline/embeddings.py` | Embedding generation and pgvector operations |
 | `pipeline/tools/ghost.py` | Ghost Admin API — JWT auth, post creation, image upload |
-| `pipeline/tools/linkedin.py` | LinkedIn REST API — personal profile + company page cross-posting, image upload, dedup guard |
+| `pipeline/tools/linkedin.py` | LinkedIn REST API — personal profile cross-posting, image upload, dedup guard |
 | `pipeline/tools/search.py` | DuckDuckGo web search + pgvector semantic search |
 | `pipeline/tools/corpus.py` | Knowledge corpus reads/writes (pgvector + Railway Object Storage) |
 | `pipeline/guardrails.py` | Content quality checks before publishing |
@@ -291,28 +291,24 @@ Uses `gpt-4.1` at `temperature=0.3`, `max_tokens=4000`. Tools: `read_research_fi
 
 ### Publisher
 
-Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=1000`. Tools: `pick_random_asset_image`, `upload_image_to_ghost`, `publish_file_to_ghost`, `post_to_linkedin`.
+Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=1000`. Tools: `pick_random_asset_image`, `upload_image_to_ghost`, `publish_file_to_ghost`.
 
 **Sequence** (exactly, every time):
 1. Call `pick_random_asset_image()` — if result starts with `Error:`, stop and report
 2. Call `upload_image_to_ghost(image_path=<path from step 1>)` — if result starts with `Error:`, stop and report
 3. Call `publish_file_to_ghost(filename=<-edited.md filename>, feature_image_url=<URL from step 2>, status='published')`
-4. Call `post_to_linkedin(title=<title>, excerpt=<excerpt>, post_url=<Ghost URL from step 3>, tags=<tags>, feature_image_url=<URL from step 2>)`
-   - Posts to personal profile (`LINKEDIN_PERSON_URN`) and company page (`LINKEDIN_COMPANY_URN`) if configured
-   - Images are uploaded separately per destination with the correct owner URN
-   - Dedup log at `logs/linkedin_posts.json` prevents reposting the same Ghost URL
-   - Returns e.g. `Personal: urn:li:share:X | Company: urn:li:share:Y`
-   - Non-blocking: `SKIPPED:` or `Error:` is logged but does not prevent Ghost publish
-5. Return the Ghost URL and the LinkedIn result
+4. Return `PUBLISHED: <ghost_url> | FEATURE_IMAGE: <url from step 2>`
 
-**Pre-publish validation** — before calling `publish_file_to_ghost`, verify all three are present:
-- `title` (from frontmatter)
-- `html_content` (converted post body)
+**LinkedIn cross-posting is handled by `pipeline/main.py` directly after the publisher returns** — not by the publisher agent. `main.py` reads frontmatter from the edited file and calls `_post_to_linkedin_impl` so excerpt and tags are always correct.
+
+**Pre-publish validation** — `publish_file_to_ghost` validates before calling Ghost:
+- `title` (from frontmatter, 5–10 words)
+- `body_content` (at least 500 words)
 - `feature_image` (hosted URL from step 2)
+- `excerpt` (non-empty in frontmatter)
+- `Just For Laughs` section present
 
-If **any** item is missing: return `MISSING: [list the missing items] — retry required`. Do NOT publish partial content.
-
-**Important**: Do NOT call `read_research_file` directly — `publish_file_to_ghost` handles file reading. Do NOT convert Markdown to HTML manually. Always use `status='published'` (never `'draft'`).
+If **any** item is missing: `publish_file_to_ghost` returns `MISSING: [list]`. Publisher must return this verbatim — do NOT retry.
 
 ### Indexer
 

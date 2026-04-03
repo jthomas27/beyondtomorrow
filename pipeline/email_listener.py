@@ -489,6 +489,17 @@ async def run_poll_loop() -> None:
     interval = int(os.environ.get("EMAIL_POLL_INTERVAL", str(DEFAULT_POLL_INTERVAL)))
     logger.info("Email listener starting — polling every %ds", interval)
 
+    # Register the DB pool with the logger so all _write_entry calls persist to
+    # PostgreSQL (shared with local runs), surviving Railway redeployments.
+    try:
+        from pipeline.db import get_pool
+        from pipeline.pipeline_logger import set_db_pool
+        _pool = await get_pool()
+        set_db_pool(_pool)
+        logger.info("Pipeline logger connected to PostgreSQL.")
+    except Exception as exc:
+        logger.warning("DB pool init failed — pipeline logs will be file-only: %s", exc)
+
     # Startup scan: index any reports/ files not yet in the corpus.
     try:
         await scan_and_index_new_reports()

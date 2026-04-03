@@ -22,6 +22,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -32,6 +33,54 @@ from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
 from typing import Any
+
+# ---------------------------------------------------------------------------
+# PostgreSQL pool (set by main.py / email_listener.py after pool is acquired)
+# ---------------------------------------------------------------------------
+_db_pool: Any = None
+
+
+def set_db_pool(pool: Any) -> None:  # noqa: ANN401  (asyncpg.Pool)
+    """Register the shared asyncpg pool so _write_entry can persist logs to DB.
+
+    Call this once after ``await get_pool()`` in each pipeline entry-point.
+    Safe to call with ``None`` to disable DB writes.
+    """
+    global _db_pool
+    _db_pool = pool
+
+
+async def _write_entry_db(entry: dict) -> None:
+    """Insert one log entry into the PostgreSQL pipeline_logs table.
+
+    Silently swallows all exceptions so a DB hiccup never disrupts the pipeline.
+    """
+    pool = _db_pool
+    if pool is None:
+        return
+    try:
+        ts_str = entry.get("timestamp")
+        if ts_str:
+            try:
+                ts = datetime.fromisoformat(ts_str)
+            except ValueError:
+                ts = datetime.now(timezone.utc)
+        else:
+            ts = datetime.now(timezone.utc)
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO pipeline_logs (run_id, event, stage, ts, data)
+                VALUES ($1, $2, $3, $4, $5)
+                """,
+                entry.get("run_id", ""),
+                entry.get("event", ""),
+                entry.get("stage"),
+                ts,
+                json.dumps(entry, ensure_ascii=False, default=str),
+            )
+    except Exception as exc:  # noqa: BLE001
+        _file_logger.debug("pipeline_logs DB write failed (non-fatal): %s", exc)
 
 _LOG_DIR = Path(__file__).parent.parent / "logs"
 _file_logger = logging.getLogger("pipeline.file_log")
@@ -78,12 +127,27 @@ def _log_file_path() -> Path:
 
 
 def _write_entry(entry: dict) -> None:
-    """Append a newline-delimited JSON entry to today's log file."""
+    """Append a newline-delimited JSON entry to today's log file.
+
+    Also fires a non-blocking DB insert when a pool has been registered via
+    ``set_db_pool()`` and an asyncio event loop is currently running.
+    The DB write is fire-and-forget — any failure is logged at DEBUG level
+    only and never raises.
+    """
+    # --- file write (always, local debugging) ---
     try:
         with open(_log_file_path(), "a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         _file_logger.warning("Could not write to pipeline log: %s", exc)
+
+    # --- DB write (fire-and-forget when inside an async context) ---
+    if _db_pool is not None:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_write_entry_db(entry))
+        except RuntimeError:
+            pass  # No running event loop — skip DB write
 
 
 class PipelineRunLogger:

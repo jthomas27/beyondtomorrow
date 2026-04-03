@@ -152,6 +152,7 @@ Documented.
 | `.github/copilot-instructions.md` | Modified | ✅ Complete |
 | `.github/skills/service-auth/SKILL.md` | Modified | ✅ Complete |
 | `tests/test_linkedin.py` | New | ✅ Complete |
+| `scripts/test_crosspost_pipeline.py` | New | ✅ Complete |
 
 ---
 
@@ -173,8 +174,9 @@ Documented.
 1. ✅ Run `scripts/linkedin_auth.py` → token, URN, and expiry saved to `.env`
 2. ✅ Run `.venv/bin/python -m pipeline.main status` → LinkedIn vars confirmed set
 3. ✅ Run `PUBLISH: 2026-03-28-assess-the-cost-of-edited.md` → Ghost published live; LinkedIn personal posted
-4. Run Substack RSS import → confirm existing Ghost posts appear as drafts in Substack ✓
-5. Publish one Substack draft manually to verify formatting ✓
+4. ✅ Run `scripts/test_crosspost_pipeline.py` → end-to-end integration test: Ghost image upload ✓, Ghost publish ✓, LinkedIn cross-post ✓, auto-cleanup ✓ (3 April 2026)
+5. Run Substack RSS import → confirm existing Ghost posts appear as drafts in Substack ✓
+6. Publish one Substack draft manually to verify formatting ✓
 
 ---
 
@@ -187,6 +189,7 @@ Documented.
 | Duplicate post guard (`logs/linkedin_posts.json`) | Low | Prevents reposting same article | ✅ Done |
 | Company page posting (`LINKEDIN_COMPANY_URN`) | Medium | Broader audience | ✅ Done |
 | LinkedIn refresh token flow (auto-renew) | Medium — requires `r_member_social` approval | Removes 60-day manual re-auth | ❌ Not done |
+| Periodic integration test (`test_crosspost_pipeline.py`) | Low — run manually before each deploy | Confirms live pipeline health before production use | ✅ Script exists |}
 | Substack unofficial API (`substack-api` package) | Medium — fragile, cookie-based | Automates Substack posting | ❌ Not done |
 | Ghost webhook → LinkedIn (decoupled from pipeline) | Medium — needs a small HTTP endpoint | Posts on manual Ghost publishes too | ❌ Not done |
 

@@ -66,13 +66,30 @@ async def get_pool() -> asyncpg.Pool:
             ssl=_ssl,
             init=_setup_vector_codec,
         )
-        # Ensure HNSW index exists (idempotent — safe to run every startup)
+        # Ensure HNSW index and pipeline_logs table exist (idempotent)
         async with _pool.acquire() as conn:
             await conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx
                     ON embeddings USING hnsw (embedding vector_cosine_ops)
                     WITH (m = 16, ef_construction = 64)
+                """
+            )
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pipeline_logs (
+                    id          BIGSERIAL PRIMARY KEY,
+                    run_id      TEXT        NOT NULL DEFAULT '',
+                    event       TEXT        NOT NULL,
+                    stage       TEXT,
+                    ts          TIMESTAMPTZ NOT NULL,
+                    data        JSONB       NOT NULL,
+                    created_at  TIMESTAMPTZ DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS pipeline_logs_run_id_idx
+                    ON pipeline_logs (run_id);
+                CREATE INDEX IF NOT EXISTS pipeline_logs_ts_idx
+                    ON pipeline_logs (ts DESC);
                 """
             )
     return _pool
