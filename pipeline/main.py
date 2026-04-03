@@ -493,8 +493,20 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
 
     try:
         pool = await get_pool()
-        from pipeline.pipeline_logger import PipelineRunLogger, set_db_pool
+        from pipeline.pipeline_logger import PipelineRunLogger, set_db_pool, mark_stale_runs_failed
         set_db_pool(pool)
+
+        # Stale-run janitor — close any stuck RUNNING runs before starting this one
+        try:
+            _stale = await mark_stale_runs_failed(pool, stale_after_hours=2)
+            if _stale:
+                logger.warning(
+                    "Stale-run janitor: closed %d orphaned run(s): %s",
+                    len(_stale), ", ".join(_stale),
+                )
+        except Exception as _jex:
+            logger.warning("Stale-run janitor error (non-fatal): %s", _jex)
+
         run_log = PipelineRunLogger(topic=topic, command="BLOG")
         _pipeline_result["run_log"] = run_log
         _pipeline_t0 = monotonic()

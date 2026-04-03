@@ -116,7 +116,8 @@ def _format_cause_chain(exc: Exception) -> list[dict]:
 
 def _env_snapshot() -> dict:
     """Capture environment context useful for diagnosing failures."""
-    return {
+    from datetime import date as _date
+    snapshot: dict = {
         "python": sys.version.split()[0],
         "platform": sys.platform,
         "has_github_token": bool(os.environ.get("GITHUB_TOKEN")),
@@ -124,7 +125,24 @@ def _env_snapshot() -> dict:
         "has_ghost_url": bool(os.environ.get("GHOST_URL")),
         "has_ghost_admin_key": bool(os.environ.get("GHOST_ADMIN_KEY")),
         "railway": bool(os.environ.get("RAILWAY_ENVIRONMENT")),
+        "railway_service_id": os.environ.get("RAILWAY_SERVICE_ID", ""),
+        "railway_deployment_id": os.environ.get("RAILWAY_DEPLOYMENT_ID", ""),
     }
+    # LinkedIn cross-posting status
+    li_token = bool(os.environ.get("LINKEDIN_ACCESS_TOKEN"))
+    li_urn = bool(os.environ.get("LINKEDIN_PERSON_URN"))
+    li_expires = os.environ.get("LINKEDIN_TOKEN_EXPIRES", "").strip()
+    snapshot["has_linkedin"] = li_token and li_urn
+    if li_expires and li_token:
+        try:
+            days_left = (_date.fromisoformat(li_expires) - _date.today()).days
+            snapshot["linkedin_token_expires"] = li_expires
+            snapshot["linkedin_days_remaining"] = days_left
+            snapshot["linkedin_token_valid"] = days_left > 0
+        except ValueError:
+            snapshot["linkedin_token_expires"] = li_expires
+            snapshot["linkedin_token_valid"] = None
+    return snapshot
 
 
 def _ensure_log_dir() -> Path:
@@ -278,15 +296,22 @@ class PipelineRunLogger:
     # ------------------------------------------------------------------
 
     def run_complete(self, published_url: str = "", total_elapsed_s: float = 0.0) -> None:
-        """Log successful pipeline completion."""
+        """Log successful pipeline completion with full stage and cross-platform summary."""
         global _active_run_log
         _active_run_log = None
+        li_stage = next((s for s in self.stages if s.get("stage") == "LinkedIn"), None)
+        li_status = li_stage.get("status") if li_stage else None
         _write_entry({
             "timestamp": self._ts(),
             "run_id": self.run_id,
             "event": "run_complete",
             "published_url": published_url,
             "total_elapsed_s": round(total_elapsed_s, 1),
+            "stages": list(self.stages),
+            "stages_ok": sum(1 for s in self.stages if s.get("status") == "ok"),
+            "stages_failed": sum(1 for s in self.stages if s.get("status") == "error"),
+            "linkedin_ok": li_status == "ok" if li_status is not None else None,
+            "linkedin_skipped": li_status == "skipped",
         })
 
     def run_failed(self, failed_stage: str, exc: Exception, total_elapsed_s: float = 0.0) -> None:
@@ -379,3 +404,124 @@ class PipelineRunLogger:
             "cause_chain": failed[-1].get("cause_chain") if failed else None,
             "log_file": str(_log_file_path()),
         }
+
+
+# ---------------------------------------------------------------------------
+# Stale-run janitor
+# ---------------------------------------------------------------------------
+
+async def mark_stale_runs_failed(pool: Any, stale_after_hours: int = 2) -> list[str]:
+    """Find runs stuck in RUNNING state and insert a ``run_failed`` event for each.
+
+    A run is considered stale when it has a ``run_start`` event but no
+    ``run_complete`` or ``run_failed`` event, and was started at least
+    *stale_after_hours* hours ago.  This covers runs killed by SIGKILL or
+    container restarts that had no chance to write a terminal event.
+
+    Called at startup by both the email listener and the blog pipeline so
+    stale entries are cleaned up before any new ``query_logs.py runs`` output.
+
+    Args:
+        pool: asyncpg connection pool (registered via :func:`set_db_pool`).
+        stale_after_hours: Minimum run age in hours before it is marked stale.
+
+    Returns:
+        List of ``run_id`` strings that were marked as ``run_failed``.
+    """
+    if pool is None:
+        return []
+
+    marked: list[str] = []
+    try:
+        async with pool.acquire() as conn:
+            stale_rows = await conn.fetch(
+                """
+                SELECT r.run_id,
+                       MIN(r.ts) AS started_at,
+                       (
+                           SELECT l.stage
+                           FROM   pipeline_logs l
+                           WHERE  l.run_id = r.run_id
+                             AND  l.stage IS NOT NULL
+                           ORDER  BY l.ts DESC
+                           LIMIT  1
+                       ) AS last_stage
+                FROM   pipeline_logs r
+                WHERE  r.event = 'run_start'
+                  AND  r.run_id NOT IN (
+                           SELECT run_id
+                           FROM   pipeline_logs
+                           WHERE  event IN ('run_complete', 'run_failed')
+                       )
+                  AND  r.ts < NOW() - ($1 * INTERVAL '1 hour')
+                GROUP  BY r.run_id
+                """,
+                stale_after_hours,
+            )
+
+        now = datetime.now(timezone.utc)
+        for row in stale_rows:
+            run_id: str = row["run_id"]
+            started_at = row["started_at"]
+            last_stage: str = row["last_stage"] or "Unknown"
+
+            # Calculate elapsed — asyncpg returns tz-aware datetimes for TIMESTAMPTZ
+            if started_at:
+                if started_at.tzinfo is None:
+                    started_aware = started_at.replace(tzinfo=timezone.utc)
+                else:
+                    started_aware = started_at
+                elapsed = round((now - started_aware).total_seconds(), 1)
+            else:
+                elapsed = -1.0
+
+            entry: dict = {
+                "timestamp": now.isoformat(),
+                "run_id": run_id,
+                "event": "run_failed",
+                "failed_stage": last_stage,
+                "error_type": "StaleRun",
+                "error_message": (
+                    f"Stale run auto-closed at startup — no terminal event found. "
+                    f"Last known stage: {last_stage}. "
+                    f"Process was likely killed by SIGKILL or container restart."
+                ),
+                "total_elapsed_s": elapsed,
+                "stale_cleanup": True,
+            }
+
+            # Write to file log
+            try:
+                with open(_log_file_path(), "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+            except Exception as exc:  # noqa: BLE001
+                _file_logger.warning("Stale janitor: file write failed for %s: %s", run_id, exc)
+
+            # Write to DB
+            try:
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        """
+                        INSERT INTO pipeline_logs (run_id, event, stage, ts, data)
+                        VALUES ($1, $2, $3, $4, $5)
+                        """,
+                        run_id,
+                        "run_failed",
+                        last_stage,
+                        now,
+                        json.dumps(entry, ensure_ascii=False, default=str),
+                    )
+            except Exception as exc:  # noqa: BLE001
+                _file_logger.warning("Stale janitor: DB write failed for %s: %s", run_id, exc)
+                continue
+
+            marked.append(run_id)
+            _file_logger.info(
+                "Stale run %s (stuck at stage '%s', elapsed %.0fs) marked run_failed.",
+                run_id, last_stage, elapsed,
+            )
+
+    except Exception as exc:  # noqa: BLE001
+        _file_logger.warning("mark_stale_runs_failed: query error (non-fatal): %s", exc)
+
+    return marked

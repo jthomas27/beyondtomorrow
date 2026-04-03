@@ -526,14 +526,29 @@ async def run_poll_loop() -> None:
 
     # Register the DB pool with the logger so all _write_entry calls persist to
     # PostgreSQL (shared with local runs), surviving Railway redeployments.
+    _pool = None
     try:
         from pipeline.db import get_pool
-        from pipeline.pipeline_logger import set_db_pool
+        from pipeline.pipeline_logger import set_db_pool, mark_stale_runs_failed
         _pool = await get_pool()
         set_db_pool(_pool)
         logger.info("Pipeline logger connected to PostgreSQL.")
     except Exception as exc:
         logger.warning("DB pool init failed — pipeline logs will be file-only: %s", exc)
+
+    # Stale-run janitor — auto-close any runs stuck as RUNNING from prior crashes
+    if _pool is not None:
+        try:
+            stale_ids = await mark_stale_runs_failed(_pool, stale_after_hours=2)
+            if stale_ids:
+                logger.warning(
+                    "Stale-run janitor: closed %d orphaned run(s): %s",
+                    len(stale_ids), ", ".join(stale_ids),
+                )
+            else:
+                logger.info("Stale-run janitor: no orphaned runs found.")
+        except Exception as _jex:
+            logger.warning("Stale-run janitor error (non-fatal): %s", _jex)
 
     # Startup scan: index any reports/ files not yet in the corpus.
     try:
