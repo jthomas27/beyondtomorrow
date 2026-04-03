@@ -289,6 +289,27 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 
+# ---------------------------------------------------------------------------
+# Shared publish input builder — avoids duplication between _run_blog_pipeline
+# and _run_publish_only.
+# ---------------------------------------------------------------------------
+
+def _build_publish_input(filename: str) -> str:
+    """Build the Publisher agent prompt for a given edited markdown filename."""
+    return (
+        f"Publish the blog post file '{filename}' to Ghost, then cross-post to LinkedIn.\n"
+        f"Step 1: call pick_random_asset_image()\n"
+        f"Step 2: call upload_image_to_ghost(image_path=<path from step 1>)\n"
+        f"Step 3: call publish_file_to_ghost(filename='{filename}', "
+        f"feature_image_url=<url from step 2>, status='published')\n"
+        f"Step 4: call post_to_linkedin(title=<title from frontmatter>, "
+        f"excerpt=<excerpt from frontmatter>, post_url=<ghost url from step 3>, "
+        f"tags=<tags from frontmatter>, feature_image_url=<url from step 2>). "
+        f"If result starts with 'SKIPPED:' or 'Error:', log it and continue.\n"
+        f"Return the Ghost URL from step 3 and the LinkedIn result from step 4."
+    )
+
+
 async def _check_status() -> None:
     """Check environment, database connection, and print a status report."""
     logger.info("BeyondTomorrow.World — Agent Status")
@@ -310,6 +331,39 @@ async def _check_status() -> None:
         else:
             logger.error("  ✗ %s %s — NOT SET", f"{var:<20}", desc)
             all_ok = False
+
+    # LinkedIn cross-posting (optional — non-blocking)
+    from datetime import date as _date
+    li_token = os.environ.get("LINKEDIN_ACCESS_TOKEN", "").strip()
+    li_urn = os.environ.get("LINKEDIN_PERSON_URN", "").strip()
+    li_expires = os.environ.get("LINKEDIN_TOKEN_EXPIRES", "").strip()
+    if li_token and li_urn:
+        expiry_info = ""
+        if li_expires:
+            try:
+                days_left = (_date.fromisoformat(li_expires) - _date.today()).days
+                if days_left <= 0:
+                    expiry_info = f" ⚠️  TOKEN EXPIRED on {li_expires} — re-run scripts/linkedin_auth.py"
+                elif days_left <= 7:
+                    expiry_info = f" ⚠️  expires in {days_left}d on {li_expires} — refresh soon"
+                else:
+                    expiry_info = f" (expires {li_expires}, {days_left}d remaining)"
+            except ValueError:
+                expiry_info = f" (LINKEDIN_TOKEN_EXPIRES invalid: {li_expires!r})"
+        else:
+            expiry_info = " (expiry unknown — re-run scripts/linkedin_auth.py to set LINKEDIN_TOKEN_EXPIRES)"
+        logger.info("  ✓ %-20s LinkedIn cross-posting%s", "LINKEDIN_ACCESS_TOKEN", expiry_info)
+        li_company = os.environ.get("LINKEDIN_COMPANY_URN", "").strip()
+        if li_company:
+            logger.info("  ✓ %-20s LinkedIn company page (%s)", "LINKEDIN_COMPANY_URN", li_company)
+        else:
+            logger.info(
+                "  - %-20s LinkedIn company page not configured "
+                "(set LINKEDIN_COMPANY_URN to also post to the Beyond Tomorrow page)",
+                "LINKEDIN_COMPANY_URN",
+            )
+    else:
+        logger.info("  - %-20s LinkedIn not configured (optional — pipeline will skip cross-posting)", "LINKEDIN")
 
     # Check database connection
     database_url = os.environ.get("DATABASE_URL")
@@ -572,14 +626,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         await asyncio.sleep(_STAGE_COOLDOWN)
         _t0 = monotonic()
 
-        publish_input = (
-            f"Publish the blog post file '{edited_filename}' to Ghost.\n"
-            f"Step 1: call pick_random_asset_image()\n"
-            f"Step 2: call upload_image_to_ghost(image_path=<path from step 1>)\n"
-            f"Step 3: call publish_file_to_ghost(filename='{edited_filename}', "
-            f"feature_image_url=<url from step 2>, status='published')\n"
-            f"Return only the published URL from step 3."
-        )
+        publish_input = _build_publish_input(edited_filename)
         publish_output, p_tin, p_tout = await _run_agent_with_fallback(
             publisher, publish_input,
             agent_name="Publisher", pool=pool, max_turns=6, run_log=run_log,
@@ -702,19 +749,16 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
 
     init_github_models()
 
+    # Disable tracing — GitHub token is not a valid OpenAI key
+    import os as _os
+    _os.environ["OPENAI_AGENTS_DISABLE_TRACING"] = "1"
+
     filename = task.partition(":")[2].strip()
     logger.info("Publishing '%s'...", filename)
 
     try:
         pool = await get_pool()
-        publish_input = (
-            f"Publish the blog post file '{filename}' to Ghost.\n"
-            f"Step 1: call pick_random_asset_image()\n"
-            f"Step 2: call upload_image_to_ghost(image_path=<path from step 1>)\n"
-            f"Step 3: call publish_file_to_ghost(filename='{filename}', "
-            f"feature_image_url=<url from step 2>, status='published')\n"
-            f"Return only the published URL from step 3."
-        )
+        publish_input = _build_publish_input(filename)
         publish_output, _, _ = await _run_agent_with_fallback(
             publisher, publish_input,
             agent_name="Publisher", pool=pool, max_turns=6,

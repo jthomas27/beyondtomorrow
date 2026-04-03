@@ -1,7 +1,7 @@
 ---
 name: service-auth
-description: "Authenticate and verify access to Railway, Ghost, Hostinger (IMAP/SMTP), and GitHub before running scripts or pipeline operations. Use when: accessing Railway variables, publishing to Ghost, checking email credentials, calling GitHub Models API, setting up a new environment, or debugging a 401/403/connection error on any of these services."
-argument-hint: "Optional: specify a service name to check only that one (railway | ghost | hostinger | github)"
+description: "Authenticate and verify access to Railway, Ghost, Hostinger (IMAP/SMTP), GitHub, and LinkedIn before running scripts or pipeline operations. Use when: accessing Railway variables, publishing to Ghost, checking email credentials, calling GitHub Models API, refreshing LinkedIn tokens, setting up a new environment, or debugging a 401/403/connection error on any of these services."
+argument-hint: "Optional: specify a service name to check only that one (railway | ghost | hostinger | github | linkedin)"
 ---
 
 # Service Authentication
@@ -43,6 +43,14 @@ EMAIL_PASS=...
 SMTP_HOST=smtp.hostinger.com
 SMTP_PORT=587
 # SMTP_USER and SMTP_PASS default to EMAIL_USER/EMAIL_PASS if not set
+
+# LinkedIn cross-posting (optional)
+LINKEDIN_CLIENT_ID=...
+LINKEDIN_CLIENT_SECRET=...
+LINKEDIN_ACCESS_TOKEN=...        # OAuth 2.0 bearer; expires 60 days after issue
+LINKEDIN_PERSON_URN=urn:li:person:...  # your LinkedIn member ID
+LINKEDIN_TOKEN_EXPIRES=YYYY-MM-DD      # pipeline warns when ≤7 days remain
+LINKEDIN_COMPANY_URN=urn:li:organization:...  # optional; company page posting
 ```
 
 ## Procedure
@@ -77,6 +85,9 @@ The script will:
 | `Hostinger IMAP: auth failed` | `EMAIL_PASS` wrong — verify in Hostinger webmail settings |
 | `Hostinger SMTP: auth failed` | Set `SMTP_USER` and `SMTP_PASS` explicitly in `.env` if they differ from IMAP credentials |
 | `GitHub: 401` | `GITHUB_TOKEN` expired or missing `models:read` scope — regenerate at github.com/settings/tokens |
+| `LinkedIn: 401` | `LINKEDIN_ACCESS_TOKEN` expired (60-day TTL) — re-run `scripts/linkedin_auth.py` to refresh |
+| `LinkedIn: 403` | Missing OAuth scope — re-run `scripts/linkedin_auth.py`; approve `w_member_social` (personal) and `w_organization_social` (company page) |
+| `LinkedIn: pipeline warns token expires soon` | Token expires within 7 days — re-run `scripts/linkedin_auth.py` before expiry to avoid downtime |
 
 ### Step 3 — Proceed
 
@@ -100,3 +111,4 @@ Only proceed with the original task once all required services report ✓.
 | Hostinger IMAP | Plain login over IMAP4_SSL | `EMAIL_USER` + `EMAIL_PASS` | Port 993, `imap.hostinger.com` |
 | Hostinger SMTP | STARTTLS login | `SMTP_USER` + `SMTP_PASS` | Port 587, `smtp.hostinger.com`; defaults to IMAP creds |
 | GitHub Models | Bearer token | `GITHUB_TOKEN` | Fine-grained PAT with `models:read` scope; base URL: `https://models.github.ai/inference` |
+| LinkedIn | OAuth 2.0 Bearer token (60-day expiry) | `LINKEDIN_ACCESS_TOKEN` | Also requires `LINKEDIN_PERSON_URN`; optional `LINKEDIN_COMPANY_URN` for company page; refresh via `scripts/linkedin_auth.py` |

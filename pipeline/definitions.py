@@ -30,6 +30,7 @@ from pipeline.tools import (
     read_research_file,
     write_research_file,
     score_credibility,
+    post_to_linkedin,
 )
 
 # Load prompts and model assignments from config/
@@ -241,16 +242,23 @@ STEP 3 — publish_file_to_ghost
   DO NOT retry publish_file_to_ghost. Stop immediately and return the full
   MISSING message verbatim so the pipeline can fix it upstream.
 
-STEP 4 — Report the result
-  Return the published URL exactly as returned by publish_file_to_ghost.
-  Do not add any other commentary.
+STEP 4 — Cross-post to LinkedIn
+  Using the title, excerpt, and tags from the frontmatter, the Ghost URL from Step 3,
+  and the feature image URL from Step 2, call:
+  post_to_linkedin(title=<title>, excerpt=<excerpt>, post_url=<ghost_url>, tags=<tags>, feature_image_url=<url from step 2>).
+  If the result starts with 'SKIPPED:' or 'Error:', log it and continue — do NOT stop.
+  LinkedIn posting is non-blocking. Ghost publish is the primary deliverable.
+
+STEP 5 — Report the result
+  Return the Ghost URL from Step 3 followed by the LinkedIn result from Step 4.
+  Format: '<ghost_url> | LinkedIn: <linkedin_result>'
 
 IMPORTANT:
 - Do NOT call read_research_file — publish_file_to_ghost handles the file itself.
 - Do NOT try to convert markdown to HTML yourself.
 - If publish_file_to_ghost returns an error or MISSING message, report it verbatim.
 - Always use status='published' (never 'draft').""",
-    tools=[pick_random_asset_image, upload_image_to_ghost, publish_file_to_ghost],
+    tools=[pick_random_asset_image, upload_image_to_ghost, publish_file_to_ghost, post_to_linkedin],
     model=_models.get("publisher", {}).get("model", "openai/gpt-4.1-mini"),
     model_settings=_model_settings("publisher", default_temp=0.0, default_tokens=500),
 )

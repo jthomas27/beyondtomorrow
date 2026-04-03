@@ -1,10 +1,10 @@
 # Cross-Platform Publishing Plan
 ## Ghost + LinkedIn + Substack
 
-**Goal**: After every `BLOG:` pipeline run, the post is live on Ghost, shared on LinkedIn (personal profile, summary + link card), and available on Substack — using the existing pipeline architecture with minimal added complexity.
+**Goal**: After every `BLOG:` pipeline run, the post is live on Ghost, shared on LinkedIn (personal profile + company page, summary + link card), and available on Substack — using the existing pipeline architecture with minimal added complexity.
 
 **Date drafted**: 27 March 2026  
-**Status**: Approved for implementation
+**Status**: Phase 1 complete. Phase 2 partially complete.
 
 ---
 
@@ -39,9 +39,9 @@ This is a real maintenance burden. Refresh tokens last 1 year but require the `r
 
 New apps must add the **"Share on LinkedIn"** product from the Developer Portal Products tab to unlock `w_member_social`. Some apps require manual review before approval.
 
-### 5. LinkedIn Thumbnail: OG Scrape vs. Upload
+### 5. LinkedIn Thumbnail — OG Scrape vs. Upload
 
-The LinkedIn Images API can pre-upload a thumbnail for guaranteed display. However, LinkedIn will also scrape `og:image` from Ghost — which already sets a feature image. v1 uses OG scraping (simpler). Phase 2 can add explicit image upload if the preview is inconsistent.
+The LinkedIn Images API can pre-upload a thumbnail for guaranteed display. Unlike OG scraping, this is reliable. The pipeline now pre-uploads the feature image separately per author URN (person and organisation), since LinkedIn requires the `owner` to match the posting entity.
 
 ---
 
@@ -53,11 +53,11 @@ BLOG: topic
         ├─► Researcher
         ├─► Writer
         ├─► Editor
-        ├─► Publisher  ← changes here
+        ├─► Publisher
         │     ├─► pick_random_asset_image()
         │     ├─► upload_image_to_ghost()
         │     ├─► publish_file_to_ghost()       → Ghost (live post)
-        │     └─► post_to_linkedin()            → LinkedIn (article card)  [NEW]
+        │     └─► post_to_linkedin()            → LinkedIn personal profile + company page
         └─► Indexer
 ```
 
@@ -65,126 +65,93 @@ Substack receives posts via periodic RSS import (manual) — no pipeline changes
 
 ---
 
-## Phase 0 — Access Setup (Manual — You Do These Steps)
+## Phase 0 — Access Setup (Complete)
 
 ### LinkedIn
 
-1. Go to [developer.linkedin.com](https://developer.linkedin.com) → **Create App**
-   - App name: `BeyondTomorrow Publisher`
-   - Associate with a LinkedIn Company Page (required even for personal posting — create a minimal page if needed)
-2. Under the **Products** tab, request **"Share on LinkedIn"** → grants `w_member_social` scope
-   - Allow up to 48 hours for LinkedIn review
-3. Under the **Auth** tab:
-   - Note your **Client ID** and **Client Secret**
-   - Add redirect URI: `http://localhost:8000/callback`
-4. Once the product is approved, run `scripts/linkedin_auth.py` (created in Phase 1) to complete the OAuth flow
-5. Add to `.env`:
-   ```
-   LINKEDIN_CLIENT_ID=...
-   LINKEDIN_CLIENT_SECRET=...
-   LINKEDIN_ACCESS_TOKEN=...
-   LINKEDIN_PERSON_URN=urn:li:person:...
-   ```
+1. LinkedIn Developer App created: `BeyondTomorrow Publisher`
+2. **"Share on LinkedIn"** product approved → `w_member_social` scope active
+3. **"Share on LinkedIn" (Organisation)**  → `w_organization_social` scope active
+4. Redirect URI set: `http://localhost:8000/callback`
+5. `scripts/linkedin_auth.py` run → all six variables saved to `.env`
 
-> **Token expiry reminder**: Access tokens expire after **60 days**. Re-run `scripts/linkedin_auth.py` to refresh. Set a calendar reminder.
+To refresh tokens (every 60 days):
+```bash
+.venv/bin/python scripts/linkedin_auth.py
+```
 
 ### Substack
 
-6. In Substack dashboard: **Settings → Import → Import from URL**
-7. Enter: `https://beyondtomorrow.world/rss/`
-8. All existing published Ghost posts will appear as **drafts** in Substack for review and publish
-9. For new posts: repeat this import after each batch of Ghost publishes (2 clicks)
+6. RSS import completed for existing posts: `https://beyondtomorrow.world/rss/`
+7. New posts: repeat import manually after each publishing batch (2 clicks in Substack settings)
 
 ---
 
-## Phase 1 — Code Changes
+## Phase 1 — Code Changes (Complete)
 
-### New file: `scripts/linkedin_auth.py`
+### `scripts/linkedin_auth.py` (complete)
 
-One-time OAuth 2.0 helper script:
+OAuth 2.0 helper script:
 
-- Builds LinkedIn authorisation URL with `w_member_social` scope
+- Builds LinkedIn authorisation URL with `openid profile w_member_social w_organization_social` scopes
 - Starts a temporary localhost HTTP server on port 8000 to receive the callback
 - Exchanges the `?code=...` for an access token via `POST https://www.linkedin.com/oauth/v2/accessToken`
 - Calls `GET https://api.linkedin.com/v2/userinfo` to get the person URN
-- Prints token, URN, and expiry date to stdout
-- Optionally appends the values to `.env`
+- Calls `GET /rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR` to auto-detect the company URN
+- Saves `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_PERSON_URN`, `LINKEDIN_TOKEN_EXPIRES`, `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`, and `LINKEDIN_COMPANY_URN` to `.env`
 
-### New file: `pipeline/tools/linkedin.py`
+### `pipeline/tools/linkedin.py` (complete)
 
-New `@function_tool` following the same pattern as `ghost.py`:
+Implemented `post_to_linkedin` tool with:
 
-```python
-@function_tool
-async def post_to_linkedin(title: str, excerpt: str, post_url: str) -> str:
-    """Post a blog article card to LinkedIn personal profile."""
-```
+- **`_post_as_author(client, author_urn, label, ...)`** shared helper used for both personal and company posting
+  - Uploads image with `owner` set to the posting entity's URN (required by LinkedIn)
+  - Retries on 429 with exponential backoff; max `_RETRY_ATTEMPTS` attempts
+  - Returns full share URN (e.g. `urn:li:share:7445854625041240064`) using `x-restli-id` header directly
+- **Dedup guard**: `logs/linkedin_posts.json` tracks posted URLs; personal key = `post_url`, company key = `post_url|{company_urn}`
+- **Token expiry warning**: reads `LINKEDIN_TOKEN_EXPIRES`, warns in pipeline output when ≤7 days remain
+- **Company page**: reads `LINKEDIN_COMPANY_URN`; validates `urn:li:organization:` format; posts independently; non-blocking if not configured
+- **API version constant**: `_LINKEDIN_API_VERSION = "202503"` — update here when bumping the version
+- Returns: `Personal: urn:li:share:X | Company: urn:li:share:Y` (or partial)
 
-**Behaviour:**
-- Reads `LINKEDIN_ACCESS_TOKEN` and `LINKEDIN_PERSON_URN` from environment
-- If either is missing → returns `"SKIPPED: LinkedIn not configured"` (non-blocking, graceful)
-- Posts using `httpx` to `POST https://api.linkedin.com/rest/posts` with headers:
-  - `Authorization: Bearer {token}`
-  - `Linkedin-Version: 202603`
-  - `X-Restli-Protocol-Version: 2.0.0`
-- Post body (Article type):
-  ```json
-  {
-    "author": "urn:li:person:{id}",
-    "commentary": "{excerpt — max 700 chars}\n\n{hashtags from tags}",
-    "visibility": "PUBLIC",
-    "distribution": { "feedDistribution": "MAIN_FEED", "targetEntities": [], "thirdPartyDistributionChannels": [] },
-    "content": {
-      "article": {
-        "source": "{ghost_post_url}",
-        "title": "{title}",
-        "description": "{excerpt}"
-      }
-    },
-    "lifecycleState": "PUBLISHED",
-    "isReshareDisabledByAuthor": false
-  }
-  ```
-- Extracts post URN from `x-restli-id` response header on HTTP 201
-- Retries on 429 (rate limit) with backoff; max 3 attempts
-- Returns `"Published to LinkedIn: urn:li:share:{id}"` or `"Error: {details}"`
+### `pipeline/tools/__init__.py` (complete)
 
-### Modified file: `pipeline/tools/__init__.py`
+`post_to_linkedin` exported.
 
-Add `post_to_linkedin` to imports and `__all__`.
+### `pipeline/definitions.py` — Publisher agent (complete)
 
-### Modified file: `pipeline/definitions.py` — Publisher agent
+- `post_to_linkedin` added to tools list
+- Publisher instructions updated with LinkedIn step (Step 4)
 
-- Import `post_to_linkedin`
-- Add to `tools=[..., post_to_linkedin]`
-- Extend Publisher instructions with **Step 5**:
+### `pipeline/main.py` (complete)
 
-  ```
-  STEP 5 — Cross-post to LinkedIn
-    Using the title and excerpt from the frontmatter and the Ghost URL from Step 3,
-    call post_to_linkedin(title=<title>, excerpt=<excerpt>, post_url=<ghost_url>).
-    If the result starts with 'SKIPPED:' or 'Error:', log it but continue.
-    LinkedIn posting is non-blocking — Ghost publish is the primary deliverable.
-  ```
+- `_build_publish_input(filename)` helper extracted (was duplicated inline)
+- `_check_status()` LinkedIn section: shows token value with expiry, `LINKEDIN_COMPANY_URN` status
+- `_run_publish_only()` disables OpenAI tracing (`OPENAI_AGENTS_DISABLE_TRACING=1`)
 
-- Also update Step 4 to clarify the return value should include both the Ghost URL and the LinkedIn result.
+### `.env` (complete)
 
-### Modified file: `.env` + `.github/copilot-instructions.md`
+All six LinkedIn variables set.
 
-Add the four new LinkedIn env vars to both files.
+### `.github/copilot-instructions.md` and `service-auth/SKILL.md` (complete)
+
+Documented.
 
 ---
 
 ## Files Summary
 
-| File | Change | Notes |
+| File | Change | Status |
 |---|---|---|
-| `scripts/linkedin_auth.py` | **New** | One-time OAuth flow |
-| `pipeline/tools/linkedin.py` | **New** | `post_to_linkedin` tool |
-| `pipeline/tools/__init__.py` | Modified | Add export |
-| `pipeline/definitions.py` | Modified | Publisher agent — add tool + Step 5 |
-| `.env` | Modified | 4 new LinkedIn vars |
-| `.github/copilot-instructions.md` | Modified | Document new vars |
+| `scripts/linkedin_auth.py` | New | ✅ Complete |
+| `pipeline/tools/linkedin.py` | New | ✅ Complete |
+| `pipeline/tools/__init__.py` | Modified | ✅ Complete |
+| `pipeline/definitions.py` | Modified | ✅ Complete |
+| `pipeline/main.py` | Modified | ✅ Complete |
+| `.env` | Modified | ✅ Complete |
+| `.github/copilot-instructions.md` | Modified | ✅ Complete |
+| `.github/skills/service-auth/SKILL.md` | Modified | ✅ Complete |
+| `tests/test_linkedin.py` | New | ✅ Complete |
 
 ---
 
@@ -196,38 +163,40 @@ Add the four new LinkedIn env vars to both files.
 | `LINKEDIN_CLIENT_SECRET` | App Client Secret |
 | `LINKEDIN_ACCESS_TOKEN` | OAuth access token — expires 60 days after issue |
 | `LINKEDIN_PERSON_URN` | `urn:li:person:{id}` — your LinkedIn member ID |
+| `LINKEDIN_TOKEN_EXPIRES` | `YYYY-MM-DD` expiry date — pipeline warns when ≤7 days remain |
+| `LINKEDIN_COMPANY_URN` | `urn:li:organization:{id}` — Beyond Tomorrow company page (optional) |
 
 ---
 
 ## Verification Steps
 
-1. Run `scripts/linkedin_auth.py` → confirm token and URN printed, saved to `.env`
-2. Run `.venv/bin/python -m pipeline.main status` → new LinkedIn vars show as set
-3. Run test: `.venv/bin/python -m pipeline.main "BLOG: test topic"` → confirm:
-   - Ghost post publishes live ✓
-   - LinkedIn article card appears on personal profile with correct title, excerpt, and link ✓
-4. Run Substack RSS import → confirm all existing Ghost posts appear as drafts in Substack ✓
+1. ✅ Run `scripts/linkedin_auth.py` → token, URN, and expiry saved to `.env`
+2. ✅ Run `.venv/bin/python -m pipeline.main status` → LinkedIn vars confirmed set
+3. ✅ Run `PUBLISH: 2026-03-28-assess-the-cost-of-edited.md` → Ghost published live; LinkedIn personal posted
+4. Run Substack RSS import → confirm existing Ghost posts appear as drafts in Substack ✓
 5. Publish one Substack draft manually to verify formatting ✓
 
 ---
 
-## Phase 2 — Future Improvements (Not in Scope for v1)
+## Phase 2 — Future Improvements
 
-| Improvement | Complexity | Benefit |
-|---|---|---|
-| LinkedIn refresh token flow (auto-renew) | Medium — requires `r_member_social` approval from LinkedIn | Removes 60-day manual re-auth |
-| LinkedIn thumbnail pre-upload via Images API | Low — ~40 lines | Guaranteed thumbnail vs. OG scrape |
-| Substack unofficial API (`substack-api` package) | Medium — fragile, cookie-based | Automates Substack posting |
-| Ghost webhook → LinkedIn (decoupled from pipeline) | Medium — needs a small HTTP endpoint | Posts on manual Ghost publishes too |
-| Buffer/Typefully as LinkedIn proxy | Low code, adds paid dependency | Simpler auth, scheduling features |
+| Improvement | Complexity | Benefit | Status |
+|---|---|---|---|
+| LinkedIn token expiry tracking + pipeline warning | Low | Prevents silent failures | ✅ Done |
+| LinkedIn thumbnail pre-upload via Images API | Low | Guaranteed thumbnail vs. OG scrape | ✅ Done |
+| Duplicate post guard (`logs/linkedin_posts.json`) | Low | Prevents reposting same article | ✅ Done |
+| Company page posting (`LINKEDIN_COMPANY_URN`) | Medium | Broader audience | ✅ Done |
+| LinkedIn refresh token flow (auto-renew) | Medium — requires `r_member_social` approval | Removes 60-day manual re-auth | ❌ Not done |
+| Substack unofficial API (`substack-api` package) | Medium — fragile, cookie-based | Automates Substack posting | ❌ Not done |
+| Ghost webhook → LinkedIn (decoupled from pipeline) | Medium — needs a small HTTP endpoint | Posts on manual Ghost publishes too | ❌ Not done |
 
 ---
 
 ## Constraints and Limitations
 
-- **LinkedIn**: Access tokens expire every 60 days. No automated refresh in v1.
+- **LinkedIn**: Access tokens expire every 60 days. No automated refresh yet — re-run `scripts/linkedin_auth.py` manually.
 - **LinkedIn rate limit**: 150 posts/day per member — far above pipeline needs.
-- **Substack**: No official API. Manual RSS import is the only reliable supported path today.
+- **LinkedIn company page**: Requires `w_organization_social` scope. Set `LINKEDIN_COMPANY_URN` in `.env` to activate. If unset, personal-only posting continues silently.
+- **Substack**: No official API. Manual RSS import is the only reliable supported path.
 - **Post format**: LinkedIn posts link back to Ghost (canonical URL). No full article mirroring.
 - **Failure handling**: LinkedIn failure does NOT block Ghost publish. Publisher agent treats it as non-blocking.
-- **No company page posting** in v1 — personal profile only.

@@ -40,8 +40,8 @@ source .venv/bin/activate
 # Index a document into the corpus
 .venv/bin/python -m pipeline.main "INDEX: path/to/document.txt"
 
-# Direct Ghost publish (debug/test)
-.venv/bin/python scripts/publish_test_post.py
+# Publish an already-edited file directly to Ghost + LinkedIn (debug/test)
+.venv/bin/python -m pipeline.main "PUBLISH: 2026-03-28-my-post-edited.md"
 
 # Check published Ghost posts
 .venv/bin/python scripts/check_ghost.py
@@ -59,7 +59,7 @@ source .venv/bin/activate
 
 ## Environment Variables
 
-All four variables are required. They are stored in `.env` at the project root (gitignored) and auto-loaded by `pipeline/main.py`. For Railway deployments, they are set as service variables.
+All four core variables are required. They are stored in `.env` at the project root (gitignored) and auto-loaded by `pipeline/main.py`. For Railway deployments, they are set as service variables.
 
 | Variable | Description |
 |---|---|
@@ -67,6 +67,25 @@ All four variables are required. They are stored in `.env` at the project root (
 | `DATABASE_URL` | PostgreSQL connection string — **always use the external TCP proxy**: `caboose.proxy.rlwy.net:21688`. Never overwrite with the Railway internal URL. |
 | `GHOST_URL` | `https://beyondtomorrow.world` |
 | `GHOST_ADMIN_KEY` | Ghost Admin API key in `{id}:{secret}` format |
+
+### LinkedIn cross-posting (optional)
+
+Required only for LinkedIn publishing. Set by running `scripts/linkedin_auth.py`.
+
+| Variable | Description |
+|---|---|
+| `LINKEDIN_CLIENT_ID` | App Client ID from developer.linkedin.com |
+| `LINKEDIN_CLIENT_SECRET` | App Client Secret |
+| `LINKEDIN_ACCESS_TOKEN` | OAuth 2.0 bearer token — expires 60 days after issue |
+| `LINKEDIN_PERSON_URN` | `urn:li:person:{id}` — your LinkedIn member ID |
+| `LINKEDIN_TOKEN_EXPIRES` | `YYYY-MM-DD` expiry date — pipeline warns when ≤7 days remain |
+| `LINKEDIN_COMPANY_URN` | `urn:li:organization:{id}` — Beyond Tomorrow company page (optional; requires `w_organization_social` scope) |
+
+To obtain/refresh LinkedIn credentials:
+```bash
+.venv/bin/python scripts/linkedin_auth.py
+```
+The script runs the OAuth flow, auto-detects the company URN, and saves all six variables to `.env`.
 
 ### Checking Railway variables (CLI)
 
@@ -94,7 +113,7 @@ BLOG: topic
         ├─► Researcher   → structured JSON findings (saved to research/)
         ├─► Writer       → Markdown draft (saved to research/YYYY-MM-DD-slug.md)
         ├─► Editor       → polished post (saved as YYYY-MM-DD-slug-edited.md)
-        ├─► Publisher    → Ghost CMS (creates live post — NOT draft)
+        ├─► Publisher    → Ghost CMS (live post) + LinkedIn personal profile + company page
         └─► Indexer      → chunks + embeddings stored in pgvector corpus
 ```
 
@@ -106,6 +125,7 @@ BLOG: topic
 | `pipeline/definitions.py` | All six agent definitions (Orchestrator, Researcher, Writer, Editor, Publisher, Indexer) |
 | `pipeline/embeddings.py` | Embedding generation and pgvector operations |
 | `pipeline/tools/ghost.py` | Ghost Admin API — JWT auth, post creation, image upload |
+| `pipeline/tools/linkedin.py` | LinkedIn REST API — personal profile + company page cross-posting, image upload, dedup guard |
 | `pipeline/tools/search.py` | DuckDuckGo web search + pgvector semantic search |
 | `pipeline/tools/corpus.py` | Knowledge corpus reads/writes (pgvector + Railway Object Storage) |
 | `pipeline/guardrails.py` | Content quality checks before publishing |
@@ -271,13 +291,19 @@ Uses `gpt-4.1` at `temperature=0.3`, `max_tokens=4000`. Tools: `read_research_fi
 
 ### Publisher
 
-Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=1000`. Tools: `pick_random_asset_image`, `upload_image_to_ghost`, `publish_file_to_ghost`.
+Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=1000`. Tools: `pick_random_asset_image`, `upload_image_to_ghost`, `publish_file_to_ghost`, `post_to_linkedin`.
 
 **Sequence** (exactly, every time):
 1. Call `pick_random_asset_image()` — if result starts with `Error:`, stop and report
 2. Call `upload_image_to_ghost(image_path=<path from step 1>)` — if result starts with `Error:`, stop and report
 3. Call `publish_file_to_ghost(filename=<-edited.md filename>, feature_image_url=<URL from step 2>, status='published')`
-4. Return the published URL exactly as returned by `publish_file_to_ghost`
+4. Call `post_to_linkedin(title=<title>, excerpt=<excerpt>, post_url=<Ghost URL from step 3>, tags=<tags>, feature_image_url=<URL from step 2>)`
+   - Posts to personal profile (`LINKEDIN_PERSON_URN`) and company page (`LINKEDIN_COMPANY_URN`) if configured
+   - Images are uploaded separately per destination with the correct owner URN
+   - Dedup log at `logs/linkedin_posts.json` prevents reposting the same Ghost URL
+   - Returns e.g. `Personal: urn:li:share:X | Company: urn:li:share:Y`
+   - Non-blocking: `SKIPPED:` or `Error:` is logged but does not prevent Ghost publish
+5. Return the Ghost URL and the LinkedIn result
 
 **Pre-publish validation** — before calling `publish_file_to_ghost`, verify all three are present:
 - `title` (from frontmatter)
