@@ -301,6 +301,16 @@ class PipelineRunLogger:
         _active_run_log = None
         li_stage = next((s for s in self.stages if s.get("stage") == "LinkedIn"), None)
         li_status = li_stage.get("status") if li_stage else None
+        # linkedin_ok:
+        #   True  — posted successfully
+        #   False — failed (stage_error)
+        #   None  — skipped (not configured), deduped, or no LinkedIn stage in this run
+        if li_status == "ok":
+            linkedin_ok: bool | None = True
+        elif li_status == "error":
+            linkedin_ok = False
+        else:
+            linkedin_ok = None  # skipped or absent
         _write_entry({
             "timestamp": self._ts(),
             "run_id": self.run_id,
@@ -310,7 +320,7 @@ class PipelineRunLogger:
             "stages": list(self.stages),
             "stages_ok": sum(1 for s in self.stages if s.get("status") == "ok"),
             "stages_failed": sum(1 for s in self.stages if s.get("status") == "error"),
-            "linkedin_ok": li_status == "ok" if li_status is not None else None,
+            "linkedin_ok": linkedin_ok,
             "linkedin_skipped": li_status == "skipped",
         })
 

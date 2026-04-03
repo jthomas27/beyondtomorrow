@@ -909,53 +909,94 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
     filename = task.partition(":")[2].strip()
     logger.info("Publishing '%s'...", filename)
 
+    _pipeline_t0 = monotonic()
+    run_log = None
+    _current_stage = "init"
+
     try:
         pool = await get_pool()
-        from pipeline.pipeline_logger import set_db_pool
+        from pipeline.pipeline_logger import PipelineRunLogger, set_db_pool, mark_stale_runs_failed
         set_db_pool(pool)
+
+        # Stale-run janitor
+        try:
+            _stale = await mark_stale_runs_failed(pool, stale_after_hours=2)
+            if _stale:
+                logger.warning("Stale-run janitor: closed %d run(s): %s", len(_stale), ", ".join(_stale))
+        except Exception as _jex:
+            logger.warning("Stale-run janitor error (non-fatal): %s", _jex)
+
+        run_log = PipelineRunLogger(topic=filename, command="PUBLISH")
+
+        # ── Publish to Ghost ──
+        _current_stage = "Publish"
+        run_log.stage_start("Publish")
+        _t0 = monotonic()
         publish_input = _build_publish_input(filename)
         publish_output, _, _ = await _run_agent_with_fallback(
             publisher, publish_input,
-            agent_name="Publisher", pool=pool, max_turns=6,
+            agent_name="Publisher", pool=pool, max_turns=6, run_log=run_log,
         )
         logger.info("Ghost result: %s", publish_output)
+        run_log.stage_ok("Publish", elapsed_s=round(monotonic() - _t0, 1), url=publish_output)
 
-        # LinkedIn direct post — with retry on transient failures
+        # ── LinkedIn ──
+        _current_stage = "LinkedIn"
+        run_log.stage_start("LinkedIn")
+        _t0_li = monotonic()
         ghost_url, feature_image_url = _parse_publish_output(publish_output)
         if not ghost_url:
-            logger.error(
-                "Could not parse Ghost URL from publisher output — LinkedIn blocked. "
-                "Output was: %s", publish_output[:200]
+            _li_exc = RuntimeError(
+                f"Could not parse Ghost URL from publisher output — LinkedIn blocked. "
+                f"Output was: {publish_output[:200]}"
             )
+            logger.error("LinkedIn: %s", _li_exc)
+            run_log.stage_error("LinkedIn", _li_exc)
         else:
             from pathlib import Path as _Path
             research_dir = _Path(__file__).parent.parent / "research"
             edited_path = research_dir / filename
             if not edited_path.exists():
                 logger.error("File not found for LinkedIn: %s", edited_path)
+                run_log.stage_skipped("LinkedIn", f"file not found: {filename}")
             else:
                 _li_result = ""
+                _li_ok = False
+                _li_skipped = False
                 _li_delays = [10, 30]
                 for _li_attempt in range(3):
                     if _li_attempt > 0:
                         _li_delay = _li_delays[_li_attempt - 1]
-                        logger.info(
-                            "LinkedIn: retry %d/3 after %ds...", _li_attempt + 1, _li_delay
-                        )
+                        logger.info("LinkedIn: retry %d/3 after %ds...", _li_attempt + 1, _li_delay)
                         await asyncio.sleep(_li_delay)
                     _li_result = await _linkedin_post_direct(ghost_url, feature_image_url, edited_path)
-                    if _li_result.startswith("SKIPPED:") or "Error:" not in _li_result:
+                    if _li_result.startswith("SKIPPED:"):
+                        _li_skipped = True
                         break
-                    logger.warning(
-                        "LinkedIn attempt %d/3 failed: %s", _li_attempt + 1, _li_result
-                    )
-                if "Error:" in _li_result:
-                    logger.error("LinkedIn failed after 3 attempts: %s", _li_result)
-                else:
+                    if "Error:" not in _li_result:
+                        _li_ok = True
+                        break
+                    logger.warning("LinkedIn attempt %d/3 failed: %s", _li_attempt + 1, _li_result)
+
+                if _li_skipped:
+                    run_log.stage_skipped("LinkedIn", _li_result.replace("SKIPPED:", "").strip())
+                    logger.info("LinkedIn skipped: %s", _li_result)
+                elif _li_ok:
+                    run_log.stage_ok("LinkedIn", elapsed_s=round(monotonic() - _t0_li, 1), result=_li_result)
                     logger.info("LinkedIn: %s", _li_result)
+                else:
+                    run_log.stage_error("LinkedIn", RuntimeError(_li_result))
+                    logger.error("LinkedIn failed after 3 attempts: %s", _li_result)
                 publish_output = f"{publish_output} | LinkedIn: {_li_result}"
 
         logger.info("Result: %s", publish_output)
+        run_log.run_complete(published_url=publish_output, total_elapsed_s=round(monotonic() - _pipeline_t0, 1))
+    except Exception as exc:
+        _total = monotonic() - _pipeline_t0
+        if run_log is not None:
+            run_log.stage_error(_current_stage, exc)
+            run_log.run_failed(_current_stage, exc, total_elapsed_s=_total)
+        logger.error("PUBLISH pipeline failed: %s", exc, exc_info=True)
     finally:
         await close_pool()
 
