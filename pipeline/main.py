@@ -506,8 +506,10 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         _t0 = monotonic()
         # Writer needs full context: all subtopics, angles, and source URLs
         research_compact_writer = _compact_research(research_output, max_chars=8000)
-        # Editor only needs findings + sources for fact-checking; it reads the draft directly
-        research_compact_editor = _compact_research(research_output, max_chars=2500)
+        # Editor only needs key findings + sources for fact-checking; it reads the draft directly.
+        # Keep this small — the draft itself (~2,500 tokens) plus system prompt already uses
+        # most of gpt-4.1's 8,000-token request limit, causing 413 fallbacks to gpt-4.1-mini.
+        research_compact_editor = _compact_research(research_output, max_chars=1500)
 
         if (research_dir / draft_filename).exists():
             logger.info("Draft already exists, skipping writer: %s", draft_filename)
