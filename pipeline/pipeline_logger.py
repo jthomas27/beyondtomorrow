@@ -39,6 +39,17 @@ from typing import Any
 # ---------------------------------------------------------------------------
 _db_pool: Any = None
 
+# ---------------------------------------------------------------------------
+# Active run tracker — set by PipelineRunLogger.__init__, cleared on completion.
+# Used by the SIGTERM handler to log run_failed before the container exits.
+# ---------------------------------------------------------------------------
+_active_run_log: Any = None  # PipelineRunLogger | None
+
+
+def get_active_run_log() -> Any:
+    """Return the currently executing PipelineRunLogger, or None."""
+    return _active_run_log
+
 
 def set_db_pool(pool: Any) -> None:  # noqa: ANN401  (asyncpg.Pool)
     """Register the shared asyncpg pool so _write_entry can persist logs to DB.
@@ -160,6 +171,7 @@ class PipelineRunLogger:
     """
 
     def __init__(self, topic: str, command: str = "BLOG") -> None:
+        global _active_run_log
         self.run_id: str = uuid.uuid4().hex[:12]
         self.topic: str = topic
         self.command: str = command
@@ -167,6 +179,7 @@ class PipelineRunLogger:
         self._pipeline_t0: float = monotonic()
         self.stages: list[dict] = []
         self._stage_starts: dict[str, float] = {}
+        _active_run_log = self
 
         _write_entry({
             "timestamp": self.started_at.isoformat(),
@@ -266,6 +279,8 @@ class PipelineRunLogger:
 
     def run_complete(self, published_url: str = "", total_elapsed_s: float = 0.0) -> None:
         """Log successful pipeline completion."""
+        global _active_run_log
+        _active_run_log = None
         _write_entry({
             "timestamp": self._ts(),
             "run_id": self.run_id,
@@ -276,6 +291,8 @@ class PipelineRunLogger:
 
     def run_failed(self, failed_stage: str, exc: Exception, total_elapsed_s: float = 0.0) -> None:
         """Log pipeline failure with full traceback and cause chain."""
+        global _active_run_log
+        _active_run_log = None
         tb = _format_traceback(exc)
         cause_chain = _format_cause_chain(exc)
         entry: dict = {

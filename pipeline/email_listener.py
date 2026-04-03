@@ -39,6 +39,7 @@ import email.mime.multipart
 import imaplib
 import logging
 import os
+import signal
 import smtplib
 from email.header import decode_header
 from email.message import Message
@@ -506,9 +507,62 @@ async def run_poll_loop() -> None:
     except Exception as exc:
         logger.error("Startup reports scan failed: %s", exc)
 
+    # ------------------------------------------------------------------
+    # SIGTERM handler — log run_failed for any in-progress run before exit
+    # ------------------------------------------------------------------
+    from time import monotonic as _monotonic
+
+    _current_poll_task: asyncio.Task | None = None
+
+    async def _shutdown_on_sigterm() -> None:
+        from pipeline.pipeline_logger import get_active_run_log
+        active = get_active_run_log()
+        if active:
+            # Find the stage that was started but never completed
+            completed = {s["stage"] for s in active.stages}
+            active_stage = "Unknown"
+            for stage in active._stage_starts:
+                if stage not in completed:
+                    active_stage = stage
+                    break
+            else:
+                if active.stages:
+                    active_stage = active.stages[-1]["stage"]
+            logger.warning(
+                "SIGTERM received — logging run_failed for run %s at stage %s",
+                active.run_id, active_stage,
+            )
+            active.run_failed(
+                failed_stage=active_stage,
+                exc=RuntimeError("SIGTERM — container killed by Railway"),
+                total_elapsed_s=round(_monotonic() - active._pipeline_t0, 1),
+            )
+            # Allow the async DB write task to flush
+            await asyncio.sleep(2)
+        else:
+            logger.info("SIGTERM received — no active run to log.")
+        if _current_poll_task and not _current_poll_task.done():
+            _current_poll_task.cancel()
+
+    def _sigterm_callback() -> None:
+        loop = asyncio.get_event_loop()
+        loop.create_task(_shutdown_on_sigterm())
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.add_signal_handler(signal.SIGTERM, _sigterm_callback)
+        logger.debug("SIGTERM handler registered.")
+    except (NotImplementedError, OSError):
+        # Windows or environments where signal handling is unsupported
+        logger.warning("Could not register SIGTERM handler (platform unsupported).")
+
     while True:
         try:
+            _current_poll_task = asyncio.current_task()
             await poll_once()
+        except asyncio.CancelledError:
+            logger.info("Poll loop cancelled — shutting down.")
+            break
         except Exception as exc:
             logger.error("Poll cycle error: %s", exc)
 
