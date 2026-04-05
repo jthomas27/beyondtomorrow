@@ -236,9 +236,12 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
         source = row["source"] or meta.get("source", "unknown")
         doc_type = row["source_type"] or meta.get("type", "unknown")
         chunk_label = f" (chunk {row['chunk_index']})" if row["chunk_index"] is not None else ""
-        # Return full chunk content — chunks are already sized to ~350 words
-        # (well within gpt-4.1's 1M context). Truncating defeats retrieval quality.
-        snippet = row["content"].rstrip()
+        # Cap chunk content to avoid 413s — some legacy corpus chunks are very large
+        # (e.g. full arxiv paper sections). max_chars_per_chunk is configurable in
+        # config/limits.yaml; default 1500 chars ≈ ~375 tokens per chunk.
+        max_chars = corpus_cfg.get("max_chars_per_chunk", 1500)
+        content = row["content"].rstrip()
+        snippet = content[:max_chars] + ("…" if len(content) > max_chars else "")
         score, label = display_scores.get(row["id"], (0.0, "score"))
         # Indicate whether the source is a citable external URL or an internal ref
         is_external = source.startswith(("http://", "https://"))

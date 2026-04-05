@@ -356,6 +356,7 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 
 - **Vector DB**: PostgreSQL + pgvector on Railway; 384-dim vectors from `BAAI/bge-small-en-v1.5`
 - **Chunk size**: ~350 words per chunk (fits within model's 512-token limit)
+- **`search_corpus` output cap**: each returned chunk is truncated to **1,500 chars** (~375 tokens) to prevent 413s. Configurable via `config/limits.yaml` → `search.corpus.max_chars_per_chunk`
 - **Search fallback**: pgvector fails → keyword search; web search returns nothing → corpus only
 - **Corpus storage layout** (Railway Object Storage):
   ```
@@ -384,6 +385,7 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 
 ## Hard Constraints
 
+- **Stale-run janitor runs at every pipeline startup** (`stale_after_hours=0`) — any run with no terminal event (`run_complete` or `run_failed`) is immediately closed with a `run_failed / StaleRun` event before the new run starts. This keeps `query_logs.py runs` output clean.
 - **Agents never write to MySQL directly** — Ghost is the only service that touches the blog DB
 - **Always use `.venv/bin/python3`** — system Python 3.14 has SSL cert issues on macOS
 - **`DATABASE_URL` must use the external proxy** (`caboose.proxy.rlwy.net:21688`) — never overwrite with the Railway internal URL

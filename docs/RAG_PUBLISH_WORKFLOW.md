@@ -96,6 +96,7 @@ Quick reference for understanding and working on RAG agent publish requests.
 
 - **Vector DB**: PostgreSQL + pgvector on Railway; 384-dim vectors from `BAAI/bge-small-en-v1.5`
 - **Chunk size**: ~350 words per chunk (fits within model's 512-token limit)
+- **`search_corpus` output cap**: each chunk is truncated to 1,500 chars (~375 tokens) before being returned to the agent, preventing 413 errors when the corpus contains large legacy chunks (e.g. full arxiv sections). Configurable via `config/limits.yaml` → `search.corpus.max_chars_per_chunk`.
 - **Corpus storage layout** (Railway Object Storage):
   ```
   knowledge-corpus/

@@ -67,6 +67,9 @@ search:
     hard_max_top_k: 5                 # production: 20
     # Minimum cosine similarity score (0.0–1.0).
     min_similarity_threshold: 0.30   # lowered — bge-small produces tighter similarity scores
+    # Max characters returned per chunk in search_corpus output.
+    # Caps token usage: 3 chunks × ~1500 chars ≈ ~1100 tokens, safe within 8k limit.
+    max_chars_per_chunk: 1500
 
 # ---------------------------------------------------------------------------
 # Synthesis limits — controls Writer / Editor LLM output length

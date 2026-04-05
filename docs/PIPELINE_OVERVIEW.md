@@ -419,6 +419,15 @@ Editor completes but no -edited.md file found
   └─ Fall back to unedited draft (log warning, continue pipeline)
 ```
 
+## Startup Stale-Run Janitor
+
+Every pipeline entry point (`_run_blog_pipeline`, `_run_publish_only`, and `email_listener.py` startup) calls `mark_stale_runs_failed(pool, stale_after_hours=0)` **before** logging a new `run_start` event.
+
+- **What it does**: finds any `run_id` that has a `run_start` event but no `run_complete` or `run_failed` event, and inserts a `run_failed / StaleRun` event so the run shows `FAILED` in `query_logs.py runs`.
+- **Why `stale_after_hours=0`**: any run with no terminal event is considered dead — pipelines that crash via SIGKILL, OOM, or Python exception without reaching the `except` block never write a terminal event. With `0`, they are cleaned up on the very next run, regardless of age.
+- **No race condition**: the janitor runs before the new `run_start` is inserted, so a run can never be marked stale by itself.
+- **Failure is non-fatal**: if the DB call fails, a warning is logged and the pipeline continues.
+
 ---
 
 ## Knowledge Corpus (RAG)
@@ -453,6 +462,12 @@ The `ts` column is a `GENERATED ALWAYS AS (to_tsvector('english', content)) STOR
    - Top `top_k` by RRF score are returned, labelled `hybrid: 0.XXXX` in the output
 2. **Graceful degradation** — if the `ts` column is absent (e.g. fresh DB restore), falls back automatically to vector-only search + `ILIKE` keyword fallback
 3. Used by: Researcher (finding prior knowledge), Editor (fact-checking claims)
+
+### Corpus Output Cap
+
+To prevent 413 errors when the corpus contains large legacy chunks (e.g. full arxiv paper sections), `search_corpus` truncates each chunk to **1,500 chars** (~375 tokens) before returning it to the agent. Three chunks at `top_k=3` therefore contribute at most ~1,100 tokens to the request — well within the 8,000-token limit alongside the system prompt and tool schemas.
+
+The cap is configurable in `config/limits.yaml` under `search.corpus.max_chars_per_chunk`. Chunks are always truncated at a character boundary (never mid-word-break), with `…` appended when truncation occurs.
 
 ### Chunking Strategy
 
