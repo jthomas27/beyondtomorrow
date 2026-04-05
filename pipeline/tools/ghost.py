@@ -243,9 +243,10 @@ async def publish_file_to_ghost(
         return f"Error: File not found in research/: {filename}"
 
     raw = safe_path.read_text(encoding="utf-8")
-    # Restore garbled ampersands — LLM sometimes emits '&' as \x00 + "26" (0x26 hex).
-    # Fixing here ensures both frontmatter values AND the post body are clean.
-    raw = _html.unescape(raw.replace("\x0026", "&").replace("\x00", ""))
+    # Apply comprehensive LLM punctuation sanitisation before any further processing.
+    # Handles: \x0026 → &mdash; → —, \x0027 → ', \x1a → apostrophe/comma, &nbsp; → space.
+    from pipeline.tools.files import _clean_llm_text
+    raw = _clean_llm_text(raw)
     meta, body = _parse_frontmatter(raw)
 
     title = meta.get("title", safe_path.stem.replace("-", " ").title())
