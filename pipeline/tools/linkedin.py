@@ -342,22 +342,28 @@ async def _post_to_linkedin_impl(
 
         # ── Personal post ──────────────────────────────────────────────────
         personal_log_key = post_url
-        if personal_log_key in posts_log:
-            existing = posts_log[personal_log_key]
-            logger.info("LinkedIn personal: already posted as %s — skipping.", existing)
-            results.append(f"Personal: SKIPPED (already posted as {existing})")
-        else:
-            personal_result = await _post_as_author(
-                client, person_urn, "personal",
-                commentary, title, post_url, description,
-                feature_image_url, access_token, headers,
+        previous_urn = posts_log.get(personal_log_key)
+        if previous_urn:
+            logger.info(
+                "LinkedIn personal: previous post %s exists — re-posting and updating log.",
+                previous_urn,
             )
-            if personal_result.startswith("urn:li:share:"):
-                posts_log[personal_log_key] = personal_result
-                _save_posts_log(posts_log)
-                results.append(f"Personal: {personal_result}")
-            else:
-                results.append(f"Personal: {personal_result}")
+
+        personal_result = await _post_as_author(
+            client, person_urn, "personal",
+            commentary, title, post_url, description,
+            feature_image_url, access_token, headers,
+        )
+        if personal_result.startswith("urn:li:share:"):
+            posts_log[personal_log_key] = {
+                "current": personal_result,
+                "previous": previous_urn,
+                "reposted_at": date.today().isoformat(),
+            } if previous_urn else personal_result
+            _save_posts_log(posts_log)
+            results.append(f"Personal: {personal_result}")
+        else:
+            results.append(f"Personal: {personal_result}")
 
     return " | ".join(results)
 

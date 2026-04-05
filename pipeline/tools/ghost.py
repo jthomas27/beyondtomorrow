@@ -357,13 +357,37 @@ async def publish_file_to_ghost(
     if feature_image_url:
         post_payload["feature_image"] = feature_image_url
 
+    # Derive the slug Ghost would assign (mirrors Ghost's own slugification).
+    slug = re.sub(r"[^\w\s-]", "", title.lower()).strip()
+    slug = re.sub(r"[\s_]+", "-", slug)
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
+            auth_headers = {"Authorization": f"Ghost {token}", "Content-Type": "application/json"}
+
+            # ── Delete any existing post with the same slug before publishing ──
+            check = await client.get(
+                f"{ghost_url}/ghost/api/admin/posts/?filter=slug:{slug}&fields=id,slug",
+                headers=auth_headers,
+                timeout=15.0,
+            )
+            if check.status_code == 200:
+                for ep in check.json().get("posts", []):
+                    del_resp = await client.delete(
+                        f"{ghost_url}/ghost/api/admin/posts/{ep['id']}/",
+                        headers=auth_headers,
+                        timeout=15.0,
+                    )
+                    logger.info(
+                        "Ghost: deleted existing post '%s' (id=%s, status=%d) before re-publish.",
+                        ep.get("slug"), ep.get("id"), del_resp.status_code,
+                    )
+
             resp = await _ghost_post_with_retry(
                 client,
                 f"{ghost_url}/ghost/api/admin/posts/",
                 {"posts": [post_payload]},
-                {"Authorization": f"Ghost {token}", "Content-Type": "application/json"},
+                auth_headers,
             )
     except httpx.HTTPError as exc:
         return f"Failed to publish to Ghost: {exc}"

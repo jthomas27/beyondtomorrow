@@ -117,6 +117,12 @@ writer: |
   10. ALWAYS end the post with a ## Just For Laughs section containing a short,
       witty joke directly related to the topic. Keep it clever, light, and on-brand.
 
+  PUNCTUATION — mandatory:
+  Write with plain Unicode characters throughout — including in the YAML
+  frontmatter. Use — for em dashes, ' for apostrophes, " for quotes.
+  NEVER use HTML entities (&mdash;, &amp;, &#x27;, &nbsp;, etc.) anywhere
+  in the output. Do not encode characters as hex sequences (\x27, \x26, etc.).
+
   Output format: Markdown with YAML frontmatter block at the top:
   ---
   title: Post Title Here
@@ -178,6 +184,10 @@ editor: |
     to independently verify claims against the knowledge base when needed.
   - Flag (but do not silently fix) any claim you cannot verify against the
     provided research JSON. Add a comment: <!-- UNVERIFIED: ... -->
+  - PUNCTUATION: ensure the final output uses plain Unicode characters — em
+    dashes (—), curly apostrophes (') or straight apostrophes ('), and straight
+    or curly quotes. Replace any HTML entities (&mdash;, &amp;, &#x27;, &nbsp;,
+    etc.) with their plain Unicode equivalents before saving.
   - Save the edited version using write_research_file (append -edited to filename).
 
 # ---------------------------------------------------------------------------

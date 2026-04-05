@@ -13,6 +13,8 @@ Tools:
 import os
 import pathlib
 import random
+import re
+import html as _html
 from pipeline._sdk import function_tool
 
 # Resolve research/ and reports/ directories relative to this file's location
@@ -25,7 +27,49 @@ _ASSETS_IMAGES_DIR = pathlib.Path(__file__).parents[2] / "assets" / "images"
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
 
-def _safe_path_in(base_dir: pathlib.Path, filename: str) -> pathlib.Path:
+def _clean_llm_text(content: str) -> str:
+    """Sanitise LLM output before writing to disk.
+
+    LLMs occasionally produce garbled punctuation in two forms:
+
+    1. Garbled hex-encoded characters — '&' emitted as chr(0)+'26' and
+       "'" as chr(0)+'27' (the hex ASCII values of each):
+         \\x0026mdash;  →  &mdash;  →  — (em dash)
+         \\x0027re      →  're          (contraction)
+
+    2. ASCII SUB character (\\x1a, chr(26)) used as punctuation:
+         word\\x1at     →  word't        (contraction: isn't, don't, can't)
+         word\\x1as     →  word's        (possessive/contraction: it's, here's)
+         word\\x1are    →  word're       (contraction: they're)
+         word\\x1a word →  word, word    (clause separator → comma)
+
+    Also normalises typographic nuisances that break plain-text contexts:
+       &nbsp; (\\xa0)   →  regular space
+    """
+    # 1. Restore garbled ampersands and apostrophes (LLM hex-encoding artefact)
+    content = content.replace("\x0026", "&")    # chr(0)+'26' → '&'
+    content = content.replace("\x0027", "'")    # chr(0)+'27' → "'"
+
+    # 2. Unescape HTML entities → plain Unicode (&mdash; → —, &amp; → &, etc.)
+    content = _html.unescape(content)
+
+    # 3. Non-breaking space → regular space (avoids invisible layout breaks)
+    content = content.replace("\xa0", " ")
+
+    # 4. Fix \x1a (ASCII SUB) used as apostrophe in contractions (unambiguous)
+    content = re.sub(r"\x1a(t|re|ve|ll|d|m)\b", r"'\1", content)
+    # Also 's when immediately preceded by a letter (it's, what's, here's, etc.)
+    content = re.sub(r"([A-Za-z])\x1a(s\b)", r"\1'\2", content)
+    # Remaining \x1a → comma-space (used as clause/list separator)
+    content = content.replace("\x1a", ", ")
+
+    # 5. Strip any remaining null bytes
+    content = content.replace("\x00", "")
+
+    return content
+
+
+
     """Return a resolved path under base_dir, raising ValueError on traversal."""
     base_dir.mkdir(parents=True, exist_ok=True)
     resolved = (base_dir / filename).resolve()
@@ -112,6 +156,7 @@ async def write_research_file(filename: str, content: str) -> str:
         return f"Error: {exc}"
 
     path.parent.mkdir(parents=True, exist_ok=True)
+    content = _clean_llm_text(content)
     path.write_text(content, encoding="utf-8")
     return f"Written {len(content):,} characters to research/{filename}"
 
