@@ -366,9 +366,13 @@ async def publish_file_to_ghost(
         async with httpx.AsyncClient(timeout=30.0) as client:
             auth_headers = {"Authorization": f"Ghost {token}", "Content-Type": "application/json"}
 
-            # ── Delete any existing post with the same slug before publishing ──
+            # ── Delete any existing posts with this slug or numbered variants ──
+            # Ghost appends -2, -3 etc. when a slug already exists. Check the
+            # canonical slug plus up to 5 variants so stale duplicates are removed.
+            slug_variants = [slug] + [f"{slug}-{i}" for i in range(2, 7)]
+            slug_filter = ",".join(slug_variants)
             check = await client.get(
-                f"{ghost_url}/ghost/api/admin/posts/?filter=slug:{slug}&fields=id,slug",
+                f"{ghost_url}/ghost/api/admin/posts/?filter=slug:[{slug_filter}]&fields=id,slug&limit=20",
                 headers=auth_headers,
                 timeout=15.0,
             )

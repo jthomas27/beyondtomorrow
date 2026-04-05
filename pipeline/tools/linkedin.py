@@ -342,7 +342,11 @@ async def _post_to_linkedin_impl(
 
         # ── Personal post ──────────────────────────────────────────────────
         personal_log_key = post_url
-        previous_urn = posts_log.get(personal_log_key)
+        existing_entry = posts_log.get(personal_log_key)
+        # Normalize: entry may be a plain URN string or a history dict — extract the current URN.
+        previous_urn = (
+            existing_entry.get("current") if isinstance(existing_entry, dict) else existing_entry
+        )
         if previous_urn:
             logger.info(
                 "LinkedIn personal: previous post %s exists — re-posting and updating log.",
