@@ -219,11 +219,13 @@ Routes tasks by prefix and manages the sequential handoff chain. Uses `gpt-4.1-m
 
 ### Researcher
 
-Uses `gpt-4.1` at `temperature=0.2`, `max_tokens=8000`. Tools: `search_and_index`, `search_corpus`, `fetch_page`, `search_arxiv`, `web_search`, `score_credibility`.
+Uses `gpt-4.1` at `temperature=0.2`, `max_tokens=2000`. Tools: `search_and_index`, `search_corpus`, `fetch_page`, `search_arxiv`, `score_credibility`.
+
+> **Token safety**: `fetch_page()` returns full page text directly into the conversation and will exhaust the 8,000-token input limit after ~2 pages. Only use it for a single specific URL that cannot be found any other way. Use `search_and_index` for all bulk research — it stores embeddings and returns only a ~50-token receipt.
 
 **Sequence**:
-1. Generate 3–5 targeted search queries covering different angles
-2. For **each** query, call `search_and_index` (not `web_search`) — this fetches full page text and stores embeddings permanently
+1. Generate 2–3 targeted search queries covering different angles
+2. For **each** query, call `search_and_index` (not `fetch_page`, not `web_search`) — this fetches pages, stores embeddings permanently, and returns only a short receipt
 3. After all queries are indexed, call `search_corpus` **once** with `top_k=3`
 4. For academic/scientific topics, also call `search_arxiv`
 5. Score each source with `score_credibility`; discard sources scoring 1/5

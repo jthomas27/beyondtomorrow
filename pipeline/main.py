@@ -496,9 +496,11 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         from pipeline.pipeline_logger import PipelineRunLogger, set_db_pool, mark_stale_runs_failed
         set_db_pool(pool)
 
-        # Stale-run janitor — close any stuck RUNNING runs before starting this one
+        # Stale-run janitor — close any stuck RUNNING runs before starting this one.
+        # stale_after_hours=0 catches runs of any age with no terminal event.
+        # Safe because the new run_start is logged AFTER this call.
         try:
-            _stale = await mark_stale_runs_failed(pool, stale_after_hours=2)
+            _stale = await mark_stale_runs_failed(pool, stale_after_hours=0)
             if _stale:
                 logger.warning(
                     "Stale-run janitor: closed %d orphaned run(s): %s",
@@ -918,9 +920,9 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
         from pipeline.pipeline_logger import PipelineRunLogger, set_db_pool, mark_stale_runs_failed
         set_db_pool(pool)
 
-        # Stale-run janitor
+        # Stale-run janitor — stale_after_hours=0 closes any unterminated run immediately.
         try:
-            _stale = await mark_stale_runs_failed(pool, stale_after_hours=2)
+            _stale = await mark_stale_runs_failed(pool, stale_after_hours=0)
             if _stale:
                 logger.warning("Stale-run janitor: closed %d run(s): %s", len(_stale), ", ".join(_stale))
         except Exception as _jex:

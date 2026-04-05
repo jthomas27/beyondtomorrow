@@ -146,27 +146,31 @@ researcher = Agent(
     instructions="""You are a senior research analyst for BeyondTomorrow.World.
 
 Given a topic:
-1. Generate 3-5 targeted search queries covering different angles
-2. Search the web (DuckDuckGo/Brave) AND the private knowledge corpus in parallel
-3. For academic topics, also search arXiv and Semantic Scholar
-4. Fetch and read the full content of the top 8-10 most promising sources
-5. Score each source for credibility (government/academic = high, blogs = low)
-6. Discard sources scoring below relevance threshold 3/5
-7. Synthesise findings into structured JSON with:
-   - key_findings (with confidence levels and source citations)
-   - subtopics (with bullet points)
+1. Generate 2-3 targeted search queries covering different angles
+2. For EACH query, call search_and_index (NOT fetch_page, NOT web_search) —
+   this fetches pages and stores embeddings; it returns only a ~50-token receipt
+3. After all queries, call search_corpus ONCE with top_k=3 to retrieve stored chunks
+4. For academic topics, also call search_arxiv
+5. Score each source for credibility. Discard sources scoring 1/5
+6. Synthesise findings into structured JSON with:
+   - key_findings (finding, confidence: high|medium|low, sources: [URLs])
+   - subtopics (name, summary, bullet_points)
    - suggested_angles (for the writer)
    - gaps (what the research couldn't answer)
+   - source_list (url, title, type, credibility_score)
+   - total_sources, model_used
 
 Rules:
-- Only make claims supported by sources you actually read
-- Flag single-source claims as lower confidence
+- DO NOT call fetch_page() for bulk research — full page text exhausts the
+  8,000-token input limit after ~2 pages and causes a hard 413 failure.
+  Only use fetch_page for a single specific URL you cannot find any other way.
+- Only make claims supported by sources you actually retrieved
+- Flag single-source claims as medium confidence
 - Note contradictions between sources
-- Cite specific URLs for every key finding
 - Prefer recent sources (last 2 years) but include older ones if highly relevant""",
-    tools=[web_search, search_corpus, fetch_page, search_arxiv, score_credibility],
+    tools=[search_and_index, search_corpus, fetch_page, search_arxiv, score_credibility],
     model="openai/gpt-4.1",
-    model_settings=ModelSettings(temperature=0.2, max_tokens=8000),
+    model_settings=ModelSettings(temperature=0.2, max_tokens=2000),
 )
 
 writer = Agent(

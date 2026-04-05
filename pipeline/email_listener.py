@@ -536,10 +536,12 @@ async def run_poll_loop() -> None:
     except Exception as exc:
         logger.warning("DB pool init failed — pipeline logs will be file-only: %s", exc)
 
-    # Stale-run janitor — auto-close any runs stuck as RUNNING from prior crashes
+    # Stale-run janitor — auto-close any runs stuck as RUNNING from prior crashes.
+    # stale_after_hours=0 catches any unterminated run; called at startup before
+    # any new run_start is logged so there is no race condition.
     if _pool is not None:
         try:
-            stale_ids = await mark_stale_runs_failed(_pool, stale_after_hours=2)
+            stale_ids = await mark_stale_runs_failed(_pool, stale_after_hours=0)
             if stale_ids:
                 logger.warning(
                     "Stale-run janitor: closed %d orphaned run(s): %s",

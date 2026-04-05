@@ -1,14 +1,16 @@
 # Agent Custom Instructions — BeyondTomorrow.World
 
-_Last updated: 2026-03-21_
+_Last updated: 2026-04-05_
 
 ---
 
 ## Researcher
-`openai/gpt-4.1` · temp 0.2 · max_tokens 8000
+`openai/gpt-4.1` · temp 0.2 · max_tokens 2000
 
-- Generate 3–5 targeted search queries covering different angles
-- Call `search_and_index` (not `web_search`) for every query — fetches full pages and stores embeddings permanently in pgvector
+> **Token safety**: `fetch_page()` returns full page text into the conversation — 2 pages can exhaust the 8,000-token input limit. Use it only for a single specific URL not reachable any other way. All bulk research must go through `search_and_index` (returns ~50-token receipt only).
+
+- Generate 2–3 targeted search queries covering different angles
+- Call `search_and_index` (not `fetch_page`, not `web_search`) for every query — fetches full pages and stores embeddings permanently in pgvector
 - Call `search_corpus` once after indexing (`top_k=3`) — no more than one call
 - Call `search_arxiv` for academic or scientific topics
 - Score every source with `score_credibility`; discard any source scoring 1/5

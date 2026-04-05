@@ -247,11 +247,13 @@ All agents are defined in `pipeline/definitions.py` using the OpenAI Agents SDK 
 | Agent | Model | Temp | Max Tokens | Tools | Purpose |
 |---|---|---|---|---|---|
 | **Orchestrator** | gpt-4.1-mini | 0.1 | 2,000 | Handoffs to all agents | Routes tasks by prefix |
-| **Researcher** | gpt-4.1 | 0.2 | 8,000 | search_and_index, search_corpus, fetch_page, search_arxiv, score_credibility | Web research + corpus search |
+| **Researcher** | gpt-4.1 | 0.2 | 2,000 | search_and_index, search_corpus, fetch_page†, search_arxiv, score_credibility | Web research + corpus search |
 | **Writer** | gpt-4.1 | 0.7 | 4,000 | read_research_file, write_research_file | Drafts blog post from research |
 | **Editor** | gpt-4.1 | 0.3 | 4,000 | read_research_file, write_research_file, search_corpus, score_credibility | Review, fact-check, polish |
 | **Publisher** | gpt-4.1-mini | 0.0 | 1,000 | pick_random_asset_image, upload_image_to_ghost, publish_file_to_ghost | Image upload + Ghost publish |
 | **Indexer** | gpt-4.1-mini | 0.0 | 1,000 | read_research_file, index_document, embed_and_store | Chunk + embed + store (currently bypassed) |
+
+† `fetch_page` is registered but restricted by prompt — only for a single specific URL not reachable via `search_and_index`. Bulk use causes 413 (full page text exhausts the 8,000-token input limit).
 
 Temperature rationale:
 - **0.0–0.1** for deterministic tasks (publishing, indexing, routing)
