@@ -9,6 +9,7 @@ Required env vars:
 """
 
 import asyncio
+import html as _html
 import json as _json
 import logging
 import mimetypes
@@ -73,7 +74,13 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
     for line in fm_block.splitlines():
         if ":" in line:
             key, _, value = line.partition(":")
-            meta[key.strip()] = value.strip()
+            # The LLM sometimes encodes '&' as the 3-byte sequence \x00 + "26"
+            # (the hex value 0x26 for '&', prefixed with a null byte). Restoring it
+            # then calling html.unescape() converts e.g. &mdash; → — in plain text.
+            cleaned = _html.unescape(
+                value.strip().replace("\x0026", "&").replace("\x00", "")
+            )
+            meta[key.strip()] = cleaned
     return meta, body
 
 
