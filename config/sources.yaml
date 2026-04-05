@@ -344,6 +344,11 @@ approved_domains:
     credibility: 4
     notes: "Bloomberg — finance, markets, energy transition, and climate policy coverage"
 
+  - domain: openai.com
+    category: news
+    credibility: 4
+    notes: "OpenAI news — official announcements, product launches, and research updates (openai.com/news/)"
+
   # --- Open data / datasets ------------------------------------------------
 
   - domain: ourworldindata.org

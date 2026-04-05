@@ -38,8 +38,8 @@ agents:
   researcher:
     model: openai/gpt-4.1
     temperature: 0.2
-    max_tokens: 8000
-    note: "Complex multi-tool research + structured JSON synthesis — gpt-4.1 for reasoning"
+    max_tokens: 2000
+    note: "Research JSON synthesis — output is structured JSON only (~500-1000 tokens); 2000 gives headroom without risking 413"
 
   writer:
     model: openai/gpt-4.1
