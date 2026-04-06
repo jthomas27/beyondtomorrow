@@ -69,7 +69,7 @@ def _clean_llm_text(content: str) -> str:
     return content
 
 
-
+def _safe_path_in(base_dir: pathlib.Path, filename: str) -> pathlib.Path:
     """Return a resolved path under base_dir, raising ValueError on traversal."""
     base_dir.mkdir(parents=True, exist_ok=True)
     resolved = (base_dir / filename).resolve()

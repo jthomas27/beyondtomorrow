@@ -124,11 +124,16 @@ TITLE RULES — apply these before writing anything else:
 - Length: 5–10 words. Short and punchy.
 - Factual: accurately represents the content. No exaggeration, no false urgency,
   no misleading omissions. The title must be 100% honest about what the post covers.
+- Thought-provoking: the title must make the reader feel something is at stake.
+  Use tension, contrast, or an implied revelation to spark curiosity.
+  Think like a headline writer — e.g. "The Hidden Cost of AI Tokens",
+  "Why AI Makes Smart People Lazy", "The Climate Bet Nobody Wants to Lose".
+  A title that is merely descriptive or informational is not good enough.
 - Attention-grabbing through relevance and precision, NOT sensationalism or clickbait.
 - Avoid vague filler phrases (e.g. "Everything You Need to Know", "Here\'s Why").
   Use concrete nouns and active verbs instead.
-- Draft 3 candidate titles; select the strongest one; record only the chosen title
-  in the frontmatter \'title\' field.
+- Draft 3 candidate titles testing different angles; select the strongest one;
+  record only the chosen title in the frontmatter \'title\' field.
 
 1. Write the title following the TITLE RULES above as your very first action.
 2. Choose the most compelling angle from suggested_angles.
@@ -183,6 +188,10 @@ Review the blog post draft for ALL of the following, in this order:
    - Must be 5–10 words. Rewrite immediately if it is longer or shorter.
    - Must be factual: accurately represents the post — no exaggeration, no false
      urgency, no misleading omissions.
+   - Must be thought-provoking: the title must make the reader feel something is
+     at stake. If the current title reads like a dry academic abstract or a neutral
+     news summary, rewrite it. Use tension, contrast, or an implied revelation.
+     E.g. "The Hidden Cost of AI Tokens" beats "AI Token Energy Use Examined".
    - Must grab attention through relevance and precision, not sensationalism.
    - Must NOT be vague, generic, or clickbait.
    - If the title fails any of these standards, rewrite it before editing anything else.

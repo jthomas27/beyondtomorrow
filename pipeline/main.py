@@ -455,6 +455,60 @@ async def _check_status() -> None:
         logger.error("Status: NOT READY — fix the issues above before running agents")
 
 
+async def _fix_title_via_llm(openai_client, edited_path) -> bool:
+    """Rewrite an over-long title in-place using a minimal LLM call (~30 tokens).
+
+    Reads the current title from frontmatter, asks the model to shorten it to
+    5-10 words, then patches the file.  Returns True if the title was updated.
+    """
+    import re as _re
+    raw = edited_path.read_text(encoding="utf-8")
+    m = _re.search(r"^title:\s*(.+)$", raw, _re.MULTILINE)
+    if not m:
+        return False
+    old_title = m.group(1).strip()
+    if len(old_title.split()) <= 10:
+        return False  # already fine — nothing to do
+
+    logger.info("Fixing title via LLM: %r (%d words)", old_title, len(old_title.split()))
+    try:
+        resp = await openai_client.chat.completions.create(
+            model="openai/gpt-4.1-mini",
+            max_tokens=30,
+            temperature=0.3,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You rewrite blog post titles. "
+                        "Return ONLY the new title — no explanation, no quotes."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f'Rewrite this title as a punchy, thought-provoking headline '
+                        f'of 5 to 10 words maximum. It must make the reader feel something '
+                        f'is at stake — use tension, contrast, or an implied revelation. '
+                        f'Keep the core meaning intact and accurate.\n\n'
+                        f'Original: {old_title}'
+                    ),
+                },
+            ],
+        )
+        new_title = resp.choices[0].message.content.strip().strip('"').strip("'")
+        if not new_title or not (5 <= len(new_title.split()) <= 10):
+            logger.warning("LLM title fix returned unusable result: %r", new_title)
+            return False
+        patched = raw[:m.start(1)] + new_title + raw[m.end(1):]
+        edited_path.write_text(patched, encoding="utf-8")
+        logger.info("Title fixed: %r", new_title)
+        return True
+    except Exception as exc:
+        logger.warning("LLM title fix failed (%s) — will fall back to Editor", exc)
+        return False
+
+
 async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
     """Run the full BLOG pipeline: Research+Index → Write → Edit → Publish → Index."""
     from pathlib import Path
@@ -466,7 +520,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
     from pipeline.degradation import select_model
     from pipeline.guardrails import log_model_call
 
-    init_github_models()
+    _openai_client = init_github_models()
 
     # Disable tracing — GitHub token is not a valid OpenAI key
     import os as _os
@@ -723,6 +777,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             logger.warning("Publish blocked — pre-publish validation failed: %s", publish_output)
             missing_lower = publish_output.lower()
 
+            # Title-length failure: fix with a single ~30-token LLM call.
+            # No need to load the full post — the existing title is all the model needs.
+            if "title length" in missing_lower:
+                _fixed = await _fix_title_via_llm(_openai_client, research_dir / edited_filename)
+                if _fixed:
+                    publish_input = _build_publish_input(edited_filename)
+                    missing_lower = missing_lower.replace("title length", "")
+
             if any(kw in missing_lower for kw in (
                 "title", "body_content", "just for laughs", "source links", "excerpt"
             )):
@@ -901,8 +963,9 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
     from pipeline.setup import init_github_models
     from pipeline.definitions import publisher
     from pipeline.db import get_pool, close_pool
+    from pathlib import Path as _Path
 
-    init_github_models()
+    _openai_client = init_github_models()
 
     # Disable tracing — GitHub token is not a valid OpenAI key
     import os as _os
@@ -939,6 +1002,18 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
             publisher, publish_input,
             agent_name="Publisher", pool=pool, max_turns=6, run_log=run_log,
         )
+
+        # Title-length fix (same logic as _run_blog_pipeline)
+        if publish_output.strip().startswith("MISSING:") and "title length" in publish_output.lower():
+            research_dir_pub = _Path(__file__).parent.parent / "research"
+            _fixed = await _fix_title_via_llm(_openai_client, research_dir_pub / filename)
+            if _fixed:
+                publish_input = _build_publish_input(filename)
+                publish_output, _, _ = await _run_agent_with_fallback(
+                    publisher, publish_input,
+                    agent_name="Publisher", pool=pool, max_turns=6, run_log=run_log,
+                )
+
         logger.info("Ghost result: %s", publish_output)
         run_log.stage_ok("Publish", elapsed_s=round(monotonic() - _t0, 1), url=publish_output)
 
@@ -955,7 +1030,6 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
             logger.error("LinkedIn: %s", _li_exc)
             run_log.stage_error("LinkedIn", _li_exc)
         else:
-            from pathlib import Path as _Path
             research_dir = _Path(__file__).parent.parent / "research"
             edited_path = research_dir / filename
             if not edited_path.exists():
