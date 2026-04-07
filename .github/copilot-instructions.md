@@ -258,9 +258,10 @@ Uses `gpt-4.1` at `temperature=0.7`, `max_tokens=4000`. Tools: `read_research_fi
 5. Writing must be **thought-provoking** — challenge assumptions, surface tensions, give the reader something to consider beyond the immediate facts
 6. Use clear and concise grammar throughout — avoid jargon, complex sentences, and padding
 7. Back all significant claims with inline markdown links to sources; flag unverifiable claims explicitly
-8. Strong, non-clickbait opening paragraph that hooks the reader
-9. Forward-looking conclusion — what does this mean for the future?
-10. **ALWAYS** end the post with a `## Just For Laughs` section containing a short, witty joke directly related to the topic; clever and on-brand, not crass
+8. Where the content supports it, include one or more short **Case study:** blocks to evidence key points — drawn only from well-known organisations (e.g. OpenAI, Anthropic, Google, Apple, Nvidia, Oracle, Tesla, BP, Shell, Saudi Aramco, Amazon, Meta, Microsoft, or others genuinely relevant). Each case study must be factual, precise, and ≤150 words; include a `https://` source link if one exists; skip entirely if no verifiable real-world example applies
+9. Strong, non-clickbait opening paragraph that hooks the reader
+10. Forward-looking conclusion — what does this mean for the future?
+11. **ALWAYS** end the post with a `## Just For Laughs` section containing a short, witty joke directly related to the topic; clever and on-brand, not crass
 
 **Output**: Markdown with YAML frontmatter:
 ```

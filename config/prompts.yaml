@@ -117,9 +117,27 @@ writer: |
        any reference that is not a publicly accessible web address. If you have
        information from the corpus but no external URL for it, cite it inline as
        text (e.g. "according to internal research") without creating a link.
-  8. Include a strong first paragraph that hooks the reader without clickbait.
-  9. End with a forward-looking conclusion — what does this mean for the future?
-  10. ALWAYS end the post with a ## Just For Laughs section containing a short,
+  8. CASE STUDIES — where the content supports it, include one or more short
+     real-world case studies to evidence key points. Rules:
+     - Draw only from well-known organisations whose involvement with the topic
+       is publicly documented — e.g. OpenAI, Anthropic, Google, Apple, Nvidia,
+       Oracle, Tesla, BP, Shell, Saudi Aramco, Amazon, Meta, Microsoft, or others
+       where genuinely relevant.
+     - Each case study must be factual, precise, and directly relevant to the
+       point it illustrates. Do not invent details, extrapolate beyond what is
+       publicly known, or attribute positions the organisation has not stated.
+     - Length: a single sentence minimum; 150 words maximum.
+     - Include an inline markdown link to a publicly accessible source
+       (https:// or http://) if you have one. If you have no verifiable external
+       URL for the case study detail, either omit the link or skip the case study.
+     - Present as a short indented block or callout under the relevant section
+       heading, introduced with bold label, e.g.
+       **Case study:** In 2023, Nvidia reported that ...
+     - If no suitable real-world example exists for a section, omit the case
+       study entirely — do not fabricate one to fill space.
+  9. Include a strong first paragraph that hooks the reader without clickbait.
+  10. End with a forward-looking conclusion — what does this mean for the future?
+  11. ALWAYS end the post with a ## Just For Laughs section containing a short,
       witty joke directly related to the topic. Keep it clever, light, and on-brand.
 
   PUNCTUATION — mandatory:
@@ -180,9 +198,21 @@ editor: |
        local filename, or anything that is not a publicly accessible web address.
        If the only source for a claim is internal/corpus-only, flag it with
        <!-- UNVERIFIED: no external source --> instead of linking.
-  9. Structure and flow — logical progression, clear transitions between sections.
-  10. SEO basics — clear title, meta excerpt in frontmatter, proper H2/H3 hierarchy.
-  11. Length — target 1500-2500 words; trim padding or expand thin sections.
+  9. Case study integrity — for every **Case study:** block in the draft:
+     - Verify the organisation name, dates, and attributed facts against the
+       research JSON or a corpus search.
+     - If a case study detail cannot be verified, replace it with
+       <!-- UNVERIFIED: case study — [detail] --> and remove the block from
+       the published prose. Do not leave unverified case studies in the final post.
+     - Confirm each case study has a valid https:// source link, or that the
+       absence of a link is explicitly intentional (i.e. the fact is widely
+       known and unambiguous). If a link is missing and the claim is non-trivial,
+       flag with <!-- UNVERIFIED: no external source -->.
+     - Ensure the case study is ≤150 words and directly evidences the point
+       made in its parent section. Trim if over length.
+  10. Structure and flow — logical progression, clear transitions between sections.
+  11. SEO basics — clear title, meta excerpt in frontmatter, proper H2/H3 hierarchy.
+  12. Length — target 1500-2500 words; trim padding or expand thin sections.
 
   Rules:
   - Make targeted edits. Do NOT rewrite from scratch unless the draft is

@@ -121,6 +121,11 @@ approved_domains:
     credibility: 3
     notes: "Social science preprints (not peer-reviewed)"
 
+  - domain: sciencedirect.com
+    category: academic
+    credibility: 5
+    notes: "Elsevier ScienceDirect — peer-reviewed journals across science, technology, medicine and social sciences"
+
   # --- Climate / environment -----------------------------------------------
 
   - domain: ipcc.ch
@@ -177,6 +182,11 @@ approved_domains:
     category: climate
     credibility: 5
     notes: "World Resources Institute — authoritative climate, land, ocean and energy research"
+
+  - domain: lse.ac.uk
+    category: climate
+    credibility: 5
+    notes: "LSE Grantham Research Institute on Climate Change and the Environment — leading academic policy research on climate and sustainability"
 
   - domain: carbontracker.org
     category: climate
@@ -344,6 +354,11 @@ approved_domains:
     credibility: 4
     notes: "Bloomberg — finance, markets, energy transition, and climate policy coverage"
 
+  - domain: substack.com
+    category: news
+    credibility: 3
+    notes: "Substack — independent newsletters; quality varies by author, verify claims"
+
   - domain: openai.com
     category: news
     credibility: 4
@@ -386,4 +401,3 @@ blocked_domains:
   - pinterest.com
   - quora.com
   - medium.com      # variable quality; use with caution
-  - substack.com    # variable quality; use with caution
