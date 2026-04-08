@@ -327,6 +327,11 @@ approved_domains:
     credibility: 5
     notes: "Network for Greening the Financial System — central bank coalition on climate financial risk"
 
+  - domain: oecd.org
+    category: policy
+    credibility: 5
+    notes: "Organisation for Economic Co-operation and Development — authoritative economic, social and environmental data and policy analysis"
+
   # --- News -----------------------------------------------------------------
 
   - domain: theguardian.com
