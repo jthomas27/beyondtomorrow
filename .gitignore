@@ -37,6 +37,9 @@ reports/
 scripts/
 tests/
 
+# Assets — local images, not tracked in git
+assets/
+
 # Secrets — never commit credentials
 mailgun.txt
 *.env
