@@ -36,6 +36,7 @@ research/
 reports/
 scripts/
 tests/
+docs/
 
 # Assets — local images, not tracked in git
 assets/
