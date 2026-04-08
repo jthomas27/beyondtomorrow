@@ -198,6 +198,16 @@ approved_domains:
     credibility: 5
     notes: "World Meteorological Organization — authoritative global weather, climate and water data"
 
+  - domain: wwf.org.uk
+    category: climate
+    credibility: 4
+    notes: "WWF UK — conservation and climate change research, reports, and campaigns"
+
+  - domain: climate-resource.com
+    category: climate
+    credibility: 4
+    notes: "Climate Resource — climate data, projections, and risk analysis"
+
   # --- Technology / AI / science -------------------------------------------
 
   - domain: technologyreview.com
@@ -271,6 +281,11 @@ approved_domains:
     category: policy
     credibility: 5
     notes: "United Nations official publications and reports"
+
+  - domain: who.int
+    category: policy
+    credibility: 5
+    notes: "World Health Organization — authoritative global health data, reports, and climate-health research"
 
   - domain: worldbank.org
     category: policy
