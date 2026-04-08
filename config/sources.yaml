@@ -143,6 +143,11 @@ approved_domains:
     credibility: 5
     notes: "NASA Climate portal — satellite data, explainers, datasets"
 
+  - domain: science.nasa.gov
+    category: climate
+    credibility: 5
+    notes: "NASA Science — space, Earth science missions, and research publications"
+
   - domain: noaa.gov
     category: climate
     credibility: 5

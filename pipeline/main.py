@@ -786,7 +786,8 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                     missing_lower = missing_lower.replace("title length", "")
 
             if any(kw in missing_lower for kw in (
-                "title", "body_content", "just for laughs", "source links", "excerpt"
+                "title", "body_content", "just for laughs", "source links", "excerpt",
+                "formatting",
             )):
                 logger.info("Recovering: re-running Editor to fix content issues...")
                 recovery_input = (
@@ -797,8 +798,11 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                     f"- If 'body_content' too short: expand to at least 900 words.\n"
                     f"- If 'Just For Laughs' missing: add a ## Just For Laughs section.\n"
                     f"- If 'source links' missing: add inline markdown links.\n"
-                    f"- If 'excerpt' missing: add a 1–2 sentence excerpt in frontmatter.\n\n"
-                    f"1. Call read_research_file('{draft_filename}') to read the original draft.\n"
+                    f"- If 'excerpt' missing: add a 1–2 sentence excerpt in frontmatter.\n"
+                    f"- If 'formatting' issue: remove any **Case study:** or **Example:** "
+                    f"labels and integrate as seamless prose; expand or remove lists with "
+                    f"fewer than 3 items; complete or remove any orphaned paragraph fragments.\n\n"
+                    f"1. Call read_research_file('{edited_filename}') to read the edited post.\n"
                     f"2. Fix every reported validation issue.\n"
                     f"3. Save the corrected post as '{edited_filename}' using write_research_file."
                 )
@@ -1023,6 +1027,12 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
                     publisher, publish_input,
                     agent_name="Publisher", pool=pool, max_turns=6, run_log=run_log,
                 )
+
+        if publish_output.strip().startswith("MISSING:"):
+            raise RuntimeError(
+                f"Publish validation failed — fix the issue in the file and retry.\n"
+                f"Unresolved: {publish_output}"
+            )
 
         logger.info("Ghost result: %s", publish_output)
         run_log.stage_ok("Publish", elapsed_s=round(monotonic() - _t0, 1), url=publish_output)

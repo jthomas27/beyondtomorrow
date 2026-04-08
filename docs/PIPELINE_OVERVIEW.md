@@ -1,6 +1,6 @@
 # BeyondTomorrow.World — Pipeline Overview
 
-> Last updated: 22 March 2026
+> Last updated: 8 April 2026
 
 This document describes the full research-and-publish pipeline: how each agent works, how they hand off to each other, and what controls are in place.
 
@@ -166,7 +166,9 @@ This document describes the full research-and-publish pipeline: how each agent w
 
 ### Stage 3: Edit
 
-**Agent:** Editor (gpt-4.1, temperature 0.3, max 4,000 tokens)
+**Agent:** Editor (gpt-4.1, temperature 0.3, max 2,500 tokens)
+
+> **Why 2,500?** Input tokens (~5,000: system prompt + edit prompt + research compact + draft via tool) + `max_tokens` = total request body. 2,500 keeps the total under the 8,000-token hard limit, preventing a 413 fallback to `gpt-4.1-mini` which produces apostrophe/em-dash corruption in the output.
 
 **Cooldown:** Adaptive (20s if RPM is clear; 60s if RPM is under pressure — see [Adaptive Cooldowns](#adaptive-cooldowns))
 
@@ -174,14 +176,15 @@ This document describes the full research-and-publish pipeline: how each agent w
 1. Title quality — rewrite first if it fails 5–10 word / factual / punchy test
 2. Factual accuracy — cross-reference claims against research JSON
 3. Grammar and clarity — British English; remove padding; split run-ons
-4. Punctuation audit — comma splices, hyphenation, apostrophes, dashes
+4. Punctuation audit — comma splices, hyphenation, apostrophes, dashes; British English conventions
 5. Spelling — British English
 6. Tone consistency — authoritative but accessible
 7. Key issue coherence — single central issue developed progressively
 8. Evidence and sources — inline source links on every significant claim; unsupported claims flagged with `<!-- UNVERIFIED: ... -->`
-9. Structure and flow — logical progression, clear transitions
-10. SEO — title, meta description, H2/H3 hierarchy
-11. Length — 900–1,500 words; trim or expand
+9. Examples and references — remove any `**Case study:**` / `**Example:**` callout labels; rewrite as integrated prose. Verify each example against the research JSON.
+10. Structure, headings, and lists — aim for 4–6 H2s; H3 only for genuine sub-topics with multiple points. Convert any list with fewer than 3 items to prose. Remove list items ending in `:`. Remove orphaned paragraph fragments (< 5 words).
+11. SEO — title, meta description, H2/H3 hierarchy
+12. Length — 900–1,500 words; trim or expand
 
 **Output:** Saves as `YYYY-MM-DD-slug-edited.md`
 
@@ -249,7 +252,7 @@ All agents are defined in `pipeline/definitions.py` using the OpenAI Agents SDK 
 | **Orchestrator** | gpt-4.1-mini | 0.1 | 2,000 | Handoffs to all agents | Routes tasks by prefix |
 | **Researcher** | gpt-4.1 | 0.2 | 2,000 | search_and_index, search_corpus, fetch_page†, search_arxiv, score_credibility | Web research + corpus search |
 | **Writer** | gpt-4.1 | 0.7 | 4,000 | read_research_file, write_research_file | Drafts blog post from research |
-| **Editor** | gpt-4.1 | 0.3 | 4,000 | read_research_file, write_research_file, search_corpus, score_credibility | Review, fact-check, polish |
+| **Editor** | gpt-4.1 | 0.3 | 2,500 | read_research_file, write_research_file, search_corpus, score_credibility | Review, fact-check, polish — 2,500 keeps total request body under 8,000-token limit |
 | **Publisher** | gpt-4.1-mini | 0.0 | 1,000 | pick_random_asset_image, upload_image_to_ghost, publish_file_to_ghost | Image upload + Ghost publish |
 | **Indexer** | gpt-4.1-mini | 0.0 | 1,000 | read_research_file, index_document, embed_and_store | Chunk + embed + store (currently bypassed) |
 
@@ -373,7 +376,7 @@ Budget thresholds:
 
 ## Pre-Publish Guardrails
 
-The `publish_file_to_ghost` tool validates 5 checks before calling the Ghost API:
+The `publish_file_to_ghost` tool validates 9 checks before calling the Ghost API:
 
 | Check | Requirement | Failure Message |
 |---|---|---|
@@ -382,6 +385,10 @@ The `publish_file_to_ghost` tool validates 5 checks before calling the Ghost API
 | **Feature image** | URL starts with `http` | `feature_image (no hosted image URL)` |
 | **Excerpt** | Non-empty in frontmatter | `excerpt (empty in frontmatter)` |
 | **Just For Laughs** | Section present in body (case-insensitive) | `'Just For Laughs' section (required)` |
+| **No Case study labels** | No `**Case study:**` / `**Case Study:**` bold labels | `formatting: '**Case study:**' label found...` |
+| **No empty list items** | No `<li></li>` in rendered HTML | `formatting: one or more empty list items found...` |
+| **No singleton lists** | Every `<ul>`/`<ol>` has ≥ 3 items, or convert to prose | `formatting: single-item list found...` |
+| **No rogue paragraph labels** | No `<p>` containing ≤ 2 words ending in `:` | `formatting: rogue paragraph label found...` |
 
 If any check fails, the tool returns `MISSING: [items]` without calling Ghost. The pipeline then triggers a recovery flow (see below).
 
@@ -394,9 +401,9 @@ If any check fails, the tool returns `MISSING: [items]` without calling Ghost. T
 ```
 Publisher returns "MISSING: [title, excerpt]"
   │
-  ├─ If error mentions title/body/excerpt/Just For Laughs:
+  ├─ If error mentions title/body/excerpt/Just For Laughs/formatting:
   │    └─ Re-run Editor in recovery mode with specific fix instructions
-  │       └─ Editor reads draft, fixes issues, saves as -edited.md
+  │       └─ Editor reads *edited* file, fixes issues, saves as -edited.md
   │
   └─ Retry Publisher with fixed file
        └─ If still MISSING: raise RuntimeError (hard stop)

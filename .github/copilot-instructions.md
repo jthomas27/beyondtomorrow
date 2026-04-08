@@ -258,7 +258,7 @@ Uses `gpt-4.1` at `temperature=0.7`, `max_tokens=4000`. Tools: `read_research_fi
 5. Writing must be **thought-provoking** — challenge assumptions, surface tensions, give the reader something to consider beyond the immediate facts
 6. Use clear and concise grammar throughout — avoid jargon, complex sentences, and padding
 7. Back all significant claims with inline markdown links to sources; flag unverifiable claims explicitly
-8. Where the content supports it, include one or more short **Case study:** blocks to evidence key points — drawn only from well-known organisations (e.g. OpenAI, Anthropic, Google, Apple, Nvidia, Oracle, Tesla, BP, Shell, Saudi Aramco, Amazon, Meta, Microsoft, or others genuinely relevant). Each case study must be factual, precise, and ≤150 words; include a `https://` source link if one exists; skip entirely if no verifiable real-world example applies
+8. Weave real-world examples into the prose as **seamless transitions** — do NOT use a `**Case study:**` label or any equivalent callout. Introduce examples as a natural continuation of the argument, e.g. *"This played out at [Organisation], which in [year]..."*. Draw only from well-known organisations where publicly documented. Every example must be factual, precise, ≤100 words, and feel like part of the argument, not a sidebar. Include an `https://` source link if one exists. Skip entirely if no verifiable real-world example applies.
 9. Strong, non-clickbait opening paragraph that hooks the reader
 10. Forward-looking conclusion — what does this mean for the future?
 11. **ALWAYS** end the post with a `## Just For Laughs` section containing a short, witty joke directly related to the topic; clever and on-brand, not crass
@@ -275,7 +275,9 @@ Save using `write_research_file` with filename `YYYY-MM-DD-slug.md`.
 
 ### Editor
 
-Uses `gpt-4.1` at `temperature=0.3`, `max_tokens=4000`. Tools: `read_research_file`, `write_research_file`, `search_corpus`, `score_credibility`.
+Uses `gpt-4.1` at `temperature=0.3`, `max_tokens=2500`. Tools: `read_research_file`, `write_research_file`, `search_corpus`, `score_credibility`.
+
+> **Why 2500?** The Editor's total request body = input tokens (~5,000: system prompt + edit prompt + research compact + draft file via tool) + `max_tokens`. Setting `max_tokens=2500` keeps the total under the 8,000-token hard limit, preventing 413 fallback to `gpt-4.1-mini` which produces apostrophe/em-dash corruption in the output.
 
 **Review checklist**:
 1. **Title quality** — must be punchy (6–10 words), factual, attention-grabbing without being misleading; rewrite before anything else if it fails this standard
@@ -286,9 +288,10 @@ Uses `gpt-4.1` at `temperature=0.3`, `max_tokens=4000`. Tools: `read_research_fi
 6. **Tone consistency** — authoritative but accessible; no jargon without explanation
 7. **Key issue coherence** — single central issue introduced early and developed progressively; tighten if the argument drifts
 8. **Evidence and sources** — every significant factual claim or statistic must have an inline source link; flag unsupported claims with `<!-- UNVERIFIED: ... -->`
-9. **Structure and flow** — logical progression, clear transitions between sections
-10. **SEO basics** — clear title, meta excerpt in frontmatter, proper H2/H3 hierarchy
-11. **Length** — target 900–1500 words; trim padding or expand thin sections
+9. **Examples** — ensure all real-world examples are woven into the prose as seamless transitions. Remove any `**Case study:**` / `**Example:**` labels and rewrite as integrated prose. Verify each example against the research JSON.
+10. **Structure, headings, and lists** — aim for 4–6 H2s; H3 only for genuine sub-topics with multiple points; remove H3s covering a single point. Convert any list with fewer than 3 items to prose. Remove list items ending in `:` or otherwise incomplete. Remove orphaned paragraph fragments (fewer than 5 words that are not deliberate stylistic choices).
+11. **SEO basics** — clear title, meta excerpt in frontmatter, proper H2/H3 hierarchy
+12. **Length** — target 900–1500 words; trim padding or expand thin sections
 
 **Rules**: Make **targeted edits** — do NOT rewrite from scratch unless the draft is structurally broken. Flag unverifiable claims with `<!-- UNVERIFIED: ... -->` rather than silently fixing them. Save edited version using `write_research_file` with `-edited` appended to the filename.
 
@@ -343,7 +346,7 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 | Orchestrator | `openai/gpt-4.1-mini` | 0.1 | 2,000 | Fast routing; 1M context |
 | Researcher | `openai/gpt-4.1` | 0.2 | 8,000 | Reasoning + tool-calling + 1M context |
 | Writer | `openai/gpt-4.1` | 0.7 | 4,000 | Blog prose; 1M context |
-| Editor | `openai/gpt-4.1` | 0.3 | 4,000 | Editorial pass; reliable fact-check |
+| Editor | `openai/gpt-4.1` | 0.3 | 2,500 | Editorial pass; 2,500 keeps total request body under 8,000-token limit, preventing 413 fallback |
 | Publisher | `openai/gpt-4.1-mini` | 0.0 | 1,000 | Deterministic metadata extraction + Ghost API call |
 | Indexer | `openai/gpt-4.1-mini` | 0.0 | 500 | Minimal reasoning; chunking + indexing |
 

@@ -1,6 +1,6 @@
 # Agent Custom Instructions — BeyondTomorrow.World
 
-_Last updated: 2026-04-05_
+_Last updated: 2026-04-08_
 
 ---
 
@@ -34,7 +34,9 @@ _Last updated: 2026-04-05_
 
 **Content rules:**
 - Write the title first, then choose the most compelling angle from `suggested_angles`
-- Body: 1500–2500 words, H2/H3 headings, short paragraphs, bullet points where appropriate
+- Body: 900–1,500 words, H2/H3 headings, short paragraphs, bullet points where appropriate
+- **Structure rules:** aim for 4–6 H2s; H3 only for genuine sub-topics with multiple points (no single-point H3s). Lists need ≥ 3 items — if fewer, convert to prose. Never end a list item with `:`. No orphaned paragraph fragments (< 5 words).
+- **Examples and references:** weave real-world examples as seamless prose transitions — *"This played out at [Organisation], which in [year]..."*. Never use `**Case study:**`, `**Example:**`, or equivalent callout labels. Every example must be factual, ≤ 100 words, and include an `https://` source link if one exists. Skip if no verifiable example applies.
 - Cite sources with inline markdown links throughout
 - Authoritative but accessible tone
 - Strong hook in the opening paragraph
@@ -43,14 +45,16 @@ _Last updated: 2026-04-05_
 
 **Save rules:**
 - `title` in frontmatter must be present and 5–10 words
-- Body must be at least 1500 words
+- Body must be at least 900 words
 - Do **not** call `write_research_file` until both requirements are met
 - Save as `YYYY-MM-DD-slug.md`
 
 ---
 
 ## Editor
-`openai/gpt-4.1` · temp 0.3 · max_tokens 4000
+`openai/gpt-4.1` · temp 0.3 · max_tokens 2500
+
+> **Why 2,500?** Total request body = input tokens (~5,000: system prompt + edit prompt + research compact + draft via tool) + `max_tokens`. Setting 2,500 keeps the total under the 8,000-token hard limit, preventing 413 fallback to `gpt-4.1-mini` which produces apostrophe/em-dash corruption.
 
 Tools: `read_research_file`, `write_research_file`, `search_corpus`, `score_credibility`
 
@@ -63,7 +67,11 @@ Review checklist in this strict order:
 - **4. Structure and flow:** logical progression, clear transitions
 - **5. Citations:** every major claim must have an inline source link; flag unverifiable claims as `<!-- UNVERIFIED: ... -->` — do not silently remove them
 - **6. SEO:** clear title, meta description in frontmatter, proper H2/H3 hierarchy
-- **7. Length:** must be 1500–2500 words; trim padding or expand thin sections
+- **7. Length:** must be 900–1,500 words; trim padding or expand thin sections
+- **8. Key issue coherence:** single central issue introduced early, developed progressively — tighten if the argument drifts
+- **9. Examples and references:** remove any `**Case study:**` / `**Example:**` callout labels and rewrite as integrated prose. Verify each example against the research JSON.
+- **10. Structure, headings, and lists:** aim for 4–6 H2s; H3 only for genuine sub-topics with multiple points. Convert any list with fewer than 3 items to prose. Remove list items ending in `:` or otherwise incomplete. Remove orphaned paragraph fragments (< 5 words).
+- **11. Punctuation audit:** comma splices, missing full stops, inconsistent hyphenation, misused apostrophes, improper dashes — **British English** conventions apply
 
 Additional rules:
 - Make targeted edits — do **not** rewrite from scratch unless structurally broken
@@ -78,10 +86,13 @@ Strict 4-step sequence — no deviations:
 
 - **Step 1:** Call `pick_random_asset_image()` — if result starts with `Error:`, stop and report
 - **Step 2:** Call `upload_image_to_ghost(image_path=...)` — if result starts with `Error:` or URL does not start with `http`, stop and report
-- **Step 3:** Call `publish_file_to_ghost(filename, feature_image_url, status='published')` — the tool validates three required items internally:
+- **Step 3:** Call `publish_file_to_ghost(filename, feature_image_url, status='published')` — the tool validates these items before calling Ghost:
   - `title`: present in frontmatter, 5–10 words
-  - `body_content`: substantial post text present
+  - `body_content`: ≥ 500 words (HTML stripped)
   - `feature_image`: hosted `http` URL
+  - `excerpt`: non-empty in frontmatter
+  - `Just For Laughs` section: present in body
+  - **Formatting checks:** no `**Case study:**` labels; no empty `<li>`; no singleton lists (< 3 items); no rogue `<p>` labels (≤ 2 words ending in `:`)
   - If `MISSING:` is returned → stop immediately, return it verbatim — do **not** retry
 - **Step 4:** Return the published URL exactly as returned — no added commentary
 

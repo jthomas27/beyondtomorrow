@@ -30,7 +30,7 @@ _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 def _clean_llm_text(content: str) -> str:
     """Sanitise LLM output before writing to disk.
 
-    LLMs occasionally produce garbled punctuation in two forms:
+    LLMs occasionally produce garbled punctuation in several forms:
 
     1. Garbled hex-encoded characters — '&' emitted as chr(0)+'26' and
        "'" as chr(0)+'27' (the hex ASCII values of each):
@@ -42,6 +42,25 @@ def _clean_llm_text(content: str) -> str:
          word\\x1as     →  word's        (possessive/contraction: it's, here's)
          word\\x1are    →  word're       (contraction: they're)
          word\\x1a word →  word, word    (clause separator → comma)
+
+    3. Newline-split contractions (gpt-4.1-mini 413-fallback artefact):
+         word\\n\\nre   →  word're       (they're, we're, you're)
+         word\\n\\nt    →  word't        (don't, can't, won't)
+         word\\n\\ns    →  word's        (it's, nation's, Europe's)
+         word\\n\\nve   →  word've       (we've, they've)
+         word\\n\\nll   →  word'll       (we'll, they'll)
+         word\\n\\nd    →  word'd        (we'd, they'd)
+         word\\n\\nm    →  word'm        (I'm)
+       These arise when the fallback model emits a bare newline pair instead
+       of an apostrophe before a contraction suffix.
+
+    4. Orphaned fragment lines from broken em dashes (gpt-4.1-mini fallback):
+       The fallback sometimes emits "word A\\n\\nword B" where an em dash was
+       intended between two words/phrases that together form a single clause.
+       We repair the most unambiguous case: a \\n\\n between two small words
+       (≤15 chars each) where the second is a common sentence connector or
+       continuation word (e.g. "the", "a", "they", "this", numeral).
+       These are joined with " — " (em dash).
 
     Also normalises typographic nuisances that break plain-text contexts:
        &nbsp; (\\xa0)   →  regular space
@@ -65,6 +84,30 @@ def _clean_llm_text(content: str) -> str:
 
     # 5. Strip any remaining null bytes
     content = content.replace("\x00", "")
+
+    # 6. Repair newline-split contractions (gpt-4.1-mini 413-fallback artefact).
+    #    Pattern: a word-ending letter immediately followed by \n\n and then a
+    #    contraction suffix.  Replace with the word + apostrophe + suffix.
+    content = re.sub(
+        r"([A-Za-z])\n\n(re|ve|ll|d|m|t|s)\b",
+        lambda m: m.group(1) + "'" + m.group(2),
+        content,
+    )
+
+    # 7. Repair orphaned em-dash fragments: "word\n\nthe/a/they/..." → "word — ..."
+    #    Fires when \n\n separates two tokens where the second is a short common
+    #    connector, continuation word, or numeral — a reliable sign of a broken
+    #    inline clause rather than a deliberate paragraph break.
+    _connector = (
+        r"(?:the|a|an|they|this|these|those|it|its|he|she|we|you|there|"
+        r"enough|when|while|but|and|or|so|yet|not|no|never|always|both|"
+        r"\d[\d,\.]*%?)"
+    )
+    content = re.sub(
+        r"([A-Za-z][A-Za-z,]{0,14})\n\n(" + _connector + r")\b",
+        r"\1 — \2",
+        content,
+    )
 
     return content
 

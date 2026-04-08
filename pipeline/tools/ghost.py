@@ -316,6 +316,43 @@ async def publish_file_to_ghost(
     if "just for laughs" not in body.lower():
         missing.append("'Just For Laughs' section (required at end of every post)")
 
+    # --- Formatting guardrails ---
+
+    # (i) Case study callout label — must be integrated as prose, not a bold label
+    if _re_val.search(r'\*\*[Cc]ase\s+[Ss]tudy:', body):
+        missing.append(
+            "formatting: '**Case study:**' label found — integrate as seamless prose "
+            "(e.g. 'This played out at [Organisation], which in [year]...'). "
+            "Remove the bold callout label."
+        )
+
+    # (ii) Empty list items — artefact of incomplete LLM generation
+    if _re_val.search(r'<li>\s*</li>', html_content):
+        missing.append(
+            "formatting: one or more empty list items found — complete or remove them"
+        )
+
+    # (iii) Singleton lists — a list with exactly one item should be prose
+    for _list_m in _re_val.finditer(r'<(ul|ol)>(.*?)</\1>', html_content, _re_val.DOTALL):
+        if len(_re_val.findall(r'<li', _list_m.group(2))) == 1:
+            _li_text = _re_val.sub(r'<[^>]+>', '', _list_m.group(2)).strip()[:60]
+            missing.append(
+                f"formatting: single-item list found ('{_li_text}') — "
+                "convert to prose or add more items (lists need \u2265 3 items)"
+            )
+            break
+
+    # (iv) Rogue/orphaned paragraphs — <p> with 1–2 words ending in ':' are stray labels
+    for _p_m in _re_val.finditer(r'<p>(.*?)</p>', html_content, _re_val.DOTALL):
+        _p_text = _re_val.sub(r'<[^>]+>', '', _p_m.group(1)).strip()
+        _p_words = _p_text.split()
+        if 0 < len(_p_words) <= 2 and _p_text.endswith(':'):
+            missing.append(
+                f"formatting: rogue paragraph label found ('{_p_text}') — "
+                "remove this orphaned label or complete the thought"
+            )
+            break
+
     if missing:
         items = "; ".join(missing)
         return (

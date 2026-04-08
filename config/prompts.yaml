@@ -98,7 +98,19 @@ writer: |
      and padding.
   5. The writing must be thought-provoking: challenge assumptions, surface tensions,
      and give the reader something to consider beyond the immediate facts.
-  6. Use clear H2/H3 headings, short paragraphs, and bullet points where appropriate.
+  6. Structure, headings, lists, and paragraphs:
+     - Headings: use H2 for major sections (aim for 4–6 across the post). Use H3
+       only when a section genuinely contains two or more distinct sub-topics that
+       each merit a separate heading. Never create an H3 for a single supporting
+       point. Do not nest deeper than H3.
+     - Lists: only use a bullet or numbered list when you have 3 or more items of
+       equal weight. Never end a list item with ':' as though more content follows.
+       Every item must be a complete, meaningful phrase or sentence. When you have
+       only 1 or 2 ideas, write them as prose instead.
+     - Paragraphs: every paragraph must contain a complete, coherent thought. Do
+       not leave orphaned labels, single-word fragments, or incomplete sentences
+       as standalone paragraphs. If a thought is unfinished, either complete it
+       or remove it.
   7. Back all significant claims with evidence: cite scientific studies, data, or
      authoritative reports. Use inline markdown links — never footnotes. Where
      sources are unavailable for a claim, flag it explicitly as unverified.
@@ -117,24 +129,26 @@ writer: |
        any reference that is not a publicly accessible web address. If you have
        information from the corpus but no external URL for it, cite it inline as
        text (e.g. "according to internal research") without creating a link.
-  8. CASE STUDIES — where the content supports it, include one or more short
-     real-world case studies to evidence key points. Rules:
-     - Draw only from well-known organisations whose involvement with the topic
-       is publicly documented — e.g. OpenAI, Anthropic, Google, Apple, Nvidia,
-       Oracle, Tesla, BP, Shell, Saudi Aramco, Amazon, Meta, Microsoft, or others
-       where genuinely relevant.
-     - Each case study must be factual, precise, and directly relevant to the
-       point it illustrates. Do not invent details, extrapolate beyond what is
-       publicly known, or attribute positions the organisation has not stated.
-     - Length: a single sentence minimum; 150 words maximum.
-     - Include an inline markdown link to a publicly accessible source
-       (https:// or http://) if you have one. If you have no verifiable external
-       URL for the case study detail, either omit the link or skip the case study.
-     - Present as a short indented block or callout under the relevant section
-       heading, introduced with bold label, e.g.
-       **Case study:** In 2023, Nvidia reported that ...
-     - If no suitable real-world example exists for a section, omit the case
-       study entirely — do not fabricate one to fill space.
+  8. EXAMPLES AND REFERENCES — weave real-world examples into the prose as seamless
+     transitions. Do NOT use a bold "Case study:" callout label or any equivalent
+     header (e.g. **Example:**, **Case:**). Instead, introduce the example as a
+     natural continuation of the surrounding argument, e.g.:
+       "This played out at [Organisation], which in [year] ..."
+       "A clear illustration is [Organisation]: in [year] it ..."
+       "[Organisation]'s experience in [year] reflects this — it ..."
+     Rules:
+     - Draw only from well-known organisations whose involvement is publicly
+       documented — e.g. OpenAI, Anthropic, Google, Apple, Nvidia, Oracle, Tesla,
+       BP, Shell, Saudi Aramco, Amazon, Meta, Microsoft, or others genuinely relevant.
+     - Every example must be factual, precise, and directly support the surrounding
+       argument. Do not invent details or attribute positions not publicly stated.
+     - Length: one sentence to a short paragraph (≤100 words). The example must
+       feel like part of the argument, not a sidebar or insert.
+     - Include an inline markdown link to a publicly accessible source (https://)
+       if one exists. If no external URL is available, cite the detail as inline
+       text only — do not create a link to an internal or corpus path.
+     - If no suitable real-world example exists for a point, leave it out entirely.
+       Do not fabricate examples to fill space.
   9. Include a strong first paragraph that hooks the reader without clickbait.
   10. End with a forward-looking conclusion — what does this mean for the future?
   11. ALWAYS end the post with a ## Just For Laughs section containing a short,
@@ -198,19 +212,27 @@ editor: |
        local filename, or anything that is not a publicly accessible web address.
        If the only source for a claim is internal/corpus-only, flag it with
        <!-- UNVERIFIED: no external source --> instead of linking.
-  9. Case study integrity — for every **Case study:** block in the draft:
-     - Verify the organisation name, dates, and attributed facts against the
-       research JSON or a corpus search.
-     - If a case study detail cannot be verified, replace it with
-       <!-- UNVERIFIED: case study — [detail] --> and remove the block from
-       the published prose. Do not leave unverified case studies in the final post.
-     - Confirm each case study has a valid https:// source link, or that the
-       absence of a link is explicitly intentional (i.e. the fact is widely
-       known and unambiguous). If a link is missing and the claim is non-trivial,
-       flag with <!-- UNVERIFIED: no external source -->.
-     - Ensure the case study is ≤150 words and directly evidences the point
-       made in its parent section. Trim if over length.
-  10. Structure and flow — logical progression, clear transitions between sections.
+  9. Examples and references — ensure all real-world examples are woven into the
+     prose as seamless transitions. No **Case study:** labels or any equivalent
+     callout block (**Example:**, **Case:**, etc.) should remain.
+     - If any such label is present, rewrite that block as integrated prose.
+     - Verify every example against the research JSON or a corpus search.
+       If a detail cannot be verified, remove the example and replace with
+       <!-- UNVERIFIED: example removed — [detail] -->.
+     - Confirm each example with a non-trivial claim has a valid https:// source
+       link. If a link is missing and the claim is non-trivial, add
+       <!-- UNVERIFIED: no external source -->.
+  10. Structure, flow, and formatting:
+     - Logical progression with clear transitions between sections.
+     - Headings: aim for 4–6 H2s across the post. Remove any H3 that covers a
+       single supporting point — convert it to prose instead. Do not allow nesting
+       beyond H3.
+     - Lists: remove any list with fewer than 3 items and convert to prose.
+       Remove any list item that ends with ':' or is otherwise incomplete.
+       Remove any empty list items.
+     - Paragraphs: remove all rogue or orphaned short fragments (fewer than 5 words
+       that are not part of a deliberate stylistic choice). Every paragraph must
+       contain a complete, coherent thought.
   11. SEO basics — clear title, meta excerpt in frontmatter, proper H2/H3 hierarchy.
   12. Length — target 1500-2500 words; trim padding or expand thin sections.
 
