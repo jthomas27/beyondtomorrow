@@ -465,28 +465,51 @@ async def poll_once() -> None:
         try:
             result = await _run_blog_pipeline(task_str)
             if result.get("status") == "published":
-                # Check whether LinkedIn also succeeded
+                # Determine LinkedIn status
                 run_log_obj = result.get("run_log")
                 summary = run_log_obj.summary() if run_log_obj else {}
                 li_stage = next(
                     (s for s in summary.get("stages", []) if s.get("stage") == "LinkedIn"),
                     None,
                 )
-                li_failed = li_stage and li_stage.get("status") == "error"
-                subject_suffix = " (LinkedIn failed)" if li_failed else ""
-                logger.info("Task complete: %s%s", task_str, " [LinkedIn failed]" if li_failed else "")
-                _log({
-                    "event": "email_task_complete",
-                    "command": command,
-                    "topic": topic,
-                    "url": result.get("published_url", ""),
-                    "linkedin_ok": not li_failed,
-                })
-                send_reply(
-                    reply_to,
-                    f"[BeyondTomorrow] Published: {topic}{subject_suffix}",
-                    _build_success_email(command, topic, result),
-                )
+                li_status = li_stage.get("status") if li_stage else None
+                # "error" means LinkedIn was configured but failed.
+                # "skipped" or None means LinkedIn is not configured — not a failure.
+                li_failed = li_status == "error"
+
+                if li_failed:
+                    # Ghost published but LinkedIn failed — post is NOT yet cross-platform.
+                    # Send a failure notification rather than a success email so the
+                    # operator knows action is required before the post is fully live.
+                    logger.error("Task partially failed: %s — LinkedIn stage errored", task_str)
+                    _log({
+                        "event": "email_task_failed",
+                        "command": command,
+                        "topic": topic,
+                        "failed_stage": "LinkedIn",
+                        "url": result.get("published_url", ""),
+                    })
+                    send_reply(
+                        reply_to,
+                        f"[BeyondTomorrow] Failed: {topic} (LinkedIn failed)",
+                        _build_failure_email(command, topic, result),
+                    )
+                else:
+                    # Ghost succeeded + LinkedIn succeeded or not configured.
+                    # The post is live on all expected platforms.
+                    logger.info("Task complete: %s", task_str)
+                    _log({
+                        "event": "email_task_complete",
+                        "command": command,
+                        "topic": topic,
+                        "url": result.get("published_url", ""),
+                        "linkedin_ok": True,
+                    })
+                    send_reply(
+                        reply_to,
+                        f"[BeyondTomorrow] Published: {topic}",
+                        _build_success_email(command, topic, result),
+                    )
             else:
                 run_log = result.get("run_log")
                 failed_stage = run_log.summary().get("failed_stage") if run_log else "Unknown"

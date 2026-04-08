@@ -821,6 +821,16 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                     f"Unresolved: {publish_output}"
                 )
 
+        # --- Handle Error: responses from publisher tools ---
+        # publish_file_to_ghost, upload_image_to_ghost, and pick_random_asset_image
+        # all return "Error: ..." on failure. Treat these as a publish failure so the
+        # stage is marked stage_error rather than silently logged as stage_ok.
+        if publish_output.strip().startswith("Error:"):
+            raise RuntimeError(
+                f"Publisher tool returned an error — post was NOT published to Ghost.\n"
+                f"Tool output: {publish_output.strip()}"
+            )
+
         logger.info("Published: %s", publish_output)
         run_log.stage_ok("Publish", elapsed_s=round(monotonic() - _t0, 1), url=publish_output)
         logger.info("[4/5] Publish done in %.1fs", monotonic() - _t0)
