@@ -174,9 +174,36 @@ async def _run_agent_with_fallback(
                 tokens_in, tokens_out = _extract_usage(result)
                 return result.final_output, tokens_in, tokens_out
             except asyncio.TimeoutError:
-                logger.error("%s timed out after %ds (attempt %d/%d)",
-                             agent_name, _AGENT_TIMEOUT, attempt + 1, max_attempts)
-                raise
+                logger.warning(
+                    "%s timed out after %ds (attempt %d/%d)",
+                    agent_name, _AGENT_TIMEOUT, attempt + 1, max_attempts,
+                )
+                if attempt + 1 >= max_attempts:
+                    raise
+                # First timeout: retry same model; subsequent: fall back
+                if attempt > 0:
+                    fallback = get_fallback(current_model)
+                    if fallback:
+                        logger.warning(
+                            "%s: repeated timeout on %s — falling back to %s",
+                            agent_name, current_model, fallback,
+                        )
+                        if run_log:
+                            run_log.model_fallback(
+                                stage=agent_name, agent_name=agent_name,
+                                from_model=current_model, to_model=fallback,
+                                attempt=attempt + 1,
+                                reason=f"TimeoutError after {_AGENT_TIMEOUT}s",
+                            )
+                        current_model = fallback
+                        agent.model = current_model
+                        agent.model_settings = model_settings_for(
+                            agent_name.lower(), model_override=current_model
+                        )
+                backoff = min(_RETRY_BACKOFF_BASE * (2 ** attempt), 300)
+                logger.info("%s: retrying in %ds...", agent_name, backoff)
+                await asyncio.sleep(backoff)
+                continue
             except Exception as exc:
                 if _is_rate_limit_error(exc):
                     # --- 413 same-model retry: reduce max_tokens before falling back ---
@@ -1054,6 +1081,9 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             _current_stage, exc, exc_info=True,
         )
     finally:
+        # Let fire-and-forget DB writes (run_failed, stage_error) flush
+        # before closing the connection pool.
+        await asyncio.sleep(0.5)
         await close_pool()
 
     return _pipeline_result
@@ -1184,6 +1214,7 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
             run_log.run_failed(_current_stage, exc, total_elapsed_s=_total)
         logger.error("PUBLISH pipeline failed: %s", exc, exc_info=True)
     finally:
+        await asyncio.sleep(0.5)
         await close_pool()
 
 
