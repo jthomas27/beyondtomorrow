@@ -147,6 +147,183 @@ def _clean_llm_text(content: str) -> str:
     return content
 
 
+# ---------------------------------------------------------------------------
+# Punctuation validation & auto-fix (runs after _clean_llm_text)
+# ---------------------------------------------------------------------------
+
+import logging as _logging
+
+_file_logger = _logging.getLogger("pipeline.tools.files")
+
+
+def _validate_punctuation(content: str) -> str:
+    """Validate and auto-fix common punctuation errors in LLM output.
+
+    Runs after _clean_llm_text(). Fixes what it can and logs warnings for
+    issues that need manual review. Returns cleaned text.
+    """
+    original = content
+
+    # 1. Collapse double spaces (except in code blocks)
+    content = re.sub(r"(?<!\n)  +(?!\n)", " ", content)
+
+    # 2. Remove space before sentence-ending punctuation
+    content = re.sub(r" +([.,:;!?])", r"\1", content)
+
+    # 3. Ensure space after punctuation when followed by a letter
+    #    (skip URLs, decimal numbers, abbreviations like "e.g.", and time like "10:30")
+    content = re.sub(
+        r"(?<![:/\d])([.!?])([A-Z])",
+        r"\1 \2",
+        content,
+    )
+
+    # 4. Fix repeated punctuation (not ellipsis)
+    content = re.sub(r"([,;:!?])\1+", r"\1", content)
+    # Normalise any sequence of 2 or 4+ dots to proper ellipsis (3 dots)
+    content = re.sub(r"(?<!\.)\.{2}(?!\.)", "...", content)
+    content = re.sub(r"\.{4,}", "...", content)
+
+    # 5. Strip orphaned HTML entities that survived _clean_llm_text unescape
+    _orphaned_entities = re.findall(r"&(?:amp|mdash|ndash|nbsp|quot|ldquo|rdquo|lsquo|rsquo|#x[0-9a-fA-F]+);", content)
+    if _orphaned_entities:
+        _file_logger.warning("Orphaned HTML entities found (auto-fixing): %s", _orphaned_entities[:5])
+        content = _html.unescape(content)
+
+    # 6. Detect surviving C1 control characters (U+0080–U+009F)
+    _c1_chars = re.findall(r"[\x80-\x9f]", content)
+    if _c1_chars:
+        _file_logger.warning(
+            "C1 control characters survived cleanup (%d found) — "
+            "replacing with spaces",
+            len(_c1_chars),
+        )
+        content = re.sub(r"[\x80-\x9f]", " ", content)
+
+    # 7. Fix broken markdown link syntax: [text](url without closing paren
+    content = re.sub(
+        r"\[([^\]]+)\]\(([^)\s]+)\s*$",
+        r"[\1](\2)",
+        content,
+        flags=re.MULTILINE,
+    )
+
+    if content != original:
+        _file_logger.info("Punctuation validation applied fixes")
+
+    return content
+
+
+# ---------------------------------------------------------------------------
+# British English spelling enforcement (lightweight word-boundary replacement)
+# ---------------------------------------------------------------------------
+
+# American → British spelling pairs. Only whole-word replacements to avoid
+# mangling URLs, proper nouns, and technical terms.
+_AMERICAN_TO_BRITISH: dict[str, str] = {
+    "analyze": "analyse",
+    "analyzed": "analysed",
+    "analyzing": "analysing",
+    "behavior": "behaviour",
+    "behaviors": "behaviours",
+    "center": "centre",
+    "centers": "centres",
+    "centered": "centred",
+    "color": "colour",
+    "colors": "colours",
+    "colored": "coloured",
+    "defense": "defence",
+    "favor": "favour",
+    "favored": "favoured",
+    "favorable": "favourable",
+    "fiber": "fibre",
+    "fulfill": "fulfil",
+    "gray": "grey",
+    "honor": "honour",
+    "honored": "honoured",
+    "labor": "labour",
+    "license": "licence",
+    "meter": "metre",
+    "meters": "metres",
+    "modeling": "modelling",
+    "neighbor": "neighbour",
+    "neighbors": "neighbours",
+    "neighborhood": "neighbourhood",
+    "offense": "offence",
+    "optimize": "optimise",
+    "optimized": "optimised",
+    "optimizing": "optimising",
+    "organize": "organise",
+    "organized": "organised",
+    "organizing": "organising",
+    "organization": "organisation",
+    "organizations": "organisations",
+    "practice": "practise",  # verb form only — noun is "practice" in both
+    "program": "programme",
+    "programs": "programmes",
+    "realize": "realise",
+    "realized": "realised",
+    "realizing": "realising",
+    "recognize": "recognise",
+    "recognized": "recognised",
+    "recognizing": "recognising",
+    "specialize": "specialise",
+    "specialized": "specialised",
+    "standardize": "standardise",
+    "standardized": "standardised",
+    "summarize": "summarise",
+    "summarized": "summarised",
+    "vapor": "vapour",
+}
+
+# Pre-compile a single regex that matches any American spelling as a whole word.
+# Case-insensitive matching with case-preserving replacement.
+_US_PATTERN = re.compile(
+    r"\b(" + "|".join(re.escape(w) for w in _AMERICAN_TO_BRITISH) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _enforce_british_english(content: str) -> str:
+    """Replace common American spellings with British equivalents.
+
+    Only replaces whole words (word-boundary regex) to avoid false positives
+    in URLs, proper nouns, and technical terms. Preserves original case.
+    Skips content inside markdown links to avoid mangling URLs.
+    """
+    def _replace_match(m: re.Match) -> str:
+        word = m.group(0)
+        lower = word.lower()
+        replacement = _AMERICAN_TO_BRITISH.get(lower, word)
+        # Preserve original case
+        if word[0].isupper():
+            replacement = replacement[0].upper() + replacement[1:]
+        if word.isupper():
+            replacement = replacement.upper()
+        return replacement
+
+    # Split content: skip inside markdown link URLs but still process link text.
+    # Pattern captures [text](url) — we process `text` but leave `url` intact.
+    parts = re.split(r"(\[[^\]]*\]\([^)]*\))", content)
+    result = []
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            # This is a markdown link [text](url) — process text, preserve URL
+            m = re.match(r"\[([^\]]*)\]\(([^)]*)\)", part)
+            if m:
+                link_text = _US_PATTERN.sub(_replace_match, m.group(1))
+                result.append(f"[{link_text}]({m.group(2)})")
+            else:
+                result.append(part)
+        else:
+            result.append(_US_PATTERN.sub(_replace_match, part))
+
+    replaced = "".join(result)
+    if replaced != content:
+        _file_logger.info("British English spelling corrections applied")
+    return replaced
+
+
 def _safe_path_in(base_dir: pathlib.Path, filename: str) -> pathlib.Path:
     """Return a resolved path under base_dir, raising ValueError on traversal."""
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -235,7 +412,25 @@ async def write_research_file(filename: str, content: str) -> str:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     content = _clean_llm_text(content)
+    content = _validate_punctuation(content)
+    content = _enforce_british_english(content)
     path.write_text(content, encoding="utf-8")
+
+    # Log readability metrics for edited posts (the ones heading to Ghost)
+    if "-edited" in filename:
+        try:
+            from pipeline.guardrails import score_readability
+            metrics = score_readability(content)
+            _file_logger.info(
+                "Readability — words: %d, avg sentence: %.1f, Flesch: %.1f (%s)",
+                metrics["word_count"], metrics["avg_sentence_len"],
+                metrics["flesch_score"], metrics["grade_label"],
+            )
+            for w in metrics["warnings"]:
+                _file_logger.warning("Readability: %s", w)
+        except Exception:
+            pass  # non-fatal
+
     return f"Written {len(content):,} characters to research/{filename}"
 
 

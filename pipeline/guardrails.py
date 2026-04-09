@@ -182,3 +182,104 @@ async def log_model_call(
             run_id,
             agent_name,
         )
+
+
+# ---------------------------------------------------------------------------
+# Readability metrics (no external dependencies)
+# ---------------------------------------------------------------------------
+
+import logging as _logging
+import re as _re
+
+_guardrails_logger = _logging.getLogger("pipeline.guardrails")
+
+
+def _count_syllables(word: str) -> int:
+    """Estimate syllable count for an English word (heuristic)."""
+    word = word.lower().strip(".,;:!?\"'""''")
+    if not word:
+        return 0
+    if len(word) <= 3:
+        return 1
+    # Count vowel groups
+    count = len(_re.findall(r"[aeiouy]+", word))
+    # Silent e at end
+    if word.endswith("e") and not word.endswith("le"):
+        count = max(count - 1, 1)
+    return max(count, 1)
+
+
+def score_readability(text: str) -> dict:
+    """Compute readability metrics for a blog post.
+
+    Returns a dict with:
+        word_count       — total words (excluding frontmatter)
+        sentence_count   — number of sentences
+        avg_sentence_len — average words per sentence
+        flesch_score      — Flesch Reading Ease (0–100; higher = easier)
+        grade_label       — human-readable grade label
+        warnings         — list of warning strings for out-of-range values
+
+    Target ranges for BeyondTomorrow.World:
+        Word count:        1200–1800
+        Avg sentence len:  12–22 words
+        Flesch score:      50–70 (accessible but not dumbed-down)
+    """
+    # Strip YAML frontmatter
+    stripped = _re.sub(r"^---\s*\n.*?\n---\s*\n", "", text, count=1, flags=_re.DOTALL)
+    # Strip markdown headings, links, images for cleaner word count
+    stripped = _re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", stripped)
+    stripped = _re.sub(r"^#{1,6}\s+", "", stripped, flags=_re.MULTILINE)
+    # Strip bold/italic markers
+    stripped = _re.sub(r"\*{1,3}|_{1,3}", "", stripped)
+
+    words = stripped.split()
+    word_count = len(words)
+
+    # Split into sentences (approximation)
+    sentences = _re.split(r"[.!?]+(?:\s|$)", stripped)
+    sentences = [s.strip() for s in sentences if s.strip()]
+    sentence_count = max(len(sentences), 1)
+
+    avg_sentence_len = round(word_count / sentence_count, 1)
+
+    # Flesch Reading Ease
+    total_syllables = sum(_count_syllables(w) for w in words)
+    if word_count > 0:
+        flesch = (
+            206.835
+            - 1.015 * (word_count / sentence_count)
+            - 84.6 * (total_syllables / word_count)
+        )
+        flesch = round(flesch, 1)
+    else:
+        flesch = 0.0
+
+    # Grade label
+    if flesch >= 70:
+        grade_label = "Easy (general public)"
+    elif flesch >= 50:
+        grade_label = "Moderate (engaged reader)"
+    elif flesch >= 30:
+        grade_label = "Difficult (specialist)"
+    else:
+        grade_label = "Very difficult (academic)"
+
+    warnings: list[str] = []
+    if word_count < 1200:
+        warnings.append(f"Word count ({word_count}) is below target minimum of 1200")
+    elif word_count > 1800:
+        warnings.append(f"Word count ({word_count}) exceeds target maximum of 1800")
+    if avg_sentence_len > 22:
+        warnings.append(f"Average sentence length ({avg_sentence_len} words) is high — aim for ≤22")
+    if flesch < 50:
+        warnings.append(f"Flesch score ({flesch}) is low — text may be too dense for target audience")
+
+    return {
+        "word_count": word_count,
+        "sentence_count": sentence_count,
+        "avg_sentence_len": avg_sentence_len,
+        "flesch_score": flesch,
+        "grade_label": grade_label,
+        "warnings": warnings,
+    }

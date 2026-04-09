@@ -81,6 +81,20 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return "tokens_limit_reached" in msg or "Request body too large" in msg
 
 
+def _is_413_error(exc: Exception) -> bool:
+    """Return True specifically for HTTP 413 (Payload Too Large) errors.
+
+    Used to trigger a same-model retry with reduced max_tokens before
+    falling back to a cheaper model.
+    """
+    from openai import APIStatusError
+
+    if isinstance(exc, APIStatusError) and exc.status_code == 413:
+        return True
+    msg = str(exc)
+    return "Request body too large" in msg
+
+
 # ---------------------------------------------------------------------------
 # Unified agent runner with retry + model fallback + exponential backoff
 # ---------------------------------------------------------------------------
@@ -165,6 +179,29 @@ async def _run_agent_with_fallback(
                 raise
             except Exception as exc:
                 if _is_rate_limit_error(exc):
+                    # --- 413 same-model retry: reduce max_tokens before falling back ---
+                    # A 413 means the request body (input + max_tokens) exceeded the
+                    # GitHub Models API limit. Retrying on the same model with reduced
+                    # max_tokens preserves output quality; falling back to gpt-4.1-mini
+                    # risks C1 punctuation corruption.
+                    if _is_413_error(exc) and not getattr(agent, "_413_retried", False):
+                        current_mt = getattr(agent.model_settings, "max_tokens", None)
+                        if current_mt and current_mt > 1500:
+                            reduced_mt = max(current_mt - 500, 1500)
+                            logger.warning(
+                                "%s hit 413 on %s — retrying SAME model with "
+                                "max_tokens %d → %d before falling back",
+                                agent_name, current_model, current_mt, reduced_mt,
+                            )
+                            from agents import ModelSettings
+                            agent.model_settings = ModelSettings(
+                                temperature=agent.model_settings.temperature,
+                                max_tokens=reduced_mt,
+                            )
+                            agent._413_retried = True  # noqa: SLF001
+                            await asyncio.sleep(5)
+                            continue  # retry same attempt slot
+
                     fallback = get_fallback(current_model)
                     if fallback:
                         backoff = min(_RETRY_BACKOFF_BASE * (2 ** attempt), 300)
@@ -204,6 +241,9 @@ async def _run_agent_with_fallback(
         # Always restore original model so fallback doesn't leak to next stage
         agent.model = original_model
         agent.model_settings = original_settings
+        # Clean up 413 retry flag
+        if hasattr(agent, "_413_retried"):
+            del agent._413_retried
 
 
 def _compact_research(research_output: str, max_chars: int = 3000) -> str:
@@ -614,6 +654,25 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             logger.info("Research cache found — loading from %s", research_cache_path.name)
             research_output = research_cache_path.read_text(encoding="utf-8")
         else:
+            # --- RPM pacing for gpt-4.1 (10 RPM limit) ---
+            # The Researcher makes multiple rapid tool-call turns that can
+            # exhaust the 10 RPM window. Check RPM usage and add extra
+            # cooldown if we're close to the limit.
+            try:
+                from pipeline.guardrails import get_rpm_usage, RPM_LIMITS
+                _res_model = researcher.model
+                _res_rpm = await get_rpm_usage(pool, _res_model)
+                _res_rpm_limit = RPM_LIMITS.get(_res_model, 10)
+                if _res_rpm >= _res_rpm_limit - 2:  # within 2 of limit
+                    _res_cooldown = 45
+                    logger.info(
+                        "RPM pressure on %s (%d/%d) — cooling %ds before Research",
+                        _res_model, _res_rpm, _res_rpm_limit, _res_cooldown,
+                    )
+                    await asyncio.sleep(_res_cooldown)
+            except Exception:
+                pass  # non-fatal — proactive model selection will handle it
+
             # --- Pre-fetch: generate 2-3 queries and index pages BEFORE the LLM ---
             logger.info("Pre-fetching pages into corpus before Researcher LLM call...")
             try:
@@ -676,7 +735,8 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         # Editor only needs key findings + sources for fact-checking; it reads the draft directly.
         # Keep this small — the draft itself (~2,500 tokens) plus system prompt already uses
         # most of gpt-4.1's 8,000-token request limit, causing 413 fallbacks to gpt-4.1-mini.
-        research_compact_editor = _compact_research(research_output, max_chars=1500)
+        # Reduced from 1500→1200 chars to give ~75 tokens more headroom for longer drafts.
+        research_compact_editor = _compact_research(research_output, max_chars=1200)
 
         if (research_dir / draft_filename).exists():
             logger.info("Draft already exists, skipping writer: %s", draft_filename)

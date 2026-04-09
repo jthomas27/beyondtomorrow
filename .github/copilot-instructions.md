@@ -124,11 +124,12 @@ BLOG: topic
 | `pipeline/main.py` | CLI entry point — all runs start here |
 | `pipeline/definitions.py` | All six agent definitions (Orchestrator, Researcher, Writer, Editor, Publisher, Indexer) |
 | `pipeline/embeddings.py` | Embedding generation and pgvector operations |
+| `pipeline/tools/files.py` | Research file I/O + text sanitisation (`_clean_llm_text`, `_validate_punctuation`, `_enforce_british_english`) |
 | `pipeline/tools/ghost.py` | Ghost Admin API — JWT auth, post creation, image upload |
 | `pipeline/tools/linkedin.py` | LinkedIn REST API — personal profile cross-posting, image upload, dedup guard |
 | `pipeline/tools/search.py` | DuckDuckGo web search + pgvector semantic search |
 | `pipeline/tools/corpus.py` | Knowledge corpus reads/writes (pgvector + Railway Object Storage) |
-| `pipeline/guardrails.py` | Content quality checks before publishing |
+| `pipeline/guardrails.py` | Content quality checks, rate-limit guardrails, readability metrics |
 | `pipeline/degradation.py` | Model fallback chain (retries with backoff) |
 | `config/prompts.yaml` | System prompt overrides for each agent |
 | `config/models.yaml` | Model assignments per agent |
@@ -244,6 +245,10 @@ Uses `gpt-4.1` at `temperature=0.2`, `max_tokens=2000`. Tools: `search_and_index
 
 Uses `gpt-4.1` at `temperature=0.7`, `max_tokens=4000`. Tools: `read_research_file`, `write_research_file`.
 
+**Voice**: engaging college professor — conversational authority, insight over information, show don't lecture, wit welcome but controlled, no jargon without a lifeline. Uses "you" and "we" naturally, varies sentence length, aims for at least one "pause and think" moment per section.
+
+**Audience**: curious generalists — university students, early-career professionals, engaged citizens who want big-picture understanding without academic prose.
+
 **Title rules** (apply before writing anything else):
 - Must be **punchy**: 6–10 words, specific, and immediately clear
 - Must be **factual**: accurately represents content — no exaggeration, no false urgency, no misleading omissions
@@ -254,13 +259,13 @@ Uses `gpt-4.1` at `temperature=0.7`, `max_tokens=4000`. Tools: `read_research_fi
 1. Draft 3 candidate titles following the title rules; select the strongest one; record only the chosen title in frontmatter
 2. Choose the most compelling angle from `suggested_angles`
 3. Identify ONE central key issue; state it in the introduction and develop it progressively through every section; conclusion must resolve or reframe it
-4. Write a well-structured post **900–1500 words** with clear H2/H3 headings, short paragraphs, and bullet points where appropriate
+4. Write a well-structured post **1200–1800 words** with clear H2/H3 headings, short paragraphs (2–4 sentences), and bullet points where appropriate. Make subheadings intriguing, not just labels.
 5. Writing must be **thought-provoking** — challenge assumptions, surface tensions, give the reader something to consider beyond the immediate facts
-6. Use clear and concise grammar throughout — avoid jargon, complex sentences, and padding
+6. Use clear and concise grammar throughout — no filler transitions ("In today's world…"), no throat-clearing
 7. Back all significant claims with inline markdown links to sources; flag unverifiable claims explicitly
-8. Weave real-world examples into the prose as **seamless transitions** — do NOT use a `**Case study:**` label or any equivalent callout. Introduce examples as a natural continuation of the argument, e.g. *"This played out at [Organisation], which in [year]..."*. Draw only from well-known organisations where publicly documented. Every example must be factual, precise, ≤100 words, and feel like part of the argument, not a sidebar. Include an `https://` source link if one exists. Skip entirely if no verifiable real-world example applies.
-9. Strong, non-clickbait opening paragraph that hooks the reader
-10. Forward-looking conclusion — what does this mean for the future?
+8. Weave real-world examples into the prose as **seamless transitions** — do NOT use a `**Case study:**` label or any equivalent callout. Introduce examples as a natural continuation of the argument.
+9. Hook the reader in the first paragraph — striking fact, provocative question, or vivid scene. Earn attention in the first two sentences.
+10. Forward-looking conclusion that leaves something to chew on — a prediction, a tension to watch, or a question. No generic wrap-ups.
 11. **ALWAYS** end the post with a `## Just For Laughs` section containing a short, witty joke directly related to the topic; clever and on-brand, not crass
 
 **Output**: Markdown with YAML frontmatter:
@@ -287,13 +292,13 @@ Uses `gpt-4.1` at `temperature=0.3`, `max_tokens=2500`. Tools: `read_research_fi
 3. **Grammar and clarity** — clear and concise; remove padding, split run-ons, replace vague language with precise wording
 4. **Punctuation audit** — correct comma splices, missing full stops, inconsistent hyphenation, misused apostrophes, improper dashes; **British English** punctuation conventions apply
 5. **Spelling** — British English preferred
-6. **Tone consistency** — authoritative but accessible; no jargon without explanation
+6. **Tone and engagement** — voice should feel like a sharp college professor: conversational, insightful, occasionally witty. Check for use of "you"/"we", surprising insights per section, analogies for abstract ideas, and absence of filler/throat-clearing. No jargon without explanation.
 7. **Key issue coherence** — single central issue introduced early and developed progressively; tighten if the argument drifts
 8. **Evidence and sources** — every significant factual claim or statistic must have an inline source link; flag unsupported claims with `<!-- UNVERIFIED: ... -->`
 9. **Examples** — ensure all real-world examples are woven into the prose as seamless transitions. Remove any `**Case study:**` / `**Example:**` labels and rewrite as integrated prose. Verify each example against the research JSON.
 10. **Structure, headings, and lists** — aim for 4–6 H2s; H3 only for genuine sub-topics with multiple points; remove H3s covering a single point. Convert any list with fewer than 3 items to prose. Remove list items ending in `:` or otherwise incomplete. Remove orphaned paragraph fragments (fewer than 5 words that are not deliberate stylistic choices).
 11. **SEO basics** — clear title, meta excerpt in frontmatter, proper H2/H3 hierarchy
-12. **Length** — target 900–1500 words; trim padding or expand thin sections
+12. **Length** — target 1200–1800 words; trim padding or expand thin sections
 
 **Rules**: Make **targeted edits** — do NOT rewrite from scratch unless the draft is structurally broken. Flag unverifiable claims with `<!-- UNVERIFIED: ... -->` rather than silently fixing them. Save edited version using `write_research_file` with `-edited` appended to the filename.
 

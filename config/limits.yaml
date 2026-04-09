@@ -28,19 +28,19 @@ budget:
 # ---------------------------------------------------------------------------
 
 fetch:
-  # Maximum web pages fetched per query / topic.
+  # ENFORCED — search.py caps DuckDuckGo results per query
   max_pages_per_query: 8
 
-  # Hard ceiling on fetched pages for a single full task (across all queries).
+  # NOT ENFORCED — no cumulative counter across queries in code
   max_pages_per_task: 25
 
-  # Maximum characters kept from a single page (~16k ≈ 4k tokens).
+  # ENFORCED — search.py truncates fetched page text to this limit
   max_content_chars_per_page: 16000
 
-  # HTTP request timeout per fetch_page() call (seconds).
+  # ENFORCED — search.py passes this as httpx timeout
   request_timeout_seconds: 15
 
-  # Concurrent fetch_page() calls allowed at once.
+  # NOT ENFORCED — no concurrency control in search_and_index
   max_concurrent_fetches: 5
 
   # Delay between sequential fetches to the same domain (seconds).
@@ -51,63 +51,62 @@ fetch:
 # ---------------------------------------------------------------------------
 
 search:
-  # Maximum web_search() calls the Researcher may make in one task.
-  max_search_calls_per_task: 2        # production: 10
+  # NOT ENFORCED at runtime — Researcher uses hardcoded defaults in search tool
+  # function signatures. Kept here for documentation only.
+  max_search_calls_per_task: 10
 
   duckduckgo:
-    default_max_results: 3            # production: 10
-    hard_max_results: 5               # production: 20
+    # NOT ENFORCED — search.py uses hardcoded default_max_results in function sig
+    default_max_results: 10
+    hard_max_results: 20
 
   arxiv:
-    default_max_results: 2            # production: 5
-    hard_max_results: 3               # production: 10
+    # NOT ENFORCED — search_arxiv() uses hardcoded default in function sig
+    default_max_results: 5
+    hard_max_results: 10
 
   corpus:
-    default_top_k: 3                  # production: 5
-    hard_max_top_k: 5                 # production: 20
-    # Minimum cosine similarity score (0.0–1.0).
+    # NOT ENFORCED — search_corpus() uses hardcoded top_k=5 in function sig
+    default_top_k: 5
+    # ENFORCED — corpus.py reads this to cap corpus search results
+    hard_max_top_k: 10
+    # ENFORCED — corpus.py filters embeddings by cosine similarity
     min_similarity_threshold: 0.30   # lowered — bge-small produces tighter similarity scores
-    # Max characters returned per chunk in search_corpus output.
-    # Caps token usage: 3 chunks × ~1500 chars ≈ ~1100 tokens, safe within 8k limit.
+    # ENFORCED — corpus.py truncates each chunk in search_corpus output.
+    # Caps token usage: 5 chunks × ~1500 chars ≈ ~1800 tokens, safe within 8k limit.
     max_chars_per_chunk: 1500
 
 # ---------------------------------------------------------------------------
-# Synthesis limits — controls Writer / Editor LLM output length
+# Synthesis limits — NOT ENFORCED at runtime
+# ---------------------------------------------------------------------------
+# These values are loaded by config_loader.py but never read by any agent,
+# tool, or SDK call. The actual max_tokens per agent are set exclusively in
+# config/models.yaml → model_settings_for() in pipeline/definitions.py.
+#
+# Kept here for documentation — they describe the intended output budgets
+# but have no runtime effect. To change agent output limits, edit models.yaml.
 # ---------------------------------------------------------------------------
 
 synthesis:
-  # Maximum tokens the Writer may generate for a draft blog post.
-  max_draft_tokens: 1000              # production: 4000
-
-  # Maximum tokens the Editor may generate for a polished post.
-  max_edit_tokens: 1000               # production: 4000
-
-  # Maximum tokens for the Researcher's structured JSON output.
-  max_research_output_tokens: 2000    # production: 8000
-
-  # Maximum number of key findings the Researcher may include in output JSON.
-  max_key_findings: 3                 # production: 10
-
-  # Maximum number of sources cited per task.
-  max_sources_cited: 5                # production: 20
+  max_draft_tokens: 4000              # NOT ENFORCED — Writer uses models.yaml max_tokens: 4000
+  max_edit_tokens: 2500               # NOT ENFORCED — Editor uses models.yaml max_tokens: 2500
+  max_research_output_tokens: 8000    # NOT ENFORCED — Researcher uses models.yaml max_tokens: 8000
+  max_key_findings: 10                # NOT ENFORCED — Researcher outputs all findings
+  max_sources_cited: 20               # NOT ENFORCED — no guard in Writer/Editor
 
 # ---------------------------------------------------------------------------
-# Task limits — guards against runaway agent loops
+# Task limits — NOT ENFORCED at runtime
+# ---------------------------------------------------------------------------
+# max_turns is hardcoded per-agent in pipeline/main.py:
+#   Researcher: 8, Writer: 6, Editor: 6, Publisher: 6, Orchestrator: 30
+# Other values are loaded but never referenced in code.
 # ---------------------------------------------------------------------------
 
 task:
-  # Maximum tool calls the Researcher may make in one task run.
-  max_tool_calls_per_run: 8           # production: 50
-
-  # Maximum LLM turns (request/response pairs) in one agent run.
-  max_turns: 5                        # production: 30
-
-  # Maximum number of agent handoffs in a single pipeline execution.
-  # e.g. Orchestrator → Researcher → Writer = 2 handoffs.
-  max_handoffs: 2                     # production: 5
-
-  # Seconds before a single agent task is cancelled as timed out.
-  task_timeout_seconds: 60            # production: 600
+  max_tool_calls_per_run: 50          # NOT ENFORCED — SDK handles internally
+  max_turns: 30                       # NOT ENFORCED — hardcoded per-agent in main.py
+  max_handoffs: 5                     # NOT ENFORCED — no guard in code
+  task_timeout_seconds: 600           # NOT ENFORCED — main.py uses _AGENT_TIMEOUT = 300
 
 # ---------------------------------------------------------------------------
 # Chunking limits
