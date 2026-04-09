@@ -473,9 +473,11 @@ async def poll_once() -> None:
                     None,
                 )
                 li_status = li_stage.get("status") if li_stage else None
-                # "error" means LinkedIn was configured but failed.
-                # "skipped" or None means LinkedIn is not configured — not a failure.
+                # "error"   → LinkedIn was configured but failed (action required)
+                # "skipped" → LinkedIn env vars missing on Railway (warning)
+                # None/ok   → success or not configured at startup
                 li_failed = li_status == "error"
+                li_skipped = li_status == "skipped"
 
                 if li_failed:
                     # Ghost published but LinkedIn failed — post is NOT yet cross-platform.
@@ -494,8 +496,34 @@ async def poll_once() -> None:
                         f"[BeyondTomorrow] Failed: {topic} (LinkedIn failed)",
                         _build_failure_email(command, topic, result),
                     )
+                elif li_skipped:
+                    # Ghost published but LinkedIn env vars are missing on Railway.
+                    # Post is live on Ghost but not cross-posted — flag prominently so
+                    # the operator knows to set LINKEDIN_ACCESS_TOKEN + LINKEDIN_PERSON_URN
+                    # as Railway service variables for the agent worker.
+                    logger.warning(
+                        "Task complete but LinkedIn skipped (not configured): %s", task_str
+                    )
+                    _log({
+                        "event": "email_task_complete",
+                        "command": command,
+                        "topic": topic,
+                        "url": result.get("published_url", ""),
+                        "linkedin_ok": False,
+                        "linkedin_skipped": True,
+                    })
+                    send_reply(
+                        reply_to,
+                        f"[BeyondTomorrow] Published: {topic} (LinkedIn skipped — env vars missing)",
+                        _build_success_email(command, topic, result)
+                        + "\n\nNOTE: LinkedIn cross-posting was skipped because "
+                        "LINKEDIN_ACCESS_TOKEN and/or LINKEDIN_PERSON_URN are not set "
+                        "as Railway service variables for the agent worker. "
+                        "Run scripts/linkedin_auth.py locally, then copy the "
+                        "LINKEDIN_* variables to Railway.",
+                    )
                 else:
-                    # Ghost succeeded + LinkedIn succeeded or not configured.
+                    # Ghost succeeded + LinkedIn succeeded.
                     # The post is live on all expected platforms.
                     logger.info("Task complete: %s", task_str)
                     _log({

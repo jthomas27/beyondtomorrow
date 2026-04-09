@@ -538,6 +538,36 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
     logger.info("Starting BLOG pipeline")
     logger.info("Topic: %s", topic)
 
+    # Pre-flight: warn early if LinkedIn is not configured so it's visible
+    # in Railway logs before the pipeline runs (not discovered at the end).
+    _li_token_pf = os.environ.get("LINKEDIN_ACCESS_TOKEN", "").strip()
+    _li_urn_pf = os.environ.get("LINKEDIN_PERSON_URN", "").strip()
+    if not _li_token_pf or not _li_urn_pf:
+        logger.warning(
+            "PRE-FLIGHT: LinkedIn cross-posting will be SKIPPED — "
+            "LINKEDIN_ACCESS_TOKEN and/or LINKEDIN_PERSON_URN are not set. "
+            "Set these as Railway service variables to enable LinkedIn publishing."
+        )
+    else:
+        _li_expires_pf = os.environ.get("LINKEDIN_TOKEN_EXPIRES", "").strip()
+        if _li_expires_pf:
+            try:
+                from datetime import date as _date_pf
+                _days_pf = (_date_pf.fromisoformat(_li_expires_pf) - _date_pf.today()).days
+                if _days_pf <= 0:
+                    logger.warning(
+                        "PRE-FLIGHT: LinkedIn access token EXPIRED on %s — "
+                        "LinkedIn posting will likely fail. Re-run scripts/linkedin_auth.py.",
+                        _li_expires_pf,
+                    )
+                elif _days_pf <= 7:
+                    logger.warning(
+                        "PRE-FLIGHT: LinkedIn token expires in %d day(s) — refresh soon.",
+                        _days_pf,
+                    )
+            except ValueError:
+                pass
+
     _current_stage = "init"
     _pipeline_t0 = monotonic()
     run_log = None
