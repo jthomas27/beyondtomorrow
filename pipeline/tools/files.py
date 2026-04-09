@@ -62,6 +62,19 @@ def _clean_llm_text(content: str) -> str:
        continuation word (e.g. "the", "a", "they", "this", numeral).
        These are joined with " — " (em dash).
 
+    5. Windows-1252 / C1 control-range smart punctuation (gpt-4.1-mini fallback):
+       The fallback model sometimes emits C1 Unicode control characters (U+0080–
+       U+009F) that map to Windows-1252 smart-punctuation glyphs. Ghost renders
+       these as their decimal byte value (e.g. U+0092 → "92", U+0094 → "94")
+       because they are invalid in HTML/XML contexts.
+         \\x91  →  \u2018  (')  left single quotation mark
+         \\x92s →  's          right single quote used as possessive/contraction
+         \\x92  →  —           right single quote used as em-dash separator
+         \\x93  →  \u201c  (") left double quotation mark
+         \\x94  →  —           right double quote used as em-dash separator
+         \\x96  →  –           en-dash
+         \\x97  →  —           em-dash
+
     Also normalises typographic nuisances that break plain-text contexts:
        &nbsp; (\\xa0)   →  regular space
     """
@@ -108,6 +121,28 @@ def _clean_llm_text(content: str) -> str:
         r"\1 — \2",
         content,
     )
+
+    # 8. Windows-1252 C1 control characters (U+0080–U+009F) — emitted by
+    #    gpt-4.1-mini fallback. Ghost renders them as their decimal byte value
+    #    (e.g. U+0092 → "92"). Fix before they reach the markdown converter.
+
+    # \x91 / \x92 — single quotes:
+    # When \x92 precedes 's' at a word boundary, it's an apostrophe.
+    content = re.sub(r"([A-Za-z])\x92(s\b)", r"\1'\2", content)      # word's
+    content = re.sub(r"([A-Za-z])\x92(t\b)", r"\1'\2", content)      # don't, can't
+    content = re.sub(r"([A-Za-z])\x92(re|ve|ll|d|m)\b", r"\1'\2", content)  # contractions
+    # Remaining \x92 between letters = em-dash (inline clause separator, no spaces)
+    content = content.replace("\x91", "\u2018")   # ' left single quote
+    content = content.replace("\x92", "\u2019")   # ' right single quote (any remaining)
+
+    # \x93 / \x94 — double quotes:
+    # \x94 between letters acts as em-dash (gpt-4.1-mini uses it as mdash substitute)
+    content = content.replace("\x93", "\u201c")   # " left double quote
+    content = content.replace("\x94", "\u201d")   # " right double quote
+
+    # \x96 / \x97 — dashes
+    content = content.replace("\x96", "\u2013")   # – en-dash
+    content = content.replace("\x97", "\u2014")   # — em-dash
 
     return content
 

@@ -277,7 +277,9 @@ Save using `write_research_file` with filename `YYYY-MM-DD-slug.md`.
 
 Uses `gpt-4.1` at `temperature=0.3`, `max_tokens=2500`. Tools: `read_research_file`, `write_research_file`, `search_corpus`, `score_credibility`.
 
-> **Why 2500?** The Editor's total request body = input tokens (~5,000: system prompt + edit prompt + research compact + draft file via tool) + `max_tokens`. Setting `max_tokens=2500` keeps the total under the 8,000-token hard limit, preventing 413 fallback to `gpt-4.1-mini` which produces apostrophe/em-dash corruption in the output.
+> **Why 2500?** The Editor's total request body = input tokens (~5,000: system prompt + edit prompt + research compact + draft file via tool) + `max_tokens`. Setting `max_tokens=2500` keeps the total under the 8,000-token hard limit, preventing 413 fallback to `gpt-4.1-mini`.
+>
+> **gpt-4.1-mini C1 punctuation corruption**: when `gpt-4.1-mini` is used as an editor (via 413 fallback), it emits Windows-1252 smart-punctuation codepoints in the Unicode C1 control range (U+0091–U+0097) instead of proper typographic chars. Ghost strips these control characters during HTML rendering, leaving their two-hex-digit code as literal text (e.g. `it's` → `it92s`, `chips—have` → `chips92have`, `restricted—by` → `restricted94by`). `pipeline/tools/files.py` → `_clean_llm_text` contains step 8 which maps the full C1 range to proper Unicode before any content reaches Ghost.
 
 **Review checklist**:
 1. **Title quality** — must be punchy (6–10 words), factual, attention-grabbing without being misleading; rewrite before anything else if it fails this standard
@@ -353,6 +355,7 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 > **Plan: Copilot Pro+** — unlimited premium requests; no daily caps.  
 > **GitHub Models API does NOT have Claude/Anthropic models.** Use `openai/gpt-4.1`, `openai/gpt-4.1-mini`, or other supported OpenAI models.  
 > **Fallback chain**: `gpt-4.1` → `gpt-4.1-mini` → `gpt-4.1-nano`
+> **C1 corruption risk**: `gpt-4.1-mini` emits Windows-1252 C1 control characters (U+0091–U+0097) for smart quotes and dashes. These are sanitised by `_clean_llm_text` in `pipeline/tools/files.py` (step 8). The real guard is keeping the Editor's max_tokens at 2,500 so the primary `gpt-4.1` model is never swapped out.
 
 ---
 
