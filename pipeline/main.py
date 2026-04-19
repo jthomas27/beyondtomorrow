@@ -776,7 +776,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                 f"to save the post before you finish — do not stop without saving.\n\n"
                 f"Research findings:\n{research_compact_writer}"
             )
-            _, w_tin, w_tout = await _run_agent_with_fallback(
+            w_first_output, w_tin, w_tout = await _run_agent_with_fallback(
                 writer, write_input,
                 agent_name="Writer", pool=pool, max_turns=6, run_log=run_log,
             )
@@ -789,11 +789,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             if not new_drafts:
                 logger.warning("Writer did not save a file — retrying with explicit instruction...")
                 retry_input = (
-                    f"Write a blog post about: {topic}\n"
-                    f"Save the post by calling write_research_file with filename '{draft_filename}'.\n\n"
+                    f"You are saving a blog post draft. Call write_research_file NOW.\n\n"
+                    f"filename: '{draft_filename}'\n\n"
+                    f"Write the post about: {topic}\n\n"
+                    f"You MUST call write_research_file with the above filename as your FIRST and ONLY action. "
+                    f"Do not output any text before the tool call. Do not explain. Just call the tool.\n\n"
                     f"Research findings:\n{research_compact_writer}"
                 )
-                _, wr_tin, wr_tout = await _run_agent_with_fallback(
+                w_retry_output, wr_tin, wr_tout = await _run_agent_with_fallback(
                     writer, retry_input,
                     agent_name="Writer", pool=pool, max_turns=6, run_log=run_log,
                 )
@@ -802,6 +805,27 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                     f for f in research_dir.glob("*.md")
                     if f not in existing_drafts and "-edited" not in f.name
                 ]
+
+                # If still no file saved but the output looks like a complete blog post
+                # (has YAML frontmatter), persist it directly rather than failing.
+                # Check retry output first, then fall back to the first attempt's output.
+                _candidate_output = None
+                if w_retry_output and w_retry_output.strip().startswith("---"):
+                    _candidate_output = w_retry_output
+                elif w_first_output and w_first_output.strip().startswith("---"):
+                    _candidate_output = w_first_output
+                if not new_drafts and _candidate_output:
+                    logger.warning(
+                        "Writer returned post as text output after two attempts — "
+                        "saving final_output as '%s' directly.",
+                        draft_filename,
+                    )
+                    from pipeline.tools.files import _clean_llm_text, _validate_punctuation, _enforce_british_english
+                    _saved_content = _enforce_british_english(
+                        _validate_punctuation(_clean_llm_text(_candidate_output))
+                    )
+                    (research_dir / draft_filename).write_text(_saved_content, encoding="utf-8")
+                    new_drafts = [research_dir / draft_filename]
 
             if new_drafts:
                 draft_filename = max(new_drafts, key=lambda f: f.stat().st_mtime).name
