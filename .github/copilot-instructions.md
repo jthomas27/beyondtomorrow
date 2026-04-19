@@ -360,6 +360,7 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 > **Plan: Copilot Pro+** — unlimited premium requests; no daily caps.  
 > **GitHub Models API does NOT have Claude/Anthropic models.** Use `openai/gpt-4.1`, `openai/gpt-4.1-mini`, or other supported OpenAI models.  
 > **Fallback chain**: `gpt-4.1` → `gpt-4.1-mini` → `gpt-4.1-nano`
+> **RPM-wait-before-fallback**: when `gpt-4.1` is temporarily rate-limited (RPM exceeded but daily budget fine), `_run_agent_with_fallback` calls `get_rpm_clear_wait()` in `guardrails.py`. If the 60s window clears within 90s, the pipeline **waits** and keeps `gpt-4.1` rather than downgrading to `gpt-4.1-mini`. This prevents quality degradation when two pipeline runs are launched close together.
 > **C1 corruption risk**: `gpt-4.1-mini` emits Windows-1252 C1 control characters (U+0091–U+0097) for smart quotes and dashes. These are sanitised by `_clean_llm_text` in `pipeline/tools/files.py` (step 8). The real guard is keeping the Editor's max_tokens at 2,500 so the primary `gpt-4.1` model is never swapped out.
 
 ---
@@ -370,6 +371,7 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 - **Chunk size**: ~350 words per chunk (fits within model's 512-token limit)
 - **`search_corpus` output cap**: each returned chunk is truncated to **1,500 chars** (~375 tokens) to prevent 413s. Configurable via `config/limits.yaml` → `search.corpus.max_chars_per_chunk`
 - **Search fallback**: pgvector fails → keyword search; web search returns nothing → corpus only
+- **Research source sanitisation**: after the Researcher LLM call, `_sanitise_research_sources()` validates all source URLs via concurrent HEAD requests (5s timeout). Dead links (4xx/5xx or connection errors) are stripped from `source_list` and `key_findings[].sources` before the JSON is cached or indexed — preventing hallucinated URLs from propagating into the corpus and being re-cited on future runs.
 - **Corpus storage layout** (Railway Object Storage):
   ```
   knowledge-corpus/
@@ -387,7 +389,7 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 
 | Scenario | Action |
 |---|---|
-| GitHub Models API fails | Retry up to 6× with exponential backoff (20s base, doubling to 300s cap); degrade to cheaper model via fallback chain |
+| GitHub Models API fails | Before falling back, `get_rpm_clear_wait()` checks if the 60s RPM window will clear within 90s — if so, waits and retries the preferred model. If not (or daily budget exhausted), retries up to 6× with exponential backoff (20s base, doubling to 300s cap) using the next model in the fallback chain |
 | Ghost API fails | Retry 3×, then save draft locally and alert Slack |
 | Research finds nothing | Fall back to knowledge corpus only |
 | PDF extraction fails | Log error, skip file, continue |

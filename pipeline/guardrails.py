@@ -160,6 +160,49 @@ async def check_model_budget(pool, model: str) -> dict:
     }
 
 
+async def get_rpm_clear_wait(pool, model: str, max_wait: int = 90) -> int:
+    """Return the seconds to wait until the RPM window has capacity again.
+
+    Queries the oldest call in the last 60 seconds for *model* and returns
+    how many seconds remain until it falls off the rolling window.
+
+    Returns:
+        0 — RPM window already has capacity (no wait needed).
+        1–max_wait — seconds to wait before retrying the preferred model.
+        max_wait — window won't clear within *max_wait* seconds; caller
+                   should fall back to the next model rather than waiting.
+    """
+    limit = RPM_LIMITS.get(model, 0)
+    if limit == 0:
+        return 0  # no RPM tracking for this model
+
+    used = await get_rpm_usage(pool, model)
+    if used < limit:
+        return 0  # already under limit — no wait needed
+
+    # Find the oldest call within the 60s window so we know when a slot opens
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=60)
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT MIN(created_at) AS oldest FROM rate_limit_log "
+                "WHERE model = $1 AND created_at >= $2",
+                model, cutoff,
+            )
+        if row and row["oldest"]:
+            oldest = row["oldest"]
+            # Make timezone-aware if needed
+            if oldest.tzinfo is None:
+                oldest = oldest.replace(tzinfo=timezone.utc)
+            slot_opens_in = 60.0 - (datetime.now(timezone.utc) - oldest).total_seconds()
+            wait = max(1, int(slot_opens_in) + 2)  # +2s buffer
+            return min(wait, max_wait)
+    except Exception:
+        pass
+
+    return max_wait  # safe default — let caller decide whether to wait or fall back
+
+
 async def log_model_call(
     pool,
     model: str,

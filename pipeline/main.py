@@ -143,8 +143,29 @@ async def _run_agent_with_fallback(
     current_model = agent.model
 
     # --- Fix #1: Proactive model selection via budget/RPM checks ---
+    # Before immediately switching to a cheaper model, check whether the
+    # RPM window for the preferred model will clear within 90s.  If so,
+    # wait and keep the preferred model rather than falling back.
+    from pipeline.guardrails import check_model_budget, get_rpm_clear_wait
     try:
         selected = await select_model(current_model, pool=pool)
+        if selected != current_model:
+            # Only switched because of RPM pressure — check if we should just wait
+            try:
+                budget = await check_model_budget(pool, current_model)
+                if budget.get("rpm_exceeded") and not (budget.get("pct", 0) >= 95):
+                    # RPM-only block; daily budget is fine — wait for window
+                    wait_s = await get_rpm_clear_wait(pool, current_model, max_wait=90)
+                    if wait_s < 90:
+                        logger.info(
+                            "%s: RPM window for %s clears in %ds — waiting to avoid fallback",
+                            agent_name, current_model, wait_s,
+                        )
+                        await asyncio.sleep(wait_s)
+                        selected = current_model  # keep preferred model
+            except Exception:
+                pass  # if the check fails, use whatever select_model chose
+
         if selected != current_model:
             logger.info(
                 "%s: proactive switch %s → %s (budget/RPM pressure)",
@@ -228,6 +249,25 @@ async def _run_agent_with_fallback(
                             agent._413_retried = True  # noqa: SLF001
                             await asyncio.sleep(5)
                             continue  # retry same attempt slot
+
+                    # Before permanently downgrading, check if we just need
+                    # to wait for the rolling 60s RPM window to clear.  A
+                    # < 90s wait is cheaper than falling back to mini for the
+                    # entire remaining pipeline.
+                    if not _is_413_error(exc):
+                        try:
+                            wait_s = await get_rpm_clear_wait(pool, current_model, max_wait=90)
+                            if wait_s < 90:
+                                logger.info(
+                                    "%s: RPM window for %s clears in %ds — "
+                                    "waiting to avoid fallback (attempt %d/%d)",
+                                    agent_name, current_model, wait_s,
+                                    attempt + 1, max_attempts,
+                                )
+                                await asyncio.sleep(wait_s)
+                                continue  # retry same model
+                        except Exception:
+                            pass  # check failed — fall through to normal backoff
 
                     fallback = get_fallback(current_model)
                     if fallback:
@@ -334,6 +374,90 @@ def _compact_research(research_output: str, max_chars: int = 3000) -> str:
         truncated = compact[:max_chars].rsplit("\n", 1)[0]
         compact = truncated + "\n[... truncated — use search_corpus for additional sources]"
     return compact
+
+
+async def _sanitise_research_sources(research_json: str) -> str:
+    """Strip dead/fabricated URLs from a research JSON string before indexing.
+
+    LLMs sometimes hallucinate plausible-looking source URLs.  These get
+    indexed into the corpus and re-cited by the Researcher on subsequent
+    runs.  This function:
+
+    1. Parses the research JSON.
+    2. Collects every URL from ``source_list`` and ``key_findings[].sources``.
+    3. Concurrently validates each URL with a HEAD request (5 s timeout).
+    4. Removes any URL that returns 4xx/5xx, fails to connect, or is not
+       an http/https URL.
+    5. Returns the cleaned JSON string (or the original if parsing fails).
+
+    Non-fatal — any exception returns the original string unchanged.
+    """
+    import json as _json
+    import asyncio as _asyncio
+
+    def _is_http(url: str) -> bool:
+        return isinstance(url, str) and url.startswith(("http://", "https://"))
+
+    try:
+        data = _json.loads(research_json)
+    except Exception:
+        return research_json  # not JSON — leave unchanged
+
+    # Collect all unique URLs that need checking
+    all_urls: set[str] = set()
+    for src in data.get("source_list", []):
+        if _is_http(src.get("url", "")):
+            all_urls.add(src["url"])
+    for finding in data.get("key_findings", []):
+        for url in finding.get("sources", []):
+            if _is_http(url):
+                all_urls.add(url)
+
+    if not all_urls:
+        return research_json
+
+    # Validate URLs concurrently
+    async def _check(url: str) -> tuple[str, bool]:
+        try:
+            import httpx as _httpx
+            async with _httpx.AsyncClient(
+                timeout=5.0,
+                follow_redirects=True,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; BeyondTomorrow/1.0)"},
+            ) as client:
+                try:
+                    resp = await client.head(url)
+                except Exception:
+                    resp = await client.get(url)  # some servers reject HEAD
+                return url, resp.status_code < 400
+        except Exception:
+            return url, False
+
+    results = await _asyncio.gather(*[_check(u) for u in all_urls], return_exceptions=False)
+    dead = {url for url, ok in results if not ok}
+
+    if not dead:
+        return research_json  # all URLs live — no changes needed
+
+    logger.info(
+        "Stripping %d dead source URL(s) from research JSON: %s",
+        len(dead), list(dead),
+    )
+
+    # Remove dead URLs from source_list
+    data["source_list"] = [
+        s for s in data.get("source_list", [])
+        if s.get("url", "") not in dead
+    ]
+    data["total_sources"] = len(data.get("source_list", []))
+
+    # Remove dead URLs from key_findings[].sources
+    for finding in data.get("key_findings", []):
+        finding["sources"] = [
+            u for u in finding.get("sources", []) if u not in dead
+        ]
+
+    return _json.dumps(data, ensure_ascii=False, indent=2)
 
 
 def _load_dotenv() -> None:
@@ -725,6 +849,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             )
             await log_model_call(pool, researcher.model, tokens_in=r_tin, tokens_out=r_tout, phase="research")
             logger.info("Research complete (tokens: in=%d out=%d).", r_tin, r_tout)
+
+            # Strip hallucinated/dead source URLs before caching or indexing —
+            # fabricated URLs would otherwise be stored in the corpus and
+            # re-cited by the Researcher on the next pipeline run.
+            try:
+                research_output = await _sanitise_research_sources(research_output)
+            except Exception as _san_err:
+                logger.warning("Source sanitisation failed (non-fatal): %s", _san_err)
 
             # Cache research JSON locally to avoid re-running on retry
             try:
