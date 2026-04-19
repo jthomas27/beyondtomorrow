@@ -32,7 +32,13 @@ search_engines:
       - cs.CY        # Computers and Society
       - q-bio        # Quantitative Biology
       - econ         # Economics
+      - econ.GN      # General Economics
       - physics.ao-ph  # Atmospheric & Oceanic Physics (climate)
+      - q-fin.EC     # Economics (financial economics)
+      - q-fin.GN     # General Finance
+      - q-fin.PM     # Portfolio Management
+      - q-fin.RM     # Risk Management
+      - q-fin.ST     # Statistical Finance
 
   pubmed:
     enabled: false
@@ -331,6 +337,58 @@ approved_domains:
     category: policy
     credibility: 5
     notes: "Organisation for Economic Co-operation and Development — authoritative economic, social and environmental data and policy analysis"
+
+  # --- Investment risk / financial stability --------------------------------
+
+  - domain: bis.org
+    category: investment
+    credibility: 5
+    notes: "Bank for International Settlements — global financial stability research, Basel standards, and central bank working papers"
+
+  - domain: fsb.org
+    category: investment
+    credibility: 5
+    notes: "Financial Stability Board — G20 body coordinating global financial regulation and systemic risk monitoring"
+
+  - domain: esrb.europa.eu
+    category: investment
+    credibility: 5
+    notes: "European Systemic Risk Board — EU macroprudential oversight, systemic and climate financial risk reports"
+
+  - domain: iosco.org
+    category: investment
+    credibility: 5
+    notes: "IOSCO — international securities regulator body; standards on sustainable finance and investor protection"
+
+  - domain: msci.com
+    category: investment
+    credibility: 4
+    notes: "MSCI — equity and fixed income indices, ESG ratings, climate risk analytics; use research/insights section (not marketing)"
+
+  - domain: cfainstitute.org
+    category: investment
+    credibility: 5
+    notes: "CFA Institute — investment professional standards; research on capital markets, ESG integration, and valuation"
+
+  - domain: risk.net
+    category: investment
+    credibility: 4
+    notes: "Risk.net — specialist financial risk journalism covering market, credit, liquidity and operational risk"
+
+  - domain: moodysanalytics.com
+    category: investment
+    credibility: 4
+    notes: "Moody's Analytics — credit risk research, economic analysis, and financial risk modelling"
+
+  - domain: spglobal.com
+    category: investment
+    credibility: 4
+    notes: "S&P Global — credit ratings research, sustainability insights, and commodity/energy market intelligence"
+
+  - domain: visualcapitalist.com
+    category: investment
+    credibility: 3
+    notes: "Visual Capitalist — data visualisations on markets, economics, and energy; verify underlying sources"
 
   # --- News -----------------------------------------------------------------
 

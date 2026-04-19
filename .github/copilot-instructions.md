@@ -1,6 +1,6 @@
 # BeyondTomorrow.World — GitHub Copilot Instructions
 
-This workspace runs an automated research-and-publish pipeline for **BeyondTomorrow.World**, a blog covering climate, technology, geopolitics, and futures. The pipeline uses the OpenAI Agents SDK with GitHub Models API, pgvector for RAG retrieval, and Ghost CMS for publishing.
+This workspace runs an automated research-and-publish pipeline for **BeyondTomorrow.World**, a blog covering climate, technology, geopolitics, investment risk, and futures. The pipeline uses the OpenAI Agents SDK with GitHub Models API, pgvector for RAG retrieval, and Ghost CMS for publishing.
 
 ---
 
