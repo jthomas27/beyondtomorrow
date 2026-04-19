@@ -10,11 +10,13 @@ Tools:
     write_research_file(filename, content) — Write a file to research/
 """
 
+import asyncio
 import os
 import pathlib
 import random
 import re
 import html as _html
+import httpx
 from pipeline._sdk import function_tool
 
 # Resolve research/ and reports/ directories relative to this file's location
@@ -25,6 +27,76 @@ _REPORTS_DIR  = pathlib.Path(__file__).parents[2] / "reports"
 _ASSETS_IMAGES_DIR = pathlib.Path(__file__).parents[2] / "assets" / "images"
 
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+
+_LINK_CHECK_TIMEOUT = 8  # seconds per URL
+_LINK_CHECK_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (compatible; BeyondTomorrow-LinkChecker/1.0; "
+        "+https://beyondtomorrow.world)"
+    )
+}
+
+# Regex capturing all markdown links: [text](url)
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
+
+async def _check_url(client: httpx.AsyncClient, url: str) -> bool:
+    """Return True if *url* is a publicly reachable https/http URL (2xx/3xx).
+
+    Rules:
+    - Must begin with http:// or https:// — bare paths, corpus refs, and
+      internal identifiers are immediately rejected.
+    - HEAD request first; falls back to GET if HEAD returns 405.
+    - Treats 2xx and 3xx (after redirect follow) as valid.
+    - Any connection error, timeout, or 4xx/5xx → invalid.
+    """
+    if not url.startswith(("http://", "https://")):
+        return False
+    try:
+        resp = await client.head(url, follow_redirects=True, timeout=_LINK_CHECK_TIMEOUT)
+        if resp.status_code == 405:
+            resp = await client.get(url, follow_redirects=True, timeout=_LINK_CHECK_TIMEOUT)
+        return resp.status_code < 400
+    except Exception:
+        return False
+
+
+async def _validate_and_strip_links(content: str) -> str:
+    """Check every markdown link in *content* and remove any that are invalid.
+
+    A link is removed if:
+    - The URL does not start with http:// or https://
+    - The URL returns a 4xx/5xx status or is unreachable
+    - The URL is an internal path, corpus reference, or local filename
+
+    Removed links are converted to plain text (link label kept, URL dropped)
+    and logged as warnings. Valid links are left untouched.
+    """
+    import logging as _log
+    _ll = _log.getLogger("pipeline.tools.files")
+
+    urls = list(dict.fromkeys(m.group(2) for m in _MD_LINK_RE.finditer(content)))
+    if not urls:
+        return content
+
+    # Check all unique URLs concurrently
+    async with httpx.AsyncClient(headers=_LINK_CHECK_HEADERS) as client:
+        results = await asyncio.gather(*(_check_url(client, u) for u in urls))
+
+    validity = dict(zip(urls, results))
+
+    invalid = [u for u, ok in validity.items() if not ok]
+    if invalid:
+        _ll.warning("Link validation: removing %d invalid link(s): %s", len(invalid), invalid)
+
+    def _replace(m: re.Match) -> str:
+        text, url = m.group(1), m.group(2)
+        if not validity.get(url, True):
+            return text  # strip URL, keep label as plain text
+        return m.group(0)  # leave valid links untouched
+
+    return _MD_LINK_RE.sub(_replace, content)
 
 
 def _clean_llm_text(content: str) -> str:
@@ -414,6 +486,11 @@ async def write_research_file(filename: str, content: str) -> str:
     content = _clean_llm_text(content)
     content = _validate_punctuation(content)
     content = _enforce_british_english(content)
+
+    # Validate all markdown links in edited posts before saving
+    if "-edited" in filename:
+        content = await _validate_and_strip_links(content)
+
     path.write_text(content, encoding="utf-8")
 
     # Log readability metrics for edited posts (the ones heading to Ghost)
