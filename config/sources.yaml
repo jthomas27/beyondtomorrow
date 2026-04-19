@@ -338,55 +338,80 @@ approved_domains:
     credibility: 5
     notes: "Organisation for Economic Co-operation and Development — authoritative economic, social and environmental data and policy analysis"
 
-  # --- Investment risk / financial stability --------------------------------
+  # --- Economics / investment risk ------------------------------------------
+
+  - domain: research.google
+    category: economics
+    credibility: 4
+    notes: "Google Research — economics and electronic commerce research; use /research-areas/economics-and-electronic-commerce/ section"
 
   - domain: bis.org
-    category: investment
+    category: economics
     credibility: 5
     notes: "Bank for International Settlements — global financial stability research, Basel standards, and central bank working papers"
 
   - domain: fsb.org
-    category: investment
+    category: economics
     credibility: 5
     notes: "Financial Stability Board — G20 body coordinating global financial regulation and systemic risk monitoring"
 
   - domain: esrb.europa.eu
-    category: investment
+    category: economics
     credibility: 5
     notes: "European Systemic Risk Board — EU macroprudential oversight, systemic and climate financial risk reports"
 
   - domain: iosco.org
-    category: investment
+    category: economics
     credibility: 5
     notes: "IOSCO — international securities regulator body; standards on sustainable finance and investor protection"
 
   - domain: msci.com
-    category: investment
+    category: economics
     credibility: 4
     notes: "MSCI — equity and fixed income indices, ESG ratings, climate risk analytics; use research/insights section (not marketing)"
 
+  - domain: blackrock.com
+    category: economics
+    credibility: 4
+    notes: "BlackRock — investment outlooks, portfolio strategy research, and BII (BlackRock Investment Institute) reports; use corporate/insights section (not product marketing)"
+
+  - domain: wellington.com
+    category: economics
+    credibility: 4
+    notes: "Wellington Management — long-term investment research and market insights across equities, fixed income, and multi-asset; use insights/research section"
+
+  - domain: invesco.com
+    category: economics
+    credibility: 4
+    notes: "Invesco — global investment management; market outlooks, ETF research, and factor investing insights; use insights/research section (not product pages)"
+
+  - domain: fidelity.com
+    category: economics
+    credibility: 4
+    notes: "Fidelity Investments — market outlooks, sector analysis, and investment research; use viewpoints/research section (not product or account pages)"
+
   - domain: cfainstitute.org
-    category: investment
+    category: economics
     credibility: 5
     notes: "CFA Institute — investment professional standards; research on capital markets, ESG integration, and valuation"
 
   - domain: risk.net
-    category: investment
+    category: economics
     credibility: 4
     notes: "Risk.net — specialist financial risk journalism covering market, credit, liquidity and operational risk"
 
   - domain: moodysanalytics.com
-    category: investment
+    category: economics
     credibility: 4
     notes: "Moody's Analytics — credit risk research, economic analysis, and financial risk modelling"
 
   - domain: spglobal.com
-    category: investment
+    category: economics
     credibility: 4
     notes: "S&P Global — credit ratings research, sustainability insights, and commodity/energy market intelligence"
 
   - domain: visualcapitalist.com
-    category: investment
+    category: economics
     credibility: 3
     notes: "Visual Capitalist — data visualisations on markets, economics, and energy; verify underlying sources"
 
