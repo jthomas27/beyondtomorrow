@@ -806,6 +806,18 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             if new_drafts:
                 draft_filename = max(new_drafts, key=lambda f: f.stat().st_mtime).name
 
+        # Verify the file actually exists before continuing — if the Writer
+        # never called write_research_file (or it failed silently), fail here
+        # at the Write stage rather than propagating a missing-file error to
+        # the Editor or Publisher two stages later.
+        if not (research_dir / draft_filename).exists():
+            _write_err = RuntimeError(
+                f"Writer did not save '{draft_filename}' after both attempts. "
+                "Cannot proceed without a draft file."
+            )
+            run_log.stage_error("Write", _write_err)
+            raise _write_err
+
         logger.info("Draft saved: %s", draft_filename)
         run_log.stage_ok("Write", elapsed_s=round(monotonic() - _t0, 1), draft=draft_filename)
         logger.info("[2/5] Write done in %.1fs", monotonic() - _t0)
