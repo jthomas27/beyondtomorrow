@@ -1207,9 +1207,16 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             _nl_fm = {}
             try:
                 import re as _re_nl
+                import yaml as _yaml_nl
                 _raw_nl = (research_dir / edited_filename).read_text(encoding="utf-8")
-                for _k, _v in _re_nl.findall(r"^(\w+):\s*(.+)$", _raw_nl[:600], _re_nl.MULTILINE):
-                    _nl_fm[_k.lower()] = _v.strip()
+                _fm_match = _re_nl.match(r"^---\s*\n(.*?)\n---", _raw_nl, _re_nl.DOTALL)
+                if _fm_match:
+                    _parsed = _yaml_nl.safe_load(_fm_match.group(1)) or {}
+                    _nl_fm = {str(k).lower(): str(v).strip() if v is not None else "" for k, v in _parsed.items()}
+                else:
+                    # Fallback: regex scan (no char limit)
+                    for _k, _v in _re_nl.findall(r"^(\w+):\s*(.+)$", _raw_nl, _re_nl.MULTILINE):
+                        _nl_fm[_k.lower()] = _v.strip()
             except Exception:
                 pass
             _nl_title = _nl_fm.get("title", "")
