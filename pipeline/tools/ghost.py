@@ -140,6 +140,8 @@ async def publish_to_ghost(
         "custom_excerpt": excerpt,
         "status": status,
     }
+    if status == "published":
+        post_payload["email_recipient_filter"] = "free"
     if feature_image:
         post_payload["feature_image"] = feature_image
 
@@ -392,6 +394,8 @@ async def publish_file_to_ghost(
         "custom_excerpt": excerpt,
         "status": status,
     }
+    if status == "published":
+        post_payload["email_recipient_filter"] = "free"
     if feature_image_url:
         post_payload["feature_image"] = feature_image_url
 
