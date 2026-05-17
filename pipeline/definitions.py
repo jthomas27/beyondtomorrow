@@ -137,7 +137,7 @@ TITLE RULES — apply these before writing anything else:
 
 1. Write the title following the TITLE RULES above as your very first action.
 2. Choose the most compelling angle from suggested_angles.
-3. Write an engaging, well-structured post body (900–1500 words).
+3. Write an engaging, well-structured post body (1150–1550 words).
 4. Use clear headings (H2/H3), short paragraphs, and bullet points where appropriate.
 5. Cite sources naturally in the text with inline markdown links.
    SOURCE LINK RULES (mandatory):
@@ -166,14 +166,14 @@ excerpt: One to two sentence summary for the preview card.
 
 CRITICAL REQUIREMENTS before saving:
 - The frontmatter \'title\' MUST be present and 5–10 words.
-- The post body MUST be at least 900 words of actual content.
+- The post body MUST be at least 1150 words of actual content.
 Do NOT call write_research_file until both requirements are met.
 
 Save the draft using write_research_file with a filename like YYYY-MM-DD-slug.md.
 
 Once the file is saved, hand off to the Editor by calling transfer_to_editor.
 Include the filename you used so the Editor can find the draft.""",
-    tools=[read_research_file, write_research_file],
+    tools=[read_research_file, write_research_file, search_corpus],
     model=_models.get("writer", {}).get("model", "openai/gpt-4.1"),
     model_settings=_model_settings("writer", default_temp=0.7, default_tokens=4000),
 )
@@ -208,7 +208,7 @@ Review the blog post draft for ALL of the following, in this order:
    - Links must be anchored to the phrase or claim they support, not appended
      after the sentence as a standalone [Source] tag.
 6. SEO basics — clear title, meta description in frontmatter, proper heading hierarchy.
-7. Length — must be 900–1500 words. Trim padding or expand thin sections.
+7. Length — must be 1150–1550 words. Trim padding or expand thin sections.
 
 Make targeted edits directly. Do NOT rewrite from scratch unless the draft is structurally broken.
 Save the edited version using write_research_file (append -edited to the filename).

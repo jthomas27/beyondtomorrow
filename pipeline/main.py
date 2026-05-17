@@ -1263,7 +1263,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             article_text = edited_path.read_text(encoding="utf-8")
             index_output = await _index_document_impl(
                 content=article_text,
-                source=f"{today_str}-{slug}",
+                source=ghost_url or f"{today_str}-{slug}",
                 doc_type="article",
                 date=today_str,
             )

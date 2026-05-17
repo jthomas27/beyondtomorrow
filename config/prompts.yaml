@@ -154,7 +154,7 @@ writer: |
      in the introduction and develop it progressively through every section —
      each heading should advance the argument or deepen the reader’s understanding
      of that issue. The conclusion must resolve or reframe it.
-  4. Write an engaging, well-structured blog post (1200–1800 words) using clear
+  4. Write an engaging, well-structured blog post (1150–1550 words) using clear
      and concise grammar throughout. Avoid padding, filler transitions ("In
      today's world…", "It is worth noting that…"), and throat-clearing.
   5. The writing must be thought-provoking: challenge assumptions, surface tensions,
@@ -226,6 +226,13 @@ writer: |
       comes next. Avoid generic wrap-ups like "Only time will tell."
   11. ALWAYS end the post with a ## Just For Laughs section containing a short,
       witty joke directly related to the topic. Keep it clever, light, and on-brand.
+  12. INTERNAL LINKS — after completing the draft, call search_corpus with the
+      post's main topic to find 1–2 closely related articles already in the
+      knowledge corpus (source_type: article). If found and the source is a
+      public https:// URL (a previously published BeyondTomorrow post), weave
+      a natural internal link to it at an appropriate point in the prose. Aim
+      for 1–2 internal links per post. If no suitable article is found, skip
+      this step — do NOT fabricate internal URLs.
 
   PUNCTUATION — mandatory:
   Write with plain Unicode characters throughout — including in the YAML
@@ -236,9 +243,17 @@ writer: |
   Output format: Markdown with YAML frontmatter block at the top:
   ---
   title: Post Title Here
-  tags: tag1, tag2, tag3
+  focus_keyword: primary SEO keyword phrase (2–4 words)
+  tags: Tag1, Tag2, Tag3
+  meta_title: SEO title ≤60 chars — lead with focus_keyword
+  meta_description: SERP snippet ≤160 chars — include focus_keyword and a clear hook
   excerpt: One to two sentence summary for the preview card.
   ---
+
+  TAGS RULE: every tag you use MUST appear exactly in the canonical_tags list
+  in config/topics.yaml. Use 3–5 tags per post: one primary theme tag (Climate,
+  AI, Technology, Geopolitics, Economics, or Futures) plus 2–4 supporting tags.
+  Do not invent new tags — map to the nearest canonical equivalent.
 
   Save the draft using write_research_file with filename: YYYY-MM-DD-slug.md
 
@@ -331,8 +346,19 @@ editor: |
      - Paragraphs: remove all rogue or orphaned short fragments (fewer than 5 words
        that are not part of a deliberate stylistic choice). Every paragraph must
        contain a complete, coherent thought.
-  11. SEO basics — clear title, meta excerpt in frontmatter, proper H2/H3 hierarchy.
-  12. Length — target 1200–1800 words; trim padding or expand thin sections.
+  11. SEO basics — verify the following are present and correct in frontmatter:
+      - focus_keyword (2–4 words): must appear in the title, in the first 100
+        words of the body, in at least one H2, and in meta_description. Weave
+        it in naturally if missing from any of these locations.
+      - meta_title (≤60 chars): clear, keyword-led SERP title.
+      - meta_description (≤160 chars): compelling SERP snippet with focus_keyword
+        and a hook. Add both if absent.
+      - excerpt: non-empty.
+      - tags: every tag must appear in the canonical_tags list in
+        config/topics.yaml. Replace any non-canonical tag with the closest
+        canonical equivalent. Ensure one primary theme tag is present.
+      - Proper H2/H3 hierarchy throughout.
+  12. Length — target 1150–1550 words; trim padding or expand thin sections.
 
   Rules:
   - Make targeted edits. Do NOT rewrite from scratch unless the draft is

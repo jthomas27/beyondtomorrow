@@ -254,6 +254,10 @@ async def publish_file_to_ghost(
     title = meta.get("title", safe_path.stem.replace("-", " ").title())
     tags_str = meta.get("tags", "")
     excerpt = meta.get("excerpt", "")
+    meta_title = meta.get("meta_title", "")
+    meta_description = meta.get("meta_description", "")
+    image_alt = meta.get("image_alt", "") or title
+    focus_keyword = meta.get("focus_keyword", "")
 
     html_content = md_converter.markdown(
         body,
@@ -280,6 +284,16 @@ async def publish_file_to_ghost(
     if len(excerpt) > _MAX_EXCERPT:
         excerpt = excerpt[:_MAX_EXCERPT].rsplit(" ", 1)[0].rstrip(".,;:") + "…"
         logger.info("Excerpt trimmed to %d chars to meet Ghost 300-char limit.", len(excerpt))
+
+    # --- SEO field guardrails ---
+    _MAX_META_TITLE = 60
+    if len(meta_title) > _MAX_META_TITLE:
+        meta_title = meta_title[:_MAX_META_TITLE].rsplit(" ", 1)[0].rstrip(".,;:")
+        logger.info("meta_title trimmed to %d chars.", len(meta_title))
+    _MAX_META_DESC = 160
+    if len(meta_description) > _MAX_META_DESC:
+        meta_description = meta_description[:_MAX_META_DESC].rsplit(" ", 1)[0].rstrip(".,;:") + "…"
+        logger.info("meta_description trimmed to %d chars.", len(meta_description))
 
     # --- Pre-publish validation ---
     # All items are required. Return MISSING: if any check fails so the
@@ -313,6 +327,13 @@ async def publish_file_to_ghost(
 
     if not excerpt.strip():
         missing.append("excerpt (empty in frontmatter — add a 1–2 sentence summary)")
+
+    if not focus_keyword.strip():
+        logger.warning(
+            "SEO: 'focus_keyword' missing in frontmatter for '%s' — "
+            "add it to improve keyword targeting.",
+            filename,
+        )
 
     # Must end with a "Just For Laughs" section
     if "just for laughs" not in body.lower():
@@ -394,10 +415,15 @@ async def publish_file_to_ghost(
         "custom_excerpt": excerpt,
         "status": status,
     }
+    if meta_title:
+        post_payload["meta_title"] = meta_title
+    if meta_description:
+        post_payload["meta_description"] = meta_description
     if status == "published":
         post_payload["email_recipient_filter"] = "free"
     if feature_image_url:
         post_payload["feature_image"] = feature_image_url
+        post_payload["feature_image_alt"] = image_alt
 
     # Derive the slug Ghost would assign (mirrors Ghost's own slugification).
     slug = re.sub(r"[^\w\s-]", "", title.lower()).strip()

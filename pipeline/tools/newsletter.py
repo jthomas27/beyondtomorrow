@@ -165,6 +165,27 @@ async def send_newsletter(
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
+        # ── Fetch live post excerpt from Ghost Admin API ──────────────────────
+        # Use the published post's custom_excerpt so the newsletter always
+        # mirrors what Ghost shows on the post card.
+        try:
+            slug = post_url.rstrip("/").rsplit("/", 1)[-1]
+            post_resp = await client.get(
+                f"{ghost_url}/ghost/api/admin/posts/slug/{slug}/",
+                params={"fields": "custom_excerpt,title"},
+                headers=ghost_headers(),
+            )
+            if post_resp.status_code == 200:
+                post_data = post_resp.json().get("posts", [{}])[0]
+                live_excerpt = (post_data.get("custom_excerpt") or "").strip()
+                live_title = (post_data.get("title") or "").strip()
+                if live_excerpt:
+                    excerpt = live_excerpt
+                if live_title:
+                    title = live_title
+        except Exception as _exc:
+            logger.warning("Newsletter: could not fetch live post data — %s; using frontmatter values", _exc)
+
         # ── Fetch all free members from Ghost Admin API ───────────────────────
         try:
             members: list[dict] = []

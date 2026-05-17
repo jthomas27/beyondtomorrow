@@ -18,6 +18,76 @@
 #
 # See docs/RESEARCH_TOPICS.md for the numbered human-readable reference.
 
+# ---------------------------------------------------------------------------
+# CANONICAL TAGS
+# ---------------------------------------------------------------------------
+# These are the approved tags for all published posts.
+# Writers and Editors MUST map each post to tags from this list only.
+# Add new tags here before using them — do not invent tags at publish time.
+# Each post should have 3–5 tags: one primary theme tag + supporting tags.
+#
+# Primary theme tags (use exactly one per post):
+#   Climate, AI, Technology, Geopolitics, Economics, Futures
+#
+# Supporting tags — use as many as genuinely apply:
+#
+canonical_tags:
+  # Core themes
+  - Climate
+  - AI
+  - Technology
+  - Geopolitics
+  - Economics
+  - Futures
+
+  # Climate & energy
+  - Energy Transition
+  - Renewable Energy
+  - Fossil Fuels
+  - Emissions
+  - Carbon Pricing
+  - Net Zero
+  - Decarbonisation
+  - Climate Risk
+  - Energy Security
+  - Stranded Assets
+
+  # AI & technology
+  - Machine Learning
+  - Data Centres
+  - Semiconductors
+  - Automation
+  - Regulation
+  - Cybersecurity
+  - Governance
+
+  # Geopolitics & macro
+  - Supply Chains
+  - Trade
+  - Sanctions
+  - China
+  - United States
+  - European Union
+  - Critical Minerals
+  - Food Security
+
+  # Economics & investment
+  - Investment Risk
+  - Financial Markets
+  - Monetary Policy
+  - Fiscal Policy
+  - Inflation
+  - Credit Risk
+  - ESG
+  - Sovereign Debt
+
+  # Futures & society
+  - Future of Work
+  - Sustainability
+  - Demographics
+  - Policy
+  - Public Health
+
 themes:
 
   - name: climate
