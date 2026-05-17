@@ -1194,6 +1194,48 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         publish_output = f"{publish_output} | LinkedIn: {linkedin_result}"
 
         # =============================================================
+        # Step 4c: Newsletter via Resend
+        # Sends a per-member email to all subscribed free Ghost members.
+        # Non-blocking — failure is logged and tracked but does not abort
+        # the pipeline.
+        # =============================================================
+        _current_stage = "Newsletter"
+        run_log.stage_start("Newsletter")
+        _t0_nl = monotonic()
+        try:
+            from pipeline.tools.newsletter import send_newsletter
+            _nl_fm = {}
+            try:
+                import re as _re_nl
+                _raw_nl = (research_dir / edited_filename).read_text(encoding="utf-8")
+                for _k, _v in _re_nl.findall(r"^(\w+):\s*(.+)$", _raw_nl[:600], _re_nl.MULTILINE):
+                    _nl_fm[_k.lower()] = _v.strip()
+            except Exception:
+                pass
+            _nl_title = _nl_fm.get("title", "")
+            _nl_excerpt = _nl_fm.get("excerpt", "")
+            newsletter_result = await send_newsletter(
+                post_url=ghost_url,
+                title=_nl_title or topic,
+                excerpt=_nl_excerpt,
+                feature_image_url=feature_image_url or "",
+            )
+        except Exception as _nl_exc:
+            newsletter_result = f"Error: {_nl_exc}"
+
+        if newsletter_result.startswith("SKIPPED:"):
+            run_log.stage_skipped("Newsletter", newsletter_result.replace("SKIPPED:", "").strip())
+            logger.info("Newsletter skipped: %s", newsletter_result)
+        elif newsletter_result.startswith("Error:"):
+            run_log.stage_error("Newsletter", RuntimeError(newsletter_result))
+            logger.error("Newsletter failed: %s", newsletter_result)
+        else:
+            run_log.stage_ok("Newsletter", elapsed_s=round(monotonic() - _t0_nl, 1), result=newsletter_result)
+            logger.info("Newsletter: %s", newsletter_result)
+
+        publish_output = f"{publish_output} | Newsletter: {newsletter_result}"
+
+        # =============================================================
         # Step 5: Index to corpus
         # =============================================================
         _current_stage = "Index"
