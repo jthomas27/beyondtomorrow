@@ -45,7 +45,7 @@ This document describes the full research-and-publish pipeline: how each agent w
 ┌──────────────────────────────────────────────────────────────────┐
 │                       Entry Points                               │
 │  CLI: python -m pipeline.main "BLOG: topic"                      │
-│  Email: IMAP poll → subject "BLOG: topic" → pipeline dispatch    │
+│  Email: IMAP poll → subject "COMMAND: topic" → routed dispatch   │
 └────────────────────────────┬─────────────────────────────────────┘
                              │
                              ▼
@@ -80,10 +80,10 @@ This document describes the full research-and-publish pipeline: how each agent w
 
 | Command | Pipeline | Stages | Output |
 |---|---|---|---|
-| `BLOG: topic` | Full publish | Research → Write → Edit → Publish → Index | Live blog URL |
+| `BLOG: topic` | Full publish | Research → Write → Edit → Publish → LinkedIn → Newsletter → Index | Live blog URL |
 | `RESEARCH: topic` | Research only | Research → Index | Corpus chunks |
 | `REPORT: topic` | Extended research | Research → Index | Research file |
-| `PUBLISH: file.md` | Publish only | Publish | Live blog URL |
+| `PUBLISH: file.md` | Publish only | Publish → LinkedIn → Newsletter | Live blog URL |
 | `INDEX: path` | Index only | Index | Chunk count |
 
 ---
@@ -615,18 +615,21 @@ Instead, both the BLOG and RESEARCH pipelines call **`_index_research_json()`** 
 ```
 ┌──────────────────┐     IMAP poll      ┌──────────────┐
 │  Gmail / Hostinger│───────────────────▶│ email_listener│
-│  "BLOG: topic"   │   every 5 min      │  .py         │
+│  "COMMAND: topic"│   every 5 min      │  .py         │
 └──────────────────┘                     └──────┬───────┘
                                                 │
                               ┌──────────────────┼──────────────┐
                               ▼                  ▼              ▼
-                        Parse subject     Validate sender   Dispatch
-                        COMMAND: topic    vs allowlist      _run_blog_pipeline()
+                        Parse subject     Validate sender   Route by command
+                        COMMAND: topic    vs allowlist      ↓
+                                                 BLOG   → _run_blog_pipeline()
+                                                 RESEARCH/REPORT → _run_research_pipeline()
+                                                 INDEX  → _run_index()
                                                 │
                               ┌──────────────────┼──────────────┐
                               ▼                  ▼              ▼
                          ACK reply         Success reply   Failure reply
-                         (immediate)       (with URL)      (with error)
+                         (immediate)       (with URL/result) (with error)
 ```
 
 **Security controls:**
@@ -634,6 +637,17 @@ Instead, both the BLOG and RESEARCH pipelines call **`_index_research_json()`** 
 - Subject must start with a valid prefix: `BLOG:`, `RESEARCH:`, `REPORT:`, or `INDEX:`
 - Max body length: 5,000 chars; max 3 attachments; max 10 MB per attachment
 - Unrecognised senders are silently ignored (no error reply)
+
+**Command routing (email vs CLI):**
+Email-triggered commands follow the same routing as the CLI. `RESEARCH:` and `REPORT:` run `_run_research_pipeline()` (research + corpus index, no post). `INDEX:` runs `_run_index()`. All commands return appropriate reply emails — RESEARCH/REPORT replies include the chunk count and stage summary; INDEX replies confirm completion.
+
+**RESEARCH/REPORT pipeline features (email and CLI):**
+- `PipelineRunLogger` — runs appear in `query_logs.py` alongside BLOG runs
+- Stale-run janitor — orphaned runs closed before each new run starts
+- RPM pacing — waits if the Researcher's RPM window is near-full
+- Pre-fetch — seeds corpus via `_prefetch_topic()` before the LLM call
+- Source sanitisation — dead/hallucinated URLs stripped via concurrent HEAD checks
+- Research JSON cache — cached to disk so a failed run can be retried without re-researching
 
 ---
 

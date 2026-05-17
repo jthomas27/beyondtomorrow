@@ -405,7 +405,7 @@ def _load_allowlist() -> list[dict]:
 
 async def poll_once() -> None:
     """Check IMAP for new messages and dispatch any valid commands."""
-    from pipeline.main import _run_blog_pipeline  # local import to avoid circular
+    from pipeline.main import _run_blog_pipeline, _run_research_pipeline, _run_index  # local import to avoid circular
 
     allowlist = _load_allowlist()
 
@@ -463,91 +463,137 @@ async def poll_once() -> None:
         )
 
         try:
-            result = await _run_blog_pipeline(task_str)
-            if result.get("status") == "published":
-                # Determine LinkedIn status
-                run_log_obj = result.get("run_log")
-                summary = run_log_obj.summary() if run_log_obj else {}
-                li_stage = next(
-                    (s for s in summary.get("stages", []) if s.get("stage") == "LinkedIn"),
-                    None,
-                )
-                li_status = li_stage.get("status") if li_stage else None
-                # "error"   → LinkedIn was configured but failed (action required)
-                # "skipped" → LinkedIn env vars missing on Railway (warning)
-                # None/ok   → success or not configured at startup
-                li_failed = li_status == "error"
-                li_skipped = li_status == "skipped"
+            if command == "BLOG":
+                result = await _run_blog_pipeline(task_str)
+                if result.get("status") == "published":
+                    # Determine LinkedIn status
+                    run_log_obj = result.get("run_log")
+                    summary = run_log_obj.summary() if run_log_obj else {}
+                    li_stage = next(
+                        (s for s in summary.get("stages", []) if s.get("stage") == "LinkedIn"),
+                        None,
+                    )
+                    li_status = li_stage.get("status") if li_stage else None
+                    # "error"   → LinkedIn was configured but failed (action required)
+                    # "skipped" → LinkedIn env vars missing on Railway (warning)
+                    # None/ok   → success or not configured at startup
+                    li_failed = li_status == "error"
+                    li_skipped = li_status == "skipped"
 
-                if li_failed:
-                    # Ghost published but LinkedIn failed — post is NOT yet cross-platform.
-                    # Send a failure notification rather than a success email so the
-                    # operator knows action is required before the post is fully live.
-                    logger.error("Task partially failed: %s — LinkedIn stage errored", task_str)
-                    _log({
-                        "event": "email_task_failed",
-                        "command": command,
-                        "topic": topic,
-                        "failed_stage": "LinkedIn",
-                        "url": result.get("published_url", ""),
-                    })
+                    if li_failed:
+                        # Ghost published but LinkedIn failed — post is NOT yet cross-platform.
+                        # Send a failure notification rather than a success email so the
+                        # operator knows action is required before the post is fully live.
+                        logger.error("Task partially failed: %s — LinkedIn stage errored", task_str)
+                        _log({
+                            "event": "email_task_failed",
+                            "command": command,
+                            "topic": topic,
+                            "failed_stage": "LinkedIn",
+                            "url": result.get("published_url", ""),
+                        })
+                        send_reply(
+                            reply_to,
+                            f"[BeyondTomorrow] Failed: {topic} (LinkedIn failed)",
+                            _build_failure_email(command, topic, result),
+                        )
+                    elif li_skipped:
+                        # Ghost published but LinkedIn env vars are missing on Railway.
+                        # Post is live on Ghost but not cross-posted — flag prominently so
+                        # the operator knows to set LINKEDIN_ACCESS_TOKEN + LINKEDIN_PERSON_URN
+                        # as Railway service variables for the agent worker.
+                        logger.warning(
+                            "Task complete but LinkedIn skipped (not configured): %s", task_str
+                        )
+                        _log({
+                            "event": "email_task_complete",
+                            "command": command,
+                            "topic": topic,
+                            "url": result.get("published_url", ""),
+                            "linkedin_ok": False,
+                            "linkedin_skipped": True,
+                        })
+                        send_reply(
+                            reply_to,
+                            f"[BeyondTomorrow] Published: {topic} (LinkedIn skipped — env vars missing)",
+                            _build_success_email(command, topic, result)
+                            + "\n\nNOTE: LinkedIn cross-posting was skipped because "
+                            "LINKEDIN_ACCESS_TOKEN and/or LINKEDIN_PERSON_URN are not set "
+                            "as Railway service variables for the agent worker. "
+                            "Run scripts/linkedin_auth.py locally, then copy the "
+                            "LINKEDIN_* variables to Railway.",
+                        )
+                    else:
+                        # Ghost succeeded + LinkedIn succeeded.
+                        # The post is live on all expected platforms.
+                        logger.info("Task complete: %s", task_str)
+                        _log({
+                            "event": "email_task_complete",
+                            "command": command,
+                            "topic": topic,
+                            "url": result.get("published_url", ""),
+                            "linkedin_ok": True,
+                        })
+                        send_reply(
+                            reply_to,
+                            f"[BeyondTomorrow] Published: {topic}",
+                            _build_success_email(command, topic, result),
+                        )
+                else:
+                    run_log = result.get("run_log")
+                    failed_stage = run_log.summary().get("failed_stage") if run_log else "Unknown"
+                    logger.error("Task failed: %s — stage: %s", task_str, failed_stage)
+                    _log({"event": "email_task_failed", "command": command, "topic": topic, "failed_stage": failed_stage})
                     send_reply(
                         reply_to,
-                        f"[BeyondTomorrow] Failed: {topic} (LinkedIn failed)",
+                        f"[BeyondTomorrow] Failed: {command}: {topic}",
                         _build_failure_email(command, topic, result),
                     )
-                elif li_skipped:
-                    # Ghost published but LinkedIn env vars are missing on Railway.
-                    # Post is live on Ghost but not cross-posted — flag prominently so
-                    # the operator knows to set LINKEDIN_ACCESS_TOKEN + LINKEDIN_PERSON_URN
-                    # as Railway service variables for the agent worker.
-                    logger.warning(
-                        "Task complete but LinkedIn skipped (not configured): %s", task_str
-                    )
-                    _log({
-                        "event": "email_task_complete",
-                        "command": command,
-                        "topic": topic,
-                        "url": result.get("published_url", ""),
-                        "linkedin_ok": False,
-                        "linkedin_skipped": True,
-                    })
+
+            elif command in ("RESEARCH", "REPORT"):
+                result = await _run_research_pipeline(task_str)
+                if result.get("status") == "complete":
+                    run_log_r = result.get("run_log")
+                    summary_r = run_log_r.summary() if run_log_r else {}
+                    duration_r = _fmt_duration(result.get("total_elapsed_s", 0))
+                    stage_lines_r = _fmt_stages(summary_r.get("stages", []))
+                    logger.info("Task complete: %s", task_str)
+                    _log({"event": "email_task_complete", "command": command, "topic": topic,
+                          "index_result": result.get("index_result", "")})
                     send_reply(
                         reply_to,
-                        f"[BeyondTomorrow] Published: {topic} (LinkedIn skipped — env vars missing)",
-                        _build_success_email(command, topic, result)
-                        + "\n\nNOTE: LinkedIn cross-posting was skipped because "
-                        "LINKEDIN_ACCESS_TOKEN and/or LINKEDIN_PERSON_URN are not set "
-                        "as Railway service variables for the agent worker. "
-                        "Run scripts/linkedin_auth.py locally, then copy the "
-                        "LINKEDIN_* variables to Railway.",
+                        f"[BeyondTomorrow] {command} done: {topic}",
+                        (
+                            f"Command  : {command}\n"
+                            f"Topic    : {topic}\n"
+                            f"Status   : Indexed to corpus\n"
+                            f"Result   : {result.get('index_result', '')}\n"
+                            f"Duration : {duration_r}\n"
+                            f"\nStages:\n{stage_lines_r}"
+                        ),
                     )
                 else:
-                    # Ghost succeeded + LinkedIn succeeded.
-                    # The post is live on all expected platforms.
-                    logger.info("Task complete: %s", task_str)
-                    _log({
-                        "event": "email_task_complete",
-                        "command": command,
-                        "topic": topic,
-                        "url": result.get("published_url", ""),
-                        "linkedin_ok": True,
-                    })
+                    run_log_r = result.get("run_log")
+                    failed_stage_r = run_log_r.summary().get("failed_stage") if run_log_r else "Unknown"
+                    logger.error("Task failed: %s — stage: %s", task_str, failed_stage_r)
+                    _log({"event": "email_task_failed", "command": command, "topic": topic,
+                          "failed_stage": failed_stage_r})
                     send_reply(
                         reply_to,
-                        f"[BeyondTomorrow] Published: {topic}",
-                        _build_success_email(command, topic, result),
+                        f"[BeyondTomorrow] Failed: {command}: {topic}",
+                        _build_failure_email(command, topic, result),
                     )
-            else:
-                run_log = result.get("run_log")
-                failed_stage = run_log.summary().get("failed_stage") if run_log else "Unknown"
-                logger.error("Task failed: %s — stage: %s", task_str, failed_stage)
-                _log({"event": "email_task_failed", "command": command, "topic": topic, "failed_stage": failed_stage})
+
+            elif command == "INDEX":
+                await _run_index(task_str)
+                logger.info("Task complete: %s", task_str)
+                _log({"event": "email_task_complete", "command": command, "topic": topic})
                 send_reply(
                     reply_to,
-                    f"[BeyondTomorrow] Failed: {command}: {topic}",
-                    _build_failure_email(command, topic, result),
+                    f"[BeyondTomorrow] Indexed: {topic}",
+                    f"Command  : {command}\nTopic    : {topic}\nStatus   : Complete",
                 )
+
         except Exception as exc:
             logger.error("Task raised unhandled exception: %s — %s", task_str, exc, exc_info=True)
             _log({"event": "email_task_failed", "command": command, "topic": topic, "failed_stage": "unhandled", "error_type": type(exc).__name__, "error_message": str(exc)})
