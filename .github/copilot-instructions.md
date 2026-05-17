@@ -323,6 +323,21 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=1000`. Tools: `pick_random
 - `SKIPPED: LinkedIn not configured` (missing env vars) → `stage_skipped`, not an error
 - Email subject includes `(LinkedIn failed)` when Ghost published but LinkedIn errored
 
+**Newsletter delivery is handled by `pipeline/main.py` as Step 4c**, directly after LinkedIn. Calls `send_newsletter()` in `pipeline/tools/newsletter.py`.
+
+**Newsletter reliability controls** (implemented in Step 4c of `_run_blog_pipeline`):
+- Fetches all `status:free` Ghost members via Admin API (paginated); sends per-member HTML emails via Resend (`re_...` key)
+- **Deduplication** — checks `logs/newsletter_sent.json` before sending; skips if post URL already recorded
+- **HTML injection prevention** — `html.escape()` + `{`/`}` neutralisation applied to title and excerpt before template insertion
+- **Unsubscribe URL encoding** — `urllib.parse.quote()` applied to fallback email address in unsubscribe URL
+- **Retry on 5xx** — one retry with 2s delay per member on transient Resend errors
+- **Rate-limit guard** — `asyncio.sleep(0.1)` between per-member sends
+- **Non-blocking** — `stage_error` is recorded but the pipeline continues to Step 5 (Index)
+- `SKIPPED: RESEND_API_KEY not set` → `stage_skipped`, not an error
+- Frontmatter parsed via `yaml.safe_load()` (full YAML, no char-limit truncation); regex fallback if no `---` delimiters
+
+**Required env var:** `RESEND_API_KEY` — set on Railway service `0daf496c-e14f-41d4-b89b-3624a778c99d` and in local `.env`.
+
 **Pre-publish validation** — `publish_file_to_ghost` validates before calling Ghost:
 - `title` (from frontmatter, 5–10 words)
 - `body_content` (at least 500 words)

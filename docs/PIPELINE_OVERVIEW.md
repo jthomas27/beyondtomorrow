@@ -1,0 +1,678 @@
+# BeyondTomorrow.World — Pipeline Overview
+
+> Last updated: 17 May 2026
+
+This document describes the full research-and-publish pipeline: how each agent works, how they hand off to each other, and what controls are in place.
+
+---
+
+## Table of Contents
+
+- [Architecture at a Glance](#architecture-at-a-glance)
+- [Pipeline Modes](#pipeline-modes)
+- [BLOG Pipeline — Stage by Stage](#blog-pipeline--stage-by-stage)
+  - [Stage 1: Research](#stage-1-research)
+  - [Stage 2: Write](#stage-2-write)
+  - [Stage 3: Edit](#stage-3-edit)
+  - [Stage 4: Publish](#stage-4-publish)
+  - [Stage 5: Index](#stage-5-index)
+- [Agent Definitions](#agent-definitions)
+- [Handoff Mechanism](#handoff-mechanism)
+- [Rate Limiting and Model Fallback](#rate-limiting-and-model-fallback)
+  - [Proactive Model Selection](#proactive-model-selection)
+  - [Reactive Fallback Chain](#reactive-fallback-chain)
+  - [Adaptive Cooldowns](#adaptive-cooldowns)
+  - [Token Tracking](#token-tracking)
+- [Pre-Publish Guardrails](#pre-publish-guardrails)
+- [Recovery Flows](#recovery-flows)
+- [Knowledge Corpus (RAG)](#knowledge-corpus-rag)
+- [Email Trigger System](#email-trigger-system)
+- [Configuration Reference](#configuration-reference)
+- [Strengths and Weaknesses](#strengths-and-weaknesses)
+
+---
+
+## Architecture at a Glance
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                       Entry Points                               │
+│  CLI: python -m pipeline.main "BLOG: topic"                      │
+│  Email: IMAP poll → subject "BLOG: topic" → pipeline dispatch    │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │
+                             ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    pipeline/main.py                               │
+│  Routes by prefix → runs 5-stage sequential chain                │
+│  Manages cooldowns, retries, fallback, token tracking            │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │
+          ┌──────────────────┼──────────────────┐
+          ▼                  ▼                  ▼
+   ┌─────────────┐  ┌──────────────┐  ┌──────────────┐
+   │  GitHub      │  │  PostgreSQL  │  │  Ghost CMS   │
+   │  Models API  │  │  + pgvector  │  │  (httpx)     │
+   │  (LLM calls) │  │  (corpus)   │  │  (publish)   │
+   └─────────────┘  └──────────────┘  └──────────────┘
+```
+
+| Layer | Technology | Purpose |
+|---|---|---|
+| LLM | GitHub Models API (gpt-4.1, gpt-4.1-mini, gpt-4.1-nano) | Research, writing, editing, publishing decisions |
+| Agent SDK | OpenAI Agents SDK (`agents` package) | Runs each agent with tool calling |
+| Vector DB | PostgreSQL + pgvector (Railway) | 384-dim embeddings + tsvector full-text for hybrid search |
+| Embeddings | `BAAI/bge-small-en-v1.5` (sentence-transformers) | Runs locally, zero API cost; 512-token context |
+| CMS | Ghost 5.x (self-hosted, Railway) | Blog publishing via Admin API |
+| Email | Hostinger IMAP/SMTP | Trigger pipeline via email |
+| HTTP | httpx | Ghost API calls (Cloudflare blocks urllib) |
+
+---
+
+## Pipeline Modes
+
+| Command | Pipeline | Stages | Output |
+|---|---|---|---|
+| `BLOG: topic` | Full publish | Research → Write → Edit → Publish → Index | Live blog URL |
+| `RESEARCH: topic` | Research only | Research → Index | Corpus chunks |
+| `REPORT: topic` | Extended research | Research → Index | Research file |
+| `PUBLISH: file.md` | Publish only | Publish | Live blog URL |
+| `INDEX: path` | Index only | Index | Chunk count |
+
+---
+
+## BLOG Pipeline — Stage by Stage
+
+```
+                    ┌─────────────────┐
+                    │   Pre-fetch     │  Seed corpus before LLM
+                    │   (2 queries)   │  via _prefetch_topic()
+                    └────────┬────────┘
+                             │
+                    ┌────────▼────────┐
+                    │  1. RESEARCHER  │  gpt-4.1  temp=0.2
+                    │  search_and_index│  max_turns=8
+                    │  search_corpus  │  Output: research JSON
+                    │  score_credibility│
+                    └────────┬────────┘
+                             │ 20s cooldown
+                    ┌────────▼────────┐
+                    │  2. WRITER      │  gpt-4.1  temp=0.7
+                    │  write_research │  max_turns=6
+                    │  _file          │  Output: YYYY-MM-DD-slug.md
+                    └────────┬────────┘
+                             │ 20–60s adaptive cooldown
+                    ┌────────▼────────┐
+                    │  3. EDITOR      │  gpt-4.1  temp=0.3
+                    │  read/write     │  max_turns=6
+                    │  search_corpus  │  Output: -edited.md
+                    └────────┬────────┘
+                             │ 20s cooldown
+                    ┌────────▼────────┐
+                    │  4. PUBLISHER   │  gpt-4.1-mini  temp=0.0
+                    │  pick_image     │  max_turns=6
+                    │  upload_image   │  Output: live Ghost URL
+                    │  publish_to_ghost│
+                    └────────┬────────┘
+                             │ (no cooldown)
+                    ┌────────▼────────┐
+                    │  4b. LINKEDIN   │  No LLM — direct call
+                    │  _linkedin_post │  Reads frontmatter directly
+                    │  _direct()      │  3 retries (10s/30s backoff)
+                    │  Tracked in     │  stage_ok/error/skipped
+                    │  run_log        │  Shown in email notification
+                    └────────┬────────┘
+                             │ (no cooldown)
+                    ┌────────▼────────┐
+                    │  4c. NEWSLETTER │  No LLM — direct call
+                    │  send_newsletter│  Resend API per-member send
+                    │  ()             │  Dedup + retry + HTML escape
+                    │  Tracked in     │  stage_ok/error/skipped
+                    │  run_log        │  Non-blocking
+                    └────────┬────────┘
+                             │ 20s cooldown
+                    ┌────────▼────────┐
+                    │  5. INDEX       │  No LLM (direct call)
+                    │  _index_document│  Chunk + embed + store
+                    │  _impl()       │  Output: chunk count
+                    └─────────────────┘
+```
+
+### Stage 1: Research
+
+**Agent:** Researcher (gpt-4.1, temperature 0.2, max 8,000 tokens)
+
+**Process:**
+1. **Pre-fetch** — before the LLM runs, `_prefetch_topic()` generates 2 simple search queries and calls `search_and_index` to populate the corpus. This reduces the number of tool calls the LLM needs.
+2. **Cache check** — if a research JSON for this topic/date already exists on disk, loads it instead of re-running.
+3. **LLM research** — the Researcher agent:
+   - Generates 2–3 targeted search queries covering different angles
+   - Calls `search_and_index` for each (fetches full page text via trafilatura, stores embeddings permanently)
+   - Calls `search_corpus` once with `top_k=3` to retrieve stored knowledge
+   - Optionally calls `search_arxiv` for academic topics
+   - Scores source credibility (1–5); discards 1/5 sources
+4. **Output** — structured JSON with `key_findings`, `subtopics`, `suggested_angles`, `gaps`, `source_list`
+5. **Post-processing** — research JSON is cached to disk and indexed into the corpus via `_index_document_impl()`
+
+**Key constraint:** Only asserts claims supported by retrieved sources. Single-source claims flagged as "medium" confidence.
+
+### Stage 2: Write
+
+**Agent:** Writer (gpt-4.1, temperature 0.7, max 4,000 tokens)
+
+**Cooldown:** 20 seconds (standard `_STAGE_COOLDOWN`)
+
+**Process:**
+1. Research JSON is compacted via `_compact_research()` (extracts key_findings, suggested_angles, subtopics, source_list; drops bulk metadata). **Writer receives up to 8,000 chars** — enough to retain all subtopics, angles, and source URLs. Truncation cuts at the last complete line and appends a hint to use `search_corpus` for any remainder.
+2. Writer receives compacted research + explicit instruction to save via `write_research_file`
+3. **Title rules** — drafts 3 candidates; selects the strongest (5–10 words, factual, punchy)
+4. Writes 1,200–1,800 word post with H2/H3 headings (intriguing subheadings, not just labels), short paragraphs (2–4 sentences), inline source links
+5. **Voice:** engaging college professor — conversational authority, insight over information, “you”/“we”, varied sentence length, at least one “pause and think” moment per section
+6. Hook in the first paragraph (striking fact, provocative question, vivid scene); forward-looking conclusion (prediction, tension, question)
+7. Must end with `## Just For Laughs` section
+6. Saves as `YYYY-MM-DD-slug.md` with YAML frontmatter (title, tags, excerpt)
+
+**Safety net:** If the Writer fails to save a file (detected by glob), the pipeline retries with an explicit "call write_research_file as your FIRST action" instruction.
+
+### Stage 3: Edit
+
+**Agent:** Editor (gpt-4.1, temperature 0.3, max 2,500 tokens)
+
+> **Why 2,500?** Input tokens (~5,000: system prompt + edit prompt + research compact + draft via tool) + `max_tokens` = total request body. 2,500 keeps the total under the 8,000-token hard limit, preventing a 413 fallback to `gpt-4.1-mini` which produces apostrophe/em-dash corruption in the output.
+>
+> **413 same-model retry:** If a 413 does occur, the pipeline retries once on the same model with `max_tokens` reduced by 500 (minimum 1,500) before falling back to gpt-4.1-mini. This preserves output quality in most cases.
+>
+> **Text sanitisation pipeline:** All content saved via `write_research_file` passes through three stages: `_clean_llm_text()` (C1 control chars, split contractions, HTML entities) → `_validate_punctuation()` (double spaces, orphaned entities, broken links) → `_enforce_british_english()` (~50 American→British spelling pairs, case-preserving, URL-safe). Readability metrics (word count, Flesch score) are logged for `-edited` files.
+
+**Cooldown:** Adaptive (20s if RPM is clear; 60s if RPM is under pressure — see [Adaptive Cooldowns](#adaptive-cooldowns))
+
+**Review checklist (in order):**
+1. Title quality — rewrite first if it fails 5–10 word / factual / punchy test
+2. Factual accuracy — cross-reference claims against research JSON
+3. Grammar and clarity — British English; remove padding; split run-ons
+4. Punctuation audit — comma splices, hyphenation, apostrophes, dashes; British English conventions
+5. Spelling — British English
+6. Tone and engagement — voice should feel like a sharp college professor: conversational, insightful, occasionally witty. Check for “you”/“we”, surprising insights per section, analogies for abstract ideas, absence of filler/throat-clearing. No jargon without explanation.
+7. Key issue coherence — single central issue developed progressively
+8. Evidence and sources — inline source links on every significant claim; unsupported claims flagged with `<!-- UNVERIFIED: ... -->`
+9. Examples and references — remove any `**Case study:**` / `**Example:**` callout labels; rewrite as integrated prose. Verify each example against the research JSON.
+10. Structure, headings, and lists — aim for 4–6 H2s; H3 only for genuine sub-topics with multiple points. Convert any list with fewer than 3 items to prose. Remove list items ending in `:`. Remove orphaned paragraph fragments (< 5 words).
+11. SEO — title, meta description, H2/H3 hierarchy
+12. Length — 1,200–1,800 words; trim or expand
+
+**Output:** Saves as `YYYY-MM-DD-slug-edited.md`
+
+**Fallback:** If the Editor fails to produce an edited file, the pipeline falls back to the unedited draft.
+
+### Stage 4: Publish
+
+**Agent:** Publisher (gpt-4.1-mini, temperature 0.0, max 1,000 tokens)
+
+**Cooldown:** 20 seconds
+
+**Strict 3-step sequence:**
+1. `pick_random_asset_image()` — select a feature image from `assets/images/`
+2. `upload_image_to_ghost(image_path)` — upload to Ghost, get hosted URL
+3. `publish_file_to_ghost(filename, feature_image_url, status='published')` — convert markdown to HTML, wrap in Lexical card, POST to Ghost Admin API
+
+The Publisher does NOT read files directly — `publish_file_to_ghost` handles file reading, frontmatter parsing, and markdown-to-HTML conversion internally.
+
+**Pre-publish validation** is enforced by the `publish_file_to_ghost` tool before the Ghost API call (see [Pre-Publish Guardrails](#pre-publish-guardrails)).
+
+### Stage 4b: LinkedIn Cross-Post
+
+**No LLM** — direct call to `_linkedin_post_direct()` in `main.py` immediately after Ghost publish.
+
+Frontmatter (title, excerpt, tags) is read directly from the edited file; the LLM is not in the loop so these values are always accurate.
+
+**Controls:**
+- Tracked as a named pipeline stage (`LinkedIn`) in `PipelineRunLogger` — status appears in the Stages table of email notifications
+- If the Ghost URL cannot be parsed from the publisher output → `stage_error`, not a silent skip
+- **Retry: up to 3 attempts** with 10s and 30s delays between attempts on any `Error:` result
+- `SKIPPED: LinkedIn not configured` (missing env vars) → `stage_skipped`, not an error
+- Token expiry warning logged before every attempt when `LINKEDIN_TOKEN_EXPIRES` is set
+- Email notification subject includes `(LinkedIn failed)` if Ghost published but LinkedIn errored
+
+**Required env vars on Railway:**
+
+| Variable | Description |
+|---|---|
+| `LINKEDIN_ACCESS_TOKEN` | OAuth 2.0 bearer token — expires 60 days after issue |
+| `LINKEDIN_PERSON_URN` | `urn:li:person:{id}` — your LinkedIn member ID |
+| `LINKEDIN_TOKEN_EXPIRES` | `YYYY-MM-DD` expiry date — pipeline warns when ≤7 days remain |
+
+Refresh credentials before expiry: `.venv/bin/python scripts/linkedin_auth.py`
+
+### Stage 4c: Newsletter
+
+**No LLM** — direct call to `send_newsletter()` in `pipeline/tools/newsletter.py` after the LinkedIn step.
+
+Sends a branded HTML email to every free Ghost member via the [Resend](https://resend.com) API. Bypasses Ghost's built-in newsletter engine entirely (Ghost requires Mailgun, which is not available on this stack).
+
+**Process:**
+1. Reads post title and excerpt from the edited file's YAML frontmatter (using `yaml.safe_load`)
+2. Fetches all `status:free` members from Ghost Admin API (paginated, 100 per page)
+3. Sends one HTML email per member via `POST https://api.resend.com/emails`
+4. Records the post URL in `logs/newsletter_sent.json` to prevent duplicate sends on retry
+
+**Resilience controls:**
+- **Deduplication** — skips if the post URL is already in `logs/newsletter_sent.json`
+- **HTML escaping** — `html.escape()` applied to title and excerpt; bare `{`/`}` neutralised to prevent `.format()` injection
+- **Unsubscribe URL encoding** — fallback URL uses `urllib.parse.quote()` so `user+tag@gmail.com` addresses are safe
+- **Retry on 5xx** — one retry with 2s delay per member on transient Resend server errors
+- **Rate-limit guard** — `asyncio.sleep(0.1)` between per-member sends
+- **Non-blocking** — stage failure is tracked as `stage_error` but does not abort the pipeline
+
+**Required env vars:**
+
+| Variable | Description |
+|---|---|
+| `RESEND_API_KEY` | Resend API key (`re_...` format). Set on Railway and in local `.env` |
+
+**Tracking:** Registered as a `PipelineRunLogger` stage (`Newsletter`). Status appears in the Stages table of email notifications.
+
+**File:** `pipeline/tools/newsletter.py`
+
+---
+
+### Stage 5: Index
+
+**No LLM agent** — direct call to `_index_document_impl()`
+
+The Indexer agent was bypassed to avoid 413 Payload Too Large errors. The SDK conversation history accumulated the full article content twice (in read result and write args), exceeding the API's request body limit.
+
+**Process:**
+1. Reads edited file from disk
+2. Chunks text (350 words max, 35-word overlap)
+3. Batch-embeds all chunks via `BAAI/bge-small-en-v1.5`
+4. Upserts document + chunks + embeddings into pgvector
+
+---
+
+## Agent Definitions
+
+All agents are defined in `pipeline/definitions.py` using the OpenAI Agents SDK `Agent` class.
+
+| Agent | Model | Temp | Max Tokens | Tools | Purpose |
+|---|---|---|---|---|---|
+| **Orchestrator** | gpt-4.1-mini | 0.1 | 2,000 | Handoffs to all agents | Routes tasks by prefix |
+| **Researcher** | gpt-4.1 | 0.2 | 2,000 | search_and_index, search_corpus, fetch_page†, search_arxiv, score_credibility | Web research + corpus search |
+| **Writer** | gpt-4.1 | 0.7 | 4,000 | read_research_file, write_research_file | Drafts blog post from research |
+| **Editor** | gpt-4.1 | 0.3 | 2,500 | read_research_file, write_research_file, search_corpus, score_credibility | Review, fact-check, polish — 2,500 keeps total request body under 8,000-token limit |
+| **Publisher** | gpt-4.1-mini | 0.0 | 1,000 | pick_random_asset_image, upload_image_to_ghost, publish_file_to_ghost | Image upload + Ghost publish |
+| **Indexer** | gpt-4.1-mini | 0.0 | 1,000 | read_research_file, index_document, embed_and_store | Chunk + embed + store (currently bypassed) |
+
+† `fetch_page` is registered but restricted by prompt — only for a single specific URL not reachable via `search_and_index`. Bulk use causes 413 (full page text exhausts the 8,000-token input limit).
+
+Temperature rationale:
+- **0.0–0.1** for deterministic tasks (publishing, indexing, routing)
+- **0.2–0.3** for accuracy-critical tasks (research, editing)
+- **0.7** for creative tasks (writing)
+
+---
+
+## Handoff Mechanism
+
+The pipeline uses **explicit sequential handoff** — not LLM-driven transfers.
+
+```
+main.py calls each agent in sequence:
+  _run_agent_with_fallback(researcher, ...) → output
+  _run_agent_with_fallback(writer, ...) → output
+  _run_agent_with_fallback(editor, ...) → output
+  _run_agent_with_fallback(publisher, ...) → output
+  _index_document_impl(...) → direct call
+```
+
+Each stage's output is explicitly passed to the next via the input prompt. This is more reliable than LLM handoffs (`transfer_to_X` tools), which require the model to correctly decide when and how to hand off.
+
+The Orchestrator agent has handoff tools defined but is only used for generic/fallback tasks — the main BLOG and RESEARCH pipelines bypass it entirely.
+
+**Context compaction between stages:**
+- Only key_findings, suggested_angles, subtopics, and source_list are retained; full summaries and redundant metadata are dropped
+- **Writer** receives up to 8,000 chars — full research context including all subtopics, angles, and source URLs
+- **Editor** receives up to 2,500 chars — findings and sources only; it reads the draft directly via `read_research_file` and can call `search_corpus` for additional verification
+- Truncation cuts at the last complete line rather than mid-character, with a `search_corpus` hint appended
+
+---
+
+## Rate Limiting and Model Fallback
+
+### Proactive Model Selection
+
+Before each agent run, `_run_agent_with_fallback()` calls `select_model()` which:
+
+1. Checks the preferred model's daily budget (`check_model_budget()`)
+2. Checks the preferred model's per-minute RPM (`check_rpm()`)
+3. If budget ≥ 95% used OR RPM limit hit → attempts RPM-wait (see below) before falling back
+4. If wait would take > 90s → walks the fallback chain to find an available model
+5. Switches the agent to the selected model before the first attempt
+
+This avoids wasting an API call only to receive a 429.
+
+### RPM-Wait-Before-Fallback
+
+When `gpt-4.1` is temporarily rate-limited (RPM exceeded but daily budget is fine), the
+pipeline **waits for the rolling 60-second window to clear** rather than immediately
+downgrading to `gpt-4.1-mini`.
+
+`get_rpm_clear_wait(pool, model, max_wait=90)` in `guardrails.py`:
+- Queries `rate_limit_log` for the oldest call in the last 60 seconds
+- Returns `60 − (now − oldest) + 2s buffer` (the time until the oldest call falls off the window)
+- Returns 0 if RPM already has capacity; returns `max_wait` if window won't clear in time
+
+Both the proactive check and the reactive 429 handler use this:
+
+```
+On proactive check: preferred model's RPM exceeded (but daily budget OK)
+  wait_s = get_rpm_clear_wait(pool, model, max_wait=90)
+  If wait_s < 90 → sleep(wait_s) → use preferred model
+  Else           → fall back to next model in chain
+
+On reactive 429 (non-413):
+  wait_s = get_rpm_clear_wait(pool, model, max_wait=90)
+  If wait_s < 90 → sleep(wait_s) → retry same model (no fallback)
+  Else           → fall back (standard exponential backoff)
+```
+
+This keeps `gpt-4.1` in use for all stages even when two pipeline runs are launched close
+together, preventing the quality degradation (short/dense posts) caused by `gpt-4.1-mini`
+editing.
+
+### Reactive Fallback Chain
+
+If an API call fails and the RPM window won't clear within 90 seconds:
+
+```
+Fallback chain: gpt-4.1 → gpt-4.1-mini → gpt-4.1-nano
+
+On rate-limit error (429, unsupported-param):
+  1. Check get_rpm_clear_wait() — if < 90s, wait and retry same model
+  2. Otherwise: get next model in chain via get_fallback()
+  3. Wait: exponential backoff (20s → 40s → 80s → 160s → 300s cap)
+  4. Retry with fallback model
+  5. Max 6 attempts total
+
+On 413 (Request Too Large):
+  First attempt: retry same model with max_tokens reduced by 500
+  If still 413:  fall back to next model (RPM-wait skipped — size issue, not rate issue)
+
+On timeout:
+  Retry once on same model; subsequent timeouts fall back
+
+On other errors:
+  Raise immediately
+```
+
+The agent's original model is always restored after each pipeline stage to prevent fallback from leaking.
+
+### Adaptive Cooldowns
+
+The Editor stage uses an adaptive cooldown based on real RPM data:
+
+```
+Before Editor runs:
+  rpm_used = get_rpm_usage(pool, editor_model)  # calls in last 60s
+  rpm_limit = RPM_LIMITS[editor_model]           # e.g. 10 for gpt-4.1
+
+  If rpm_used ≥ rpm_limit - 1:
+    cooldown = 60s    ← RPM pressure detected
+  Else:
+    cooldown = 20s    ← RPM window is clear
+
+  On DB failure:
+    cooldown = 60s    ← safe default
+```
+
+This means fast pipelines where Research completes quickly get a shorter wait, while pipelines that consumed most of the RPM window wait longer.
+
+### Token Tracking
+
+Every agent run logs actual token usage to the `rate_limit_log` table:
+
+```python
+result = Runner.run(agent, ...)
+tokens_in, tokens_out = _extract_usage(result)  # from result.raw_responses
+log_model_call(pool, model, tokens_in=..., tokens_out=..., phase="research")
+```
+
+This enables:
+- Accurate daily budget calculation (not just call counting)
+- Post-run analysis of token consumption per stage
+- Future TPM-aware throttling
+
+### Rate Limit Constants
+
+| Model | Daily Limit | RPM Limit |
+|---|---|---|
+| gpt-4.1 | 80 calls/day | 10 req/min |
+| gpt-4.1-mini | 500 calls/day | 30 req/min |
+| gpt-4.1-nano | 500 calls/day | 30 req/min |
+
+Budget thresholds:
+- **Soft warning:** 80% of daily limit used
+- **Hard block:** 95% of daily limit used → force fallback
+
+---
+
+## Pre-Publish Guardrails
+
+The `publish_file_to_ghost` tool validates 9 checks before calling the Ghost API:
+
+| Check | Requirement | Failure Message |
+|---|---|---|
+| **Title** | Non-empty, 5–10 words | `title length (X words — must be 5–10 words...)` |
+| **Body content** | ≥ 500 words (HTML stripped) | `body_content too short (X words)` |
+| **Feature image** | URL starts with `http` | `feature_image (no hosted image URL)` |
+| **Excerpt** | Non-empty in frontmatter | `excerpt (empty in frontmatter)` |
+| **Just For Laughs** | Section present in body (case-insensitive) | `'Just For Laughs' section (required)` |
+| **No Case study labels** | No `**Case study:**` / `**Case Study:**` bold labels | `formatting: '**Case study:**' label found...` |
+| **No empty list items** | No `<li></li>` in rendered HTML | `formatting: one or more empty list items found...` |
+| **No singleton lists** | Every `<ul>`/`<ol>` has ≥ 3 items, or convert to prose | `formatting: single-item list found...` |
+| **No rogue paragraph labels** | No `<p>` containing ≤ 2 words ending in `:` | `formatting: rogue paragraph label found...` |
+
+If any check fails, the tool returns `MISSING: [items]` without calling Ghost. The pipeline then triggers a recovery flow (see below).
+
+---
+
+## Recovery Flows
+
+### Publisher Validation Failure
+
+```
+Publisher returns "MISSING: [title, excerpt]"
+  │
+  ├─ If error mentions title/body/excerpt/Just For Laughs/formatting:
+  │    └─ Re-run Editor in recovery mode with specific fix instructions
+  │       └─ Editor reads *edited* file, fixes issues, saves as -edited.md
+  │
+  └─ Retry Publisher with fixed file
+       └─ If still MISSING: raise RuntimeError (hard stop)
+```
+
+### Writer File Save Failure
+
+```
+Writer completes but no new .md file detected
+  │
+  └─ Retry Writer with explicit instruction:
+     "CRITICAL: call write_research_file as your FIRST action"
+```
+
+### Editor File Save Failure
+
+```
+Editor completes but no -edited.md file found
+  │
+  └─ Fall back to unedited draft (log warning, continue pipeline)
+```
+
+## Startup Stale-Run Janitor
+
+Every pipeline entry point (`_run_blog_pipeline`, `_run_publish_only`, and `email_listener.py` startup) calls `mark_stale_runs_failed(pool, stale_after_hours=0)` **before** logging a new `run_start` event.
+
+- **What it does**: finds any `run_id` that has a `run_start` event but no `run_complete` or `run_failed` event, and inserts a `run_failed / StaleRun` event so the run shows `FAILED` in `query_logs.py runs`.
+- **Why `stale_after_hours=0`**: any run with no terminal event is considered dead — pipelines that crash via SIGKILL, OOM, or Python exception without reaching the `except` block never write a terminal event. With `0`, they are cleaned up on the very next run, regardless of age.
+- **No race condition**: the janitor runs before the new `run_start` is inserted, so a run can never be marked stale by itself.
+- **Failure is non-fatal**: if the DB call fails, a warning is logged and the pipeline continues.
+
+---
+
+## Knowledge Corpus (RAG)
+
+### Database Schema
+
+```
+documents (1)──────(N) chunks (1)──────(1) embeddings
+  source (unique)       chunk_index         vector(384)
+  content               content             ts tsvector (generated)
+  source_type                               metadata (JSONB)
+                                            model name
+```
+
+The `ts` column is a `GENERATED ALWAYS AS (to_tsvector('english', content)) STORED` column with a GIN index (`embeddings_ts_idx`). It populates automatically for every row — no manual maintenance needed.
+
+### How Content Enters the Corpus
+
+| Source | Method | doc_type |
+|---|---|---|
+| Web search results | `search_and_index` tool (Researcher) | `webpage` |
+| arXiv abstracts | `search_arxiv` tool | `research` |
+| Research JSON | `_index_document_impl()` (after Research stage) | `research` |
+| Published posts | `_index_document_impl()` (after Index stage) | `article` |
+
+### Research Source Sanitisation
+
+LLMs occasionally hallucinate plausible-looking URLs in the `source_list` and
+`key_findings[].sources` fields of the research JSON. Without sanitisation these
+dead links are indexed into the corpus and re-cited by the Researcher on the next run.
+
+After every Research stage, `_sanitise_research_sources()` in `pipeline/main.py`:
+
+1. Parses the research JSON.
+2. Collects all unique `http(s)://` URLs from `source_list` and `key_findings[].sources`.
+3. Concurrently validates each URL with a HEAD request (5 s timeout; falls back to GET if HEAD is refused).
+4. Removes any entry whose URL returns 4xx/5xx, fails to connect, or times out.
+5. Updates `total_sources` count.
+6. Returns the cleaned JSON (or the original if parsing fails — non-fatal).
+
+The sanitised JSON is then cached locally (`{slug}-research.json`) and indexed into
+the corpus. Dead links are logged at `INFO` level for post-run review.
+
+### How Content is Retrieved
+
+1. **`search_corpus(query, top_k)`** — hybrid search via **Reciprocal Rank Fusion (RRF)**:
+   - **Vector leg** — embeds query → pgvector cosine similarity, filters at threshold 0.30, fetches `top_k × 2` candidates
+   - **Full-text leg** — `plainto_tsquery('english', query)` matched against the generated `ts tsvector` column via GIN index, ranked by `ts_rank`
+   - Both result lists are merged: `score = Σ 1 / (60 + rank)`. Rows appearing in both lists receive a combined score boost.
+   - Top `top_k` by RRF score are returned, labelled `hybrid: 0.XXXX` in the output
+2. **Graceful degradation** — if the `ts` column is absent (e.g. fresh DB restore), falls back automatically to vector-only search + `ILIKE` keyword fallback
+3. Used by: Researcher (finding prior knowledge), Editor (fact-checking claims)
+
+### Corpus Output Cap
+
+To prevent 413 errors when the corpus contains large legacy chunks (e.g. full arxiv paper sections), `search_corpus` truncates each chunk to **1,500 chars** (~375 tokens) before returning it to the agent. Three chunks at `top_k=3` therefore contribute at most ~1,100 tokens to the request — well within the 8,000-token limit alongside the system prompt and tool schemas.
+
+The cap is configurable in `config/limits.yaml` under `search.corpus.max_chars_per_chunk`. Chunks are always truncated at a character boundary (never mid-word-break), with `…` appended when truncation occurs.
+
+### Chunking Strategy
+
+- Max 350 words per chunk, 35-word overlap
+- Splits at paragraph boundaries (double newlines)
+- Respects markdown heading breaks
+- Embeddings: 384 dimensions via `BAAI/bge-small-en-v1.5` (local, zero cost; 512-token context window)
+
+---
+
+## Email Trigger System
+
+```
+┌──────────────────┐     IMAP poll      ┌──────────────┐
+│  Gmail / Hostinger│───────────────────▶│ email_listener│
+│  "BLOG: topic"   │   every 5 min      │  .py         │
+└──────────────────┘                     └──────┬───────┘
+                                                │
+                              ┌──────────────────┼──────────────┐
+                              ▼                  ▼              ▼
+                        Parse subject     Validate sender   Dispatch
+                        COMMAND: topic    vs allowlist      _run_blog_pipeline()
+                                                │
+                              ┌──────────────────┼──────────────┐
+                              ▼                  ▼              ▼
+                         ACK reply         Success reply   Failure reply
+                         (immediate)       (with URL)      (with error)
+```
+
+**Security controls:**
+- Sender validated against `config/allowlist.yaml` (currently: `admin@beyondtomorrow.world` and `jeremiah.thomas2701@gmail.com`)
+- Subject must start with a valid prefix: `BLOG:`, `RESEARCH:`, `REPORT:`, or `INDEX:`
+- Max body length: 5,000 chars; max 3 attachments; max 10 MB per attachment
+- Unrecognised senders are silently ignored (no error reply)
+
+---
+
+## Configuration Reference
+
+| File | Purpose | Key Settings |
+|---|---|---|
+| `config/models.yaml` | Agent model assignments, fallback chain, thresholds | Model per agent, temp, max_tokens |
+| `config/limits.yaml` | Budget caps, fetch limits, search limits, chunking | 500 calls/day, 500K tokens/day, 20 tasks/day |
+| `config/prompts.yaml` | System prompt overrides for each agent | Detailed instructions per role |
+| `config/allowlist.yaml` | Approved email senders + permissions | 2 approved senders |
+| `config/sources.yaml` | Approved domains + credibility scores | Academic + climate sources (scored 1–5) |
+
+### Key Constants (pipeline/main.py)
+
+| Constant | Value | Purpose |
+|---|---|---|
+| `_AGENT_TIMEOUT` | 300s | Max time per agent step |
+| `_STAGE_COOLDOWN` | 20s | Default wait between stages |
+| `_RETRY_BACKOFF_BASE` | 20s | Base for exponential backoff (20 → 40 → 80 → 160 → 300 cap) |
+
+---
+
+## Strengths and Weaknesses
+
+### Strengths
+
+| Area | Detail |
+|---|---|
+| **Proactive rate limiting** | `select_model()` checks RPM + daily budget before each agent run — avoids wasted 429 calls |
+| **Graceful degradation** | 3-model fallback chain with exponential backoff; pipeline continues even when the primary model is throttled |
+| **Adaptive cooldowns** | Editor stage queries real RPM data to decide wait duration — faster when RPM is clear, safer when it's not |
+| **Token tracking** | Every agent run logs actual input/output tokens — enables analysis and future TPM-aware budgeting |
+| **Research caching** | If the same topic is retried on the same day, research JSON is loaded from disk instead of re-running |
+| **Pre-publish validation** | 5 checks (title, body, image, excerpt, Just For Laughs) prevent broken posts from reaching Ghost |
+| **Recovery flows** | Publisher validation failures trigger automated Editor recovery before retrying; Writer failures trigger explicit retry |
+| **Direct indexing** | Bypasses the Indexer LLM agent, avoiding 413 payload errors and saving API calls |
+| **Zero-cost embeddings** | `BAAI/bge-small-en-v1.5` runs locally — no API cost for corpus operations |
+| **Corpus persistence** | All web searches are indexed permanently via `search_and_index` — knowledge accumulates across runs |
+
+### Weaknesses
+
+| Area | Detail | Potential Improvement |
+|---|---|---|
+| **Undercounting API calls** | `log_model_call()` is invoked once per pipeline stage, but the SDK may make multiple LLM calls per `Runner.run()` (e.g., Researcher with tool calls). RPM checks are therefore based on incomplete data. | Hook into SDK-level request events to log every individual API call. |
+| **No per-request RPM tracking** | The Agents SDK makes internal LLM calls for tool-use loops that are invisible to the pipeline's rate tracking. A stage marked as "1 call" may actually be 4–5 API requests. | Implement an SDK middleware/hook that calls `log_model_call()` on each raw request. |
+| **Hardcoded gpt-5 entries** | `DAILY_LIMITS` and `RPM_LIMITS` include gpt-5 models that aren't in the fallback chain and have never been tested. | Remove or gate behind a feature flag. |
+| **No TPM-aware throttling** | Token counts are logged but not yet used for budgeting decisions. Daily limits are call-count-only. | Add token-per-minute checks to `check_model_budget()`. |
+| ~~**Context compaction is lossy**~~ ✅ Fixed | `_compact_research()` now uses an 8,000-char limit for the Writer (full subtopics, angles, sources) and a separate 2,500-char limit for the Editor (findings + sources only). Truncation cuts at the last complete line with a `search_corpus` hint. | Resolved — 2-pass approach implemented. |
+| **Single-threaded pipeline** | All 5 stages run sequentially. There's no parallelism even where stages are independent (e.g., image upload could overlap with editing). | Overlap image selection/upload with Editor stage. |
+| **No retry on Ghost API failure** | Publisher retries on LLM rate limits but the Ghost API call itself (`publish_file_to_ghost`) has its own 3-retry loop. If both fail, the post is lost. | Save draft locally before Ghost call; add a `PUBLISH:` recovery command (already exists). |
+| **Email polling interval** | 5-minute poll means up to 5 minutes latency between sending an email and the pipeline starting. | Reduce interval or use IMAP IDLE for push-based triggers. |
+| **Indexer agent still defined** | The Indexer agent definition in `definitions.py` is no longer invoked by BLOG or RESEARCH pipelines but is still loaded. | Remove definition or repurpose for standalone `INDEX:` commands. |
+| **No quality scoring of output** | There's no automated check of the final post's quality (readability score, SEO score, engagement prediction) before publishing. | Add a lightweight post-edit quality gate. |
+
+### Typical Pipeline Timing
+
+Based on observed runs:
+
+| Stage | Typical Duration | Notes |
+|---|---|---|
+| Research | 30–45s | Includes pre-fetch + LLM + tool calls |
+| Write | 25–35s | Single LLM call + file save |
+| Edit | 45–110s | LLM call; may hit rate limit and backoff |
+| Publish | 5–10s | Image upload + Ghost API |
+| Index | 2–5s | Direct chunking + embedding (no LLM) |
+| **Cooldowns** | 60–120s total | Adaptive; depends on RPM pressure |
+| **Total** | **4–6 minutes** | End-to-end for a typical BLOG run |
