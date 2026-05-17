@@ -186,6 +186,7 @@ async def _run_agent_with_fallback(
         logger.warning("%s: select_model failed (non-fatal): %s", agent_name, sel_err)
 
     try:
+        last_exc: Exception | None = None
         for attempt in range(max_attempts):
             try:
                 result = await asyncio.wait_for(
@@ -254,10 +255,16 @@ async def _run_agent_with_fallback(
                     # to wait for the rolling 60s RPM window to clear.  A
                     # < 90s wait is cheaper than falling back to mini for the
                     # entire remaining pipeline.
+                    # NOTE: only take this path when wait_s > 0 (genuine RPM
+                    # pressure detected).  If wait_s == 0, the RPM tracker
+                    # sees no pressure but we still got a 429 — that means
+                    # a TPM/daily limit, not RPM.  Retrying immediately on the
+                    # same model would spin all 6 attempts without ever
+                    # falling back.
                     if not _is_413_error(exc):
                         try:
                             wait_s = await get_rpm_clear_wait(pool, current_model, max_wait=90)
-                            if wait_s < 90:
+                            if 0 < wait_s < 90:
                                 logger.info(
                                     "%s: RPM window for %s clears in %ds — "
                                     "waiting to avoid fallback (attempt %d/%d)",
@@ -266,9 +273,12 @@ async def _run_agent_with_fallback(
                                 )
                                 await asyncio.sleep(wait_s)
                                 continue  # retry same model
+                            # wait_s == 0: no RPM pressure but 429 still fired
+                            # → TPM/daily limit; fall through to model fallback
                         except Exception:
                             pass  # check failed — fall through to normal backoff
 
+                    last_exc = exc
                     fallback = get_fallback(current_model)
                     if fallback:
                         backoff = min(_RETRY_BACKOFF_BASE * (2 ** attempt), 300)
@@ -296,14 +306,19 @@ async def _run_agent_with_fallback(
                             "%s exhausted all fallback models after %s on %s",
                             agent_name, type(exc).__name__, current_model,
                         )
+                        last_exc = exc
                         raise RuntimeError(
                             f"{agent_name} failed — rate-limited on every model in "
                             f"the fallback chain. Last model: {current_model}"
                         ) from exc
                 else:
+                    last_exc = exc
                     raise
 
-        raise RuntimeError(f"{agent_name} failed after {max_attempts} attempts")
+        err_msg = f"{agent_name} failed after {max_attempts} attempts"
+        if last_exc is not None:
+            err_msg += f" — last error: {type(last_exc).__name__}: {last_exc}"
+        raise RuntimeError(err_msg)
     finally:
         # Always restore original model so fallback doesn't leak to next stage
         agent.model = original_model
