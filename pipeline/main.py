@@ -865,16 +865,18 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             except Exception as _cache_err:
                 logger.warning("Could not cache research JSON: %s", _cache_err)
 
-        # Persist research JSON to corpus
+        # Persist research JSON to corpus — use semantic chunking so each
+        # finding and subtopic becomes its own retrievable chunk rather than
+        # the entire JSON blob becoming a single oversized chunk.
         research_doc_name = f"{today_str}-{slug}-research"
         try:
-            from pipeline.tools.corpus import _index_document_impl
-            await _index_document_impl(
-                content=research_output,
+            from pipeline.tools.corpus import _index_research_json
+            _idx_result = await _index_research_json(
+                research_json=research_output,
                 source=research_doc_name,
-                doc_type="research",
+                date=today_str,
             )
-            logger.info("Research JSON saved to DB as '%s'", research_doc_name)
+            logger.info("Research JSON indexed: %s", _idx_result)
         except Exception as _idx_err:
             logger.warning("Could not save research to DB: %s", _idx_err)
 
@@ -1472,13 +1474,15 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> None:
         await log_model_call(pool, researcher.model, tokens_in=r_tin, tokens_out=r_tout, phase="research")
         logger.info("Research complete (tokens: in=%d out=%d)", r_tin, r_tout)
 
-        # Index to corpus — bypass Indexer agent to avoid 413 Payload Too Large
+        # Index to corpus — bypass Indexer agent to avoid 413 Payload Too Large.
+        # Use _index_research_json to store each finding/subtopic as its own
+        # chunk rather than the entire JSON as a single blob.
         logger.info("Indexing research to corpus (direct)...")
-        from pipeline.tools.corpus import _index_document_impl
-        index_output = await _index_document_impl(
-            content=research_output,
+        from pipeline.tools.corpus import _index_research_json
+        index_output = await _index_research_json(
+            research_json=research_output,
             source=f"{today_str}-{slug}-research",
-            doc_type="research",
+            date=today_str,
         )
 
         logger.info("%s pipeline complete", prefix.strip().upper())

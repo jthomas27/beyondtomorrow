@@ -26,6 +26,13 @@ This document describes the full research-and-publish pipeline: how each agent w
 - [Pre-Publish Guardrails](#pre-publish-guardrails)
 - [Recovery Flows](#recovery-flows)
 - [Knowledge Corpus (RAG)](#knowledge-corpus-rag)
+  - [Database Schema](#database-schema)
+  - [How Content Enters the Corpus](#how-content-enters-the-corpus)
+  - [Research Source Sanitisation](#research-source-sanitisation)
+  - [How Content is Retrieved](#how-content-is-retrieved)
+  - [Corpus Output Cap](#corpus-output-cap)
+  - [Chunking Strategy](#chunking-strategy)
+  - [Research JSON Indexing](#research-json-indexing)
 - [Email Trigger System](#email-trigger-system)
 - [Configuration Reference](#configuration-reference)
 - [Strengths and Weaknesses](#strengths-and-weaknesses)
@@ -134,7 +141,7 @@ This document describes the full research-and-publish pipeline: how each agent w
                     ┌────────▼────────┐
                     │  5. INDEX       │  No LLM (direct call)
                     │  _index_document│  Chunk + embed + store
-                    │  _impl()       │  Output: chunk count
+                    │  _impl()        │  Output: chunk count
                     └─────────────────┘
 ```
 
@@ -152,7 +159,7 @@ This document describes the full research-and-publish pipeline: how each agent w
    - Optionally calls `search_arxiv` for academic topics
    - Scores source credibility (1–5); discards 1/5 sources
 4. **Output** — structured JSON with `key_findings`, `subtopics`, `suggested_angles`, `gaps`, `source_list`
-5. **Post-processing** — research JSON is cached to disk and indexed into the corpus via `_index_document_impl()`
+5. **Post-processing** — research JSON is cached to disk and indexed into the corpus via `_index_research_json()` (see [Research JSON Indexing](#research-json-indexing))
 
 **Key constraint:** Only asserts claims supported by retrieved sources. Single-source claims flagged as "medium" confidence.
 
@@ -283,9 +290,11 @@ The Indexer agent was bypassed to avoid 413 Payload Too Large errors. The SDK co
 
 **Process:**
 1. Reads edited file from disk
-2. Chunks text (350 words max, 35-word overlap)
+2. Chunks markdown text (350 words max, 35-word overlap at paragraph and heading boundaries)
 3. Batch-embeds all chunks via `BAAI/bge-small-en-v1.5`
 4. Upserts document + chunks + embeddings into pgvector
+
+Note: research JSON indexing (Stage 1) uses `_index_research_json()` rather than `_index_document_impl()` — see [Research JSON Indexing](#research-json-indexing).
 
 ---
 
@@ -538,7 +547,7 @@ The `ts` column is a `GENERATED ALWAYS AS (to_tsvector('english', content)) STOR
 |---|---|---|
 | Web search results | `search_and_index` tool (Researcher) | `webpage` |
 | arXiv abstracts | `search_arxiv` tool | `research` |
-| Research JSON | `_index_document_impl()` (after Research stage) | `research` |
+| Research JSON | `_index_research_json()` (after Research stage) | `research` |
 | Published posts | `_index_document_impl()` (after Index stage) | `article` |
 
 ### Research Source Sanitisation
@@ -580,7 +589,24 @@ The cap is configurable in `config/limits.yaml` under `search.corpus.max_chars_p
 - Max 350 words per chunk, 35-word overlap
 - Splits at paragraph boundaries (double newlines)
 - Respects markdown heading breaks
+- **Oversized single paragraphs** — if a paragraph (including any compact JSON blob with no `\n\n` separators) exceeds 350 words, `_word_split()` subdivides it into correctly-sized word-boundary chunks with overlap, rather than storing one oversized chunk that would be truncated by the embedding model at 512 tokens
 - Embeddings: 384 dimensions via `BAAI/bge-small-en-v1.5` (local, zero cost; 512-token context window)
+
+### Research JSON Indexing
+
+Research output from the Researcher agent is a compact, single-line JSON string with no paragraph breaks. Passing it to `_index_document_impl()` would store the entire blob as one chunk regardless of length — yielding a single oversized embedding that the model truncates at 512 tokens and that is too coarse for targeted RAG retrieval.
+
+Instead, both the BLOG and RESEARCH pipelines call **`_index_research_json()`** in `pipeline/tools/corpus.py`, which:
+
+1. Calls `_index_document_impl()` to store the full JSON as the parent document (for full-document retrieval)
+2. Parses the JSON and stores each semantic unit as its own chunk via `embed_and_store()`:
+   - One chunk per `key_finding` with `metadata={"type": "finding", "confidence": "..."}` — source URLs appended so retrievers surface them alongside the claim
+   - One chunk per `subtopic` with `metadata={"type": "subtopic", "name": "..."}` — includes name, summary, and bullet points
+3. Falls back gracefully to `_index_document_impl()` alone if the JSON cannot be parsed
+
+**Example:** a research run on "Insurance costs and climate risk repricing" (1,005 output tokens ≈ 6–8 findings + 3–4 subtopics) previously stored 1 chunk. After this change it stores ~11–13 distinct chunks, each independently retrievable by semantic similarity.
+
+**Files:** `pipeline/tools/corpus.py` → `_index_research_json()`, `_word_split()`, `_chunk_text()`
 
 ---
 

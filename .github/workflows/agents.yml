@@ -1,15 +1,12 @@
 name: Research Agent
 
 on:
-  # Scheduled run — Saturdays at 08:00 UK time (testing mode)
-  # GitHub Actions cron is UTC. UK time zones:
-  #   GMT (UTC+0): Oct–Mar  → 08:00 UK = 08:00 UTC  cron: "0 8 * * 6"
-  #   BST (UTC+1): Mar–Oct  → 08:00 UK = 07:00 UTC  cron: "0 7 * * 6"
-  # Clocks go forward 29 Mar 2026 — change to "0 7 * * 6" after that date.
+  # Saturdays at 08:00 BST (07:00 UTC, Mar–Oct).
+  # Change back to "0 8 * * 6" when clocks go back in October 2026.
   schedule:
-    - cron: "0 8 * * 6"
+    - cron: "0 7 * * 6"
 
-  # Manual trigger with topic input
+  # Manual trigger — supports any BLOG:, RESEARCH:, REPORT:, or PUBLISH: task.
   workflow_dispatch:
     inputs:
       task:
@@ -21,21 +18,20 @@ on:
         required: false
         default: ""
 
-  # Trigger from repository_dispatch (for email-triggered runs via Railway webhook)
-  repository_dispatch:
-    types: [research-task]
-
 jobs:
   run-agent:
     name: Run Research Agent
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     env:
       GITHUB_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       GHOST_URL: ${{ secrets.GHOST_URL }}
       GHOST_ADMIN_KEY: ${{ secrets.GHOST_ADMIN_KEY }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      NOTIFY_EMAIL: admin@beyondtomorrow.world
 
     steps:
       - name: Checkout repository
@@ -50,32 +46,45 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Determine task
-        id: task
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "task=${{ github.event.inputs.task }}" >> "$GITHUB_OUTPUT"
-            echo "model=${{ github.event.inputs.model }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            echo "task=${{ github.event.client_payload.task }}" >> "$GITHUB_OUTPUT"
-            echo "model=" >> "$GITHUB_OUTPUT"
-          else
-            # Scheduled weekly run — RESEARCH keeps cost within testing budget
-            # (avoids triggering the full BLOG: pipeline: Writer + Editor + Publisher)
-            echo "task=RESEARCH: latest developments in AI safety and alignment" >> "$GITHUB_OUTPUT"
-            echo "model=openai/gpt-4.1-nano" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Check agent status
         run: python -m pipeline.main status
 
-      - name: Run agent
+      # -----------------------------------------------------------------------
+      # Scheduled path — pick 3 topics from config/topics.yaml and research each.
+      # All 3 run even if one fails; the step exits non-zero if any failed.
+      # -----------------------------------------------------------------------
+
+      - name: Pick research topics
+        if: github.event_name == 'schedule'
+        id: topics
+        run: python scripts/pick_research_topics.py
+
+      - name: Run weekly research
+        if: github.event_name == 'schedule'
+        run: |
+          FAILED=0
+          python -m pipeline.main "RESEARCH: ${{ steps.topics.outputs.topic1 }}" || FAILED=1
+          python -m pipeline.main "RESEARCH: ${{ steps.topics.outputs.topic2 }}" || FAILED=1
+          python -m pipeline.main "RESEARCH: ${{ steps.topics.outputs.topic3 }}" || FAILED=1
+          exit $FAILED
+
+      # -----------------------------------------------------------------------
+      # Manual path — run any task directly with optional model override.
+      # -----------------------------------------------------------------------
+
+      - name: Run manual task
+        if: github.event_name == 'workflow_dispatch'
         run: |
           MODEL_FLAG=""
-          if [ -n "${{ steps.task.outputs.model }}" ]; then
-            MODEL_FLAG="--model ${{ steps.task.outputs.model }}"
+          if [ -n "${{ github.event.inputs.model }}" ]; then
+            MODEL_FLAG="--model ${{ github.event.inputs.model }}"
           fi
-          python -m pipeline.main $MODEL_FLAG "${{ steps.task.outputs.task }}"
+          python -m pipeline.main $MODEL_FLAG "${{ github.event.inputs.task }}"
+
+      # -----------------------------------------------------------------------
+      # Always: upload research output artifacts.
+      # On failure: send notification email via Hostinger SMTP.
+      # -----------------------------------------------------------------------
 
       - name: Upload research output
         if: always()
@@ -85,3 +94,12 @@ jobs:
           path: research/
           retention-days: 30
           if-no-files-found: ignore
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          python scripts/notify_research_failure.py \
+            --to "${{ env.NOTIFY_EMAIL }}" \
+            --topic "Weekly research run" \
+            --error "One or more steps failed — check the Actions log for details." \
+            --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

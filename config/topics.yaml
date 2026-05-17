@@ -1,0 +1,87 @@
+# config/topics.yaml
+#
+# Source of truth for automated weekly research topics.
+#
+# The weekly GitHub Actions job reads this file to pick 3 topics per run.
+# Edit this file to add, remove, or update topics — changes are picked up
+# automatically on the next scheduled Saturday run.
+#
+# RULES:
+#   - Keep at least 3 topics per theme (the job picks one per selected theme)
+#   - Write topics as research questions, not headlines
+#   - Each topic is passed directly as: RESEARCH: <topic>
+#
+# ROTATION LOGIC:
+#   Each week, 3 themes are selected (rotating across all 5 each week).
+#   Within each theme, one topic is chosen using the ISO week number as a seed.
+#   With 6+ topics per theme, the full cycle completes in ~30 weeks.
+#
+# See docs/RESEARCH_TOPICS.md for the numbered human-readable reference.
+
+themes:
+
+  - name: climate
+    label: "Climate & Energy Transition"
+    topics:
+      - "Physical and transition climate risks"
+      - "Carbon pricing mechanisms"
+      - "Stranded asset exposure in fossil fuel-dependent sectors"
+      - "Ocean carbon sinks: capacity limits and tipping point evidence"
+      - "Green hydrogen: production costs and fossil fuel parity timelines"
+      - "Supply chain disruptions from climate events"
+      - "Insurance costs and climate risk repricing"
+      - "Economic impacts of climate change on agriculture and transportation"
+
+  - name: ai_technology
+    label: "AI & Technology"
+    topics:
+      - "AI energy consumption: data centre growth and grid stress projections"
+      - "Frontier AI governance: comparing US, EU, and UK regulatory approaches"
+      - "AI in drug discovery: clinical pipeline acceleration and failure rates"
+      - "Semiconductor supply chain concentration and geopolitical chokepoints"
+      - "Autonomous systems in conflict: legal accountability gaps"
+      - "AI and labour market displacement: sectoral evidence and policy responses"
+      - "Technological AI innovations and capability trajectories"
+      - "Prompting and AI skills: best practice for knowledge workers"
+      - "Role of AI in the workplace: productivity evidence and adoption barriers"
+      - "Role of AI in social interactions and relationships"
+      - "Legal rights of AI: personhood, liability, and emerging frameworks"
+
+  - name: geopolitics
+    label: "Geopolitics & Macro"
+    topics:
+      - "US-China technology decoupling: supply chain restructuring progress"
+      - "BRICS expansion and the challenge to dollar dominance"
+      - "Critical mineral geopolitics: lithium, cobalt, and rare earth control"
+      - "Arctic shipping route competition and sovereignty disputes"
+      - "Sanctions effectiveness: economic evidence from recent case studies"
+      - "The geopolitics of food security: export restrictions and price volatility"
+      - "AI regulations and international safeguards"
+      - "AI race-to-the-bottom risks and consumer safety implications"
+
+  - name: economics
+    label: "Economics & Investment Risk"
+    topics:
+      - "Financial stability risks and central bank policy normalisation"
+      - "ESG ratings: divergence, methodology, and reform proposals"
+      - "Climate stress testing in banking: NGFS scenario adoption progress"
+      - "Private credit market growth and systemic risk implications"
+      - "Inflation persistence: wage-price dynamics in post-COVID labour markets"
+      - "Sovereign debt distress in emerging markets and climate vulnerability linkages"
+      - "Financial instability caused by supply and demand shocks"
+      - "Capex spending trends across regions and sectors"
+      - "Equity valuations of AI companies: bubble risk or justified premium"
+      - "Market competition dynamics and future earnings expectations"
+      - "Investment opportunities in the energy transition"
+      - "Market concentration in hyperscalers and AI supply chain"
+      - "Energy demand and consumption: projections and investment implications"
+
+  - name: futures
+    label: "Futures & Society"
+    topics:
+      - "Demographic transition in East Asia: economic and geopolitical implications"
+      - "Longevity risk: healthcare cost trajectories and pension system solvency"
+      - "Digital public infrastructure: India's model and global replication"
+      - "The future of work: hybrid norms, productivity evidence, and urban impact"
+      - "Biosecurity gaps: pandemic preparedness funding post-COVID"
+      - "Space economy: satellite infrastructure, orbital congestion, and investment flows"

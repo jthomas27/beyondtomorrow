@@ -429,11 +429,129 @@ async def embed_and_store(text: str, source: str, metadata_json: str = "{}") -> 
     return f"Stored 1 chunk from '{source}'."
 
 
+async def _index_research_json(research_json: str, source: str, date: str = "") -> str:
+    """Index research JSON with semantic-aware chunking.
+
+    Unlike _index_document_impl (which word-chunks the raw JSON string),
+    this function parses the structured research output and stores each
+    key_finding and subtopic as an individual chunk with rich metadata.
+    This makes RAG retrieval highly specific — a query about "insurance
+    premiums" will surface the exact finding, not a blob of mixed JSON.
+
+    Structure indexed:
+      - One chunk per key_finding  (metadata: type=finding, confidence=...)
+      - One chunk per subtopic     (metadata: type=subtopic, name=...)
+      - Full JSON as parent doc    (metadata: type=research) via _index_document_impl
+
+    Falls back to _index_document_impl if JSON cannot be parsed.
+
+    Args:
+        research_json: Raw JSON string output from the Researcher agent.
+        source:        Unique document identifier (e.g. "2026-05-17-topic-research").
+        date:          ISO date string (YYYY-MM-DD). Defaults to today.
+    """
+    doc_date = date or str(_date.today())
+
+    # 1. Always index the full JSON as the parent document so it can be
+    #    retrieved as a whole — this also creates the documents table record.
+    parent_result = await _index_document_impl(research_json, source, "research", doc_date)
+
+    # 2. Try to parse and index semantic sub-chunks.
+    try:
+        data = json.loads(research_json)
+    except (json.JSONDecodeError, ValueError):
+        # Not valid JSON — parent doc indexing is sufficient.
+        return parent_result
+
+    semantic_count = 0
+
+    # 2a. Key findings — most valuable for RAG retrieval
+    for i, finding in enumerate(data.get("key_findings", [])):
+        finding_text = finding.get("finding", "").strip()
+        if not finding_text:
+            continue
+        confidence = finding.get("confidence", "medium")
+        sources = finding.get("sources", [])
+        # Append source URLs so the retriever surfaces them alongside the finding
+        chunk_text = finding_text
+        if sources:
+            chunk_text += "\n\nSources: " + ", ".join(sources[:3])
+        meta = json.dumps({
+            "type": "finding",
+            "confidence": confidence,
+            "source_doc": source,
+            "date": doc_date,
+        })
+        await embed_and_store(
+            chunk_text,
+            source=f"{source}:finding:{i}",
+            metadata_json=meta,
+        )
+        semantic_count += 1
+
+    # 2b. Subtopics — useful for section-level retrieval
+    for i, subtopic in enumerate(data.get("subtopics", [])):
+        name = subtopic.get("name", "").strip()
+        summary = subtopic.get("summary", "").strip()
+        bullets = subtopic.get("bullet_points", [])
+        if not (name or summary):
+            continue
+        chunk_parts = []
+        if name:
+            chunk_parts.append(name)
+        if summary:
+            chunk_parts.append(summary)
+        if bullets:
+            chunk_parts.append("\n".join(f"- {b}" for b in bullets if b))
+        chunk_text = "\n\n".join(chunk_parts)
+        meta = json.dumps({
+            "type": "subtopic",
+            "name": name,
+            "source_doc": source,
+            "date": doc_date,
+        })
+        await embed_and_store(
+            chunk_text,
+            source=f"{source}:subtopic:{i}",
+            metadata_json=meta,
+        )
+        semantic_count += 1
+
+    n_findings = len(data.get("key_findings", []))
+    n_subtopics = len(data.get("subtopics", []))
+    return (
+        f"Indexed research JSON from '{source}': "
+        f"parent doc + {n_findings} findings + {n_subtopics} subtopics "
+        f"= {semantic_count + 1} total chunks."
+    )
+
+
+def _word_split(text: str, max_words: int, overlap_words: int) -> list[str]:
+    """Word-level splitter for text that has no paragraph breaks.
+
+    Used as a fallback when a single paragraph/blob exceeds max_words — e.g.
+    compact JSON strings or long sentences with no double-newlines.
+    """
+    words = text.split()
+    step = max(1, max_words - overlap_words)
+    result: list[str] = []
+    i = 0
+    while i < len(words):
+        chunk_words = words[i:i + max_words]
+        result.append(" ".join(chunk_words))
+        i += step
+    return result
+
+
 def _chunk_text(text: str, max_words: int = 200, overlap_words: int = 30) -> list[str]:
     """Split text into overlapping chunks at paragraph and section boundaries.
 
     Default max_words=200 matches the ~256-token input limit of
     all-MiniLM-L6-v2 so every chunk is fully represented by its embedding.
+
+    Oversized single paragraphs (including compact JSON blobs with no
+    double-newlines) are word-split via _word_split so no chunk ever exceeds
+    max_words.
     """
     # Normalise section breaks (--- dividers, markdown headings) into
     # double-newlines so they act as split points
@@ -446,6 +564,18 @@ def _chunk_text(text: str, max_words: int = 200, overlap_words: int = 30) -> lis
 
     for para in paragraphs:
         para_words = len(para.split())
+
+        # A single paragraph that exceeds max_words can never fit — word-split
+        # it immediately rather than leaving it as one oversized chunk.
+        if para_words > max_words:
+            # Flush whatever is buffered first.
+            if current:
+                chunks.append("\n\n".join(current))
+                current = []
+                current_words = 0
+            chunks.extend(_word_split(para, max_words, overlap_words))
+            continue
+
         if current_words + para_words > max_words and current:
             chunks.append("\n\n".join(current))
             # Build overlap: keep trailing text up to overlap_words
