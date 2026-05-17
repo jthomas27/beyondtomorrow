@@ -114,7 +114,15 @@ def _clean_llm_text(content: str) -> str:
          word\\x1as     →  word's        (possessive/contraction: it's, here's)
          word\\x1are    →  word're       (contraction: they're)
          word\\x1a word →  word, word    (clause separator → comma)
-
+    2b. ASCII RS/US characters (\x1e chr(30) and \x1f chr(31)) used as punctuation
+        substitutes (gpt-4.1-mini 413-fallback artefact, confirmed 2026-05-04):
+          \x1eword\x1f      →  'word'       scare-quoted term
+          \x1eterm\x1e\x1e  →  term—        quoted term + em-dash (close+mdash compressed)
+          \x1e<digit>       →  €<digit>     currency symbol (European finance context)
+          word\x1e(s|t|…)   →  word'suffix  apostrophe in contraction/possessive
+          word\x1eword      →  word—word    em-dash between clause fragments
+          (stray \x1f)      →  '            fallback right single quote
+        Ghost strips \x1e/\x1f during HTML rendering, causing punctuation to vanish.
     3. Newline-split contractions (gpt-4.1-mini 413-fallback artefact):
          word\\n\\nre   →  word're       (they're, we're, you're)
          word\\n\\nt    →  word't        (don't, can't, won't)
@@ -167,6 +175,35 @@ def _clean_llm_text(content: str) -> str:
     # Remaining \x1a → comma-space (used as clause/list separator)
     content = content.replace("\x1a", ", ")
 
+    # 4b. Fix \x1e (ASCII RS) and \x1f (ASCII US) used as punctuation substitutes.
+    #     Observed in gpt-4.1-mini 413-fallback output (2026-05-04).
+    #     Ghost strips these silently, causing apostrophes/dashes to vanish.
+
+    # 4b-i.  Scare quotes: \x1eword(s)\x1f  →  'word(s)'
+    content = re.sub(
+        r"\x1e([A-Za-z][A-Za-z ]*)\x1f",
+        lambda m: "\u2018" + m.group(1) + "\u2019",
+        content,
+    )
+    # 4b-ii. Quoted term + em-dash: \x1eterm\x1e\x1e  →  term—
+    content = re.sub(
+        r"\x1e([A-Za-z][A-Za-z ]*[A-Za-z])\x1e\x1e",
+        lambda m: m.group(1) + "\u2014",
+        content,
+    )
+    # 4b-iii. \x1e before a digit → € (currency; European/finance context)
+    content = re.sub(r"\x1e(\d)", lambda m: "\u20ac" + m.group(1), content)
+    # 4b-iv.  \x1e as apostrophe in contractions/possessives
+    content = re.sub(
+        r"([A-Za-z])\x1e(s|t|re|ve|ll|d|m)\b",
+        lambda m: m.group(1) + "\u2019" + m.group(2),
+        content,
+    )
+    # 4b-v.   Remaining \x1e → em-dash
+    content = content.replace("\x1e", "\u2014")
+    # 4b-vi.  Stray \x1f (close-quote orphan) → right single quote
+    content = content.replace("\x1f", "\u2019")
+
     # 5. Strip any remaining null bytes
     content = content.replace("\x00", "")
 
@@ -193,6 +230,11 @@ def _clean_llm_text(content: str) -> str:
         r"\1 — \2",
         content,
     )
+
+    # 8a. U+0019 used as apostrophe — occurs when U+2019 (\u2019) is stripped
+    #     to its low byte (0x19) somewhere in the encoding pipeline. Replace
+    #     between word characters with the correct right single quotation mark.
+    content = re.sub(r"(?<=[A-Za-z])\x19(?=[A-Za-z])", "\u2019", content)
 
     # 8. Windows-1252 C1 control characters (U+0080–U+009F) — emitted by
     #    gpt-4.1-mini fallback. Ghost renders them as their decimal byte value
@@ -262,7 +304,16 @@ def _validate_punctuation(content: str) -> str:
         _file_logger.warning("Orphaned HTML entities found (auto-fixing): %s", _orphaned_entities[:5])
         content = _html.unescape(content)
 
-    # 6. Detect surviving C1 control characters (U+0080–U+009F)
+    # 6. Detect surviving C1 control characters (U+0080–U+009F) or stray
+    #    U+0019 apostrophe bytes
+    _c0_apos = re.findall(r"(?<=[A-Za-z])\x19(?=[A-Za-z])", content)
+    if _c0_apos:
+        _file_logger.warning(
+            "U+0019 apostrophe bytes survived _clean_llm_text (%d found) — "
+            "replacing with U+2019",
+            len(_c0_apos),
+        )
+        content = re.sub(r"(?<=[A-Za-z])\x19(?=[A-Za-z])", "\u2019", content)
     _c1_chars = re.findall(r"[\x80-\x9f]", content)
     if _c1_chars:
         _file_logger.warning(

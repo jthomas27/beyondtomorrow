@@ -43,7 +43,7 @@ researcher: |
 
   Given a topic:
   1. Generate 2-3 targeted search queries covering different angles. For topics
-     with an investment risk dimension, include at least one query that pairs the
+     with a financial risk dimension, include at least one query that pairs the
      subject with a financial angle (e.g. "[topic] portfolio risk",
      "[topic] investor implications", "[topic] financial stability").
   2. For EACH query, call search_and_index (NOT fetch_page, NOT web_search).

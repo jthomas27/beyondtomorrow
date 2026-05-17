@@ -285,6 +285,8 @@ Uses `gpt-4.1` at `temperature=0.3`, `max_tokens=2500`. Tools: `read_research_fi
 > **Why 2500?** The Editor's total request body = input tokens (~5,000: system prompt + edit prompt + research compact + draft file via tool) + `max_tokens`. Setting `max_tokens=2500` keeps the total under the 8,000-token hard limit, preventing 413 fallback to `gpt-4.1-mini`.
 >
 > **gpt-4.1-mini C1 punctuation corruption**: when `gpt-4.1-mini` is used as an editor (via 413 fallback), it emits Windows-1252 smart-punctuation codepoints in the Unicode C1 control range (U+0091–U+0097) instead of proper typographic chars. Ghost strips these control characters during HTML rendering, leaving their two-hex-digit code as literal text (e.g. `it's` → `it92s`, `chips—have` → `chips92have`, `restricted—by` → `restricted94by`). `pipeline/tools/files.py` → `_clean_llm_text` contains step 8 which maps the full C1 range to proper Unicode before any content reaches Ghost.
+>
+> **gpt-4.1-mini `\x1e`/`\x1f` punctuation omission** *(confirmed 2026-05-04)*: a second fallback failure mode. The model emits ASCII RS (`\x1e`, U+001E) and ASCII US (`\x1f`, U+001F) as punctuation substitutes instead of apostrophes, em-dashes, and scare-quote markers. Ghost silently strips both characters, making punctuation vanish entirely (e.g. `It's` → `Its`, `themselves—and` → `themselvesand`, `'Free'` → `Free`). `_clean_llm_text` step 4b maps the full set of `\x1e`/`\x1f` patterns before any content reaches Ghost — scare quotes (`\x1eword\x1f` → `'word'`), quoted term + em-dash (`\x1eterm\x1e\x1e` → `term—`), currency (`\x1e<digit>` → `€<digit>`), apostrophes, and em-dashes.
 
 **Review checklist**:
 1. **Title quality** — must be punchy (6–10 words), factual, attention-grabbing without being misleading; rewrite before anything else if it fails this standard
@@ -362,6 +364,7 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 > **Fallback chain**: `gpt-4.1` → `gpt-4.1-mini` → `gpt-4.1-nano`
 > **RPM-wait-before-fallback**: when `gpt-4.1` is temporarily rate-limited (RPM exceeded but daily budget fine), `_run_agent_with_fallback` calls `get_rpm_clear_wait()` in `guardrails.py`. If the 60s window clears within 90s, the pipeline **waits** and keeps `gpt-4.1` rather than downgrading to `gpt-4.1-mini`. This prevents quality degradation when two pipeline runs are launched close together.
 > **C1 corruption risk**: `gpt-4.1-mini` emits Windows-1252 C1 control characters (U+0091–U+0097) for smart quotes and dashes. These are sanitised by `_clean_llm_text` in `pipeline/tools/files.py` (step 8). The real guard is keeping the Editor's max_tokens at 2,500 so the primary `gpt-4.1` model is never swapped out.
+> **`\x1e`/`\x1f` omission risk** *(confirmed 2026-05-04)*: a second `gpt-4.1-mini` fallback failure: ASCII RS (`\x1e`) and US (`\x1f`) used as punctuation substitutes (apostrophes, em-dashes, scare quotes, currency symbols). Ghost strips both silently. `_clean_llm_text` step 4b handles all patterns. Post `who-really-pays-for-europes-fuel-relief` was affected and patched directly via Ghost API using `scripts/fix_fuel_relief_post.py`.
 
 ---
 
