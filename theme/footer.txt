@@ -1,0 +1,50 @@
+<script>
+(function () {
+  'use strict';
+
+  function injectSearchButton() {
+    // Avoid double-injection
+    if (document.querySelector('.bt-search-btn')) return;
+
+    // Target the header actions area — works across Source, Casper, and
+    // custom themes. Fall back through progressively broader selectors.
+    var target =
+      document.querySelector('.gh-head-actions') ||
+      document.querySelector('.gh-head-menu') ||
+      document.querySelector('.gh-head') ||
+      document.querySelector('.site-header');
+
+    if (!target) return;
+
+    var btn = document.createElement('button');
+    btn.setAttribute('data-ghost-search', '');
+    btn.setAttribute('aria-label', 'Search posts');
+    btn.className = 'bt-search-btn';
+    btn.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<circle cx="11" cy="11" r="8"/>' +
+        '<line x1="21" y1="21" x2="16.65" y2="16.65"/>' +
+      '</svg>' +
+      '<span>Search</span>' +
+      '<kbd class="bt-search-kbd">/</kbd>';
+
+    target.appendChild(btn);
+  }
+
+  // Keyboard shortcut: press / to open search (skip when focused in inputs)
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== '/') return;
+    var tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    e.preventDefault();
+    var btn = document.querySelector('[data-ghost-search]');
+    if (btn) btn.click();
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectSearchButton);
+  } else {
+    injectSearchButton();
+  }
+})();
+</script>

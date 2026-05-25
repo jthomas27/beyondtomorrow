@@ -422,57 +422,6 @@ hr {
     color: var(--bt-text);
 }
 
-/* ─── Search Button ─── */
-.bt-search-btn {
-    background: transparent !important;
-    border: 1px solid var(--bt-border) !important;
-    border-radius: 100px !important;
-    color: var(--bt-accent) !important;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 14px !important;
-    font-family: 'Space Grotesk', sans-serif !important;
-    font-size: 0.9rem !important;
-    font-weight: 500 !important;
-    transition: all 0.2s ease !important;
-    margin-left: 12px;
-    vertical-align: middle;
-}
-
-.bt-search-btn:hover {
-    background: var(--bt-accent-dim) !important;
-    border-color: rgba(200, 184, 255, 0.25) !important;
-    transform: translateY(-1px) !important;
-}
-
-.bt-search-btn svg {
-    width: 15px;
-    height: 15px;
-    stroke: currentColor;
-    fill: none;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    flex-shrink: 0;
-}
-
-.bt-search-kbd {
-    background: rgba(200, 184, 255, 0.08);
-    border: 1px solid var(--bt-border);
-    border-radius: 4px;
-    color: var(--bt-text-muted);
-    font-size: 0.7rem;
-    padding: 1px 5px;
-    letter-spacing: 0.02em;
-}
-
-/* Search modal theming — override Ghost Portal sodo-search defaults */
-#sodo-search-root {
-    --ghost-accent-color: #c8b8ff !important;
-}
-
 /* ─── Smooth transitions on page load ─── */
 .post-card, .gh-card, .post-feed {
     animation: fadeInUp 0.6s ease both;

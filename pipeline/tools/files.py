@@ -114,7 +114,11 @@ def _clean_llm_text(content: str) -> str:
          word\\x1as     →  word's        (possessive/contraction: it's, here's)
          word\\x1are    →  word're       (contraction: they're)
          word\\x1a word →  word, word    (clause separator → comma)
-    2b. ASCII RS/US characters (\x1e chr(30) and \x1f chr(31)) used as punctuation
+    2b. ASCII DC4 character (\x14, chr(20)) used as em-dash substitute
+        (gpt-4.1-mini 413-fallback artefact, confirmed 2026-05-23):
+          word\x14word  →  word—word
+        Ghost strips \x14 during HTML rendering, causing dashes to vanish entirely.
+    2c. ASCII RS/US characters (\x1e chr(30) and \x1f chr(31)) used as punctuation
         substitutes (gpt-4.1-mini 413-fallback artefact, confirmed 2026-05-04):
           \x1eword\x1f      →  'word'       scare-quoted term
           \x1eterm\x1e\x1e  →  term—        quoted term + em-dash (close+mdash compressed)
@@ -203,6 +207,11 @@ def _clean_llm_text(content: str) -> str:
     content = content.replace("\x1e", "\u2014")
     # 4b-vi.  Stray \x1f (close-quote orphan) → right single quote
     content = content.replace("\x1f", "\u2019")
+
+    # 4c. Fix \x14 (ASCII DC4) used as em-dash substitute.
+    #     Confirmed in gpt-4.1-mini 413-fallback output (2026-05-23).
+    #     Ghost strips this control character silently, causing dashes to vanish.
+    content = content.replace("\x14", "\u2014")
 
     # 5. Strip any remaining null bytes
     content = content.replace("\x00", "")

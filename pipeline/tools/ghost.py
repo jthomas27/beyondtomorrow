@@ -221,6 +221,36 @@ async def upload_image_to_ghost(image_path: str) -> str:
     return f"Error: Unexpected response from Ghost image upload: {data}"
 
 
+async def _fetch_published_slugs(ghost_url: str, admin_key: str) -> set[str] | None:
+    """Return the set of all published post slugs from Ghost, or None on error.
+
+    Used by the pre-publish cross-reference guardrail to detect hallucinated
+    links to posts that don't actually exist.
+    """
+    if not ghost_url or ":" not in admin_key:
+        return None
+    key_id, secret = admin_key.split(":", 1)
+    iat = int(time.time())
+    try:
+        token = jwt.encode(
+            {"iat": iat, "exp": iat + 300, "aud": "/admin/"},
+            bytes.fromhex(secret),
+            algorithm="HS256",
+            headers={"alg": "HS256", "typ": "JWT", "kid": key_id},
+        )
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f"{ghost_url}/ghost/api/admin/posts/"
+                "?limit=all&fields=slug&filter=status:published",
+                headers={"Authorization": f"Ghost {token}"},
+            )
+            r.raise_for_status()
+            return {p["slug"] for p in r.json().get("posts", [])}
+    except Exception as exc:
+        logger.warning("Could not fetch published slugs for cross-reference check: %s", exc)
+        return None
+
+
 @function_tool
 async def publish_file_to_ghost(
     filename: str,
@@ -294,6 +324,10 @@ async def publish_file_to_ghost(
     if len(meta_description) > _MAX_META_DESC:
         meta_description = meta_description[:_MAX_META_DESC].rsplit(" ", 1)[0].rstrip(".,;:") + "…"
         logger.info("meta_description trimmed to %d chars.", len(meta_description))
+
+    # Read Ghost credentials now so the cross-reference guardrail can use them.
+    ghost_url = os.environ.get("GHOST_URL", "").rstrip("/")
+    admin_key = os.environ.get("GHOST_ADMIN_KEY", "")
 
     # --- Pre-publish validation ---
     # All items are required. Return MISSING: if any check fails so the
@@ -376,16 +410,45 @@ async def publish_file_to_ghost(
             )
             break
 
+    # --- Internal cross-reference guardrail ---
+    # Scan for hyperlinks that point back to this site. For each one, verify
+    # that a published post with that slug actually exists. This catches
+    # hallucinated cross-references to posts that were never written.
+    # If the Ghost API is unreachable we log a warning and continue — the
+    # guardrail must not block publishing due to a transient network error.
+    _SKIP_PREFIXES = ("tag/", "author/", "ghost/", "content/", "#", "rss/")
+    _bt_domain_esc = re.escape(ghost_url or "beyondtomorrow.world")
+    _internal_link_re = _re_val.compile(
+        rf'href=["\']({_bt_domain_esc}/([^/"\' #]+)/)["\']',
+        _re_val.IGNORECASE,
+    )
+    _internal_matches = _internal_link_re.findall(html_content)
+    if _internal_matches:
+        _published_slugs = await _fetch_published_slugs(ghost_url, admin_key)
+        if _published_slugs is not None:
+            for _link_url, _link_slug in _internal_matches:
+                if any(_link_slug.startswith(p) for p in _SKIP_PREFIXES):
+                    continue  # not a post URL
+                if _link_slug not in _published_slugs:
+                    missing.append(
+                        f"broken internal link: '{_link_url}' references a post with "
+                        f"slug '{_link_slug}' that does not exist in Ghost — "
+                        "remove or correct this cross-reference before publishing"
+                    )
+        else:
+            logger.warning(
+                "Cross-reference check skipped for '%s' — Ghost API unavailable.",
+                filename,
+            )
+    # --- End internal cross-reference guardrail ---
+
     if missing:
-        items = "; ".join(missing)
+        items = '; '.join(missing)
         return (
             f"MISSING: {items} — do not publish until all items are resolved. "
             "Fix the reported issue(s) in the upstream pipeline stage and retry."
         )
     # --- End pre-publish validation ---
-
-    ghost_url = os.environ.get("GHOST_URL", "").rstrip("/")
-    admin_key = os.environ.get("GHOST_ADMIN_KEY", "")
 
     if not ghost_url or not admin_key:
         return "Error: GHOST_URL and GHOST_ADMIN_KEY environment variables must be set."
