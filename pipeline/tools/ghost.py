@@ -410,6 +410,38 @@ async def publish_file_to_ghost(
             )
             break
 
+    # (v) "Pause and think" — a writer's stage direction that must never appear
+    # as literal prose. The LLM sometimes writes "Pause and think:" verbatim,
+    # which reads as an awkward meta-comment rather than engaging narrative.
+    _pause_re = _re_val.compile(r'\bpause\s+and\s+think\b', _re_val.IGNORECASE)
+    _pause_matches = _pause_re.findall(plain_body)
+    if _pause_matches:
+        missing.append(
+            f"prose phrase: 'Pause and think' found {len(_pause_matches)} time(s) — "
+            "this is a writer's stage direction, not prose; rewrite each as a "
+            "direct statement or question and remove the meta-commentary phrase"
+        )
+
+    # (vi) Bare prose cross-references — "see [Title], which..." without a link.
+    # Detects unlinked or hallucinated references to article titles in plain
+    # prose. Pattern: "see [Capitalized phrase], which" — the ", which" is a
+    # strong indicator of a prose title mention rather than external attribution.
+    # All BeyondTomorrow cross-references must be linked with a verified URL
+    # from search_corpus, or omitted entirely.
+    _bare_xref_re = _re_val.compile(
+        r'\bsee\s+([A-Z][A-Za-z\s\u2019\'\-]{15,80}),\s*which\b',
+        _re_val.MULTILINE,
+    )
+    _bare_xref_match = _bare_xref_re.search(plain_body)
+    if _bare_xref_match:
+        _ref_phrase = _bare_xref_match.group(1).strip()[:60]
+        missing.append(
+            f"prose cross-reference: 'see {_ref_phrase}...' — "
+            "article titles must be linked with a verified https:// URL "
+            "(from search_corpus), or omitted entirely; bare title mentions "
+            "fail validation"
+        )
+
     # --- Internal cross-reference guardrail ---
     # Scan for hyperlinks that point back to this site. For each one, verify
     # that a published post with that slug actually exists. This catches
