@@ -362,21 +362,8 @@ async def index_document(content: str, source: str, doc_type: str, date: str = "
     return await _index_document_impl(content, source, doc_type, date)
 
 
-@function_tool
-async def embed_and_store(text: str, source: str, metadata_json: str = "{}") -> str:
-    """Embed a single pre-chunked text and store it in pgvector.
-
-    Use this for individual chunks rather than full documents. For full
-    documents, use index_document instead.
-
-    Creates a proper document → chunk → embedding chain so the record is
-    traceable via search_corpus.
-
-    Args:
-        text: The text chunk to embed and store.
-        source: Source identifier for this chunk.
-        metadata_json: JSON string with additional metadata (e.g. '{"type":"research"}').
-    """
+async def _embed_and_store_impl(text: str, source: str, metadata_json: str = "{}") -> str:
+    """Implementation for embed_and_store — callable directly from pipeline code."""
     vector = embed(text)  # list[float] — codec encodes automatically
     text = _sanitize_for_pg(text)
 
@@ -427,6 +414,25 @@ async def embed_and_store(text: str, source: str, metadata_json: str = "{}") -> 
             )
 
     return f"Stored 1 chunk from '{source}'."
+
+
+@function_tool
+async def embed_and_store(text: str, source: str, metadata_json: str = "{}") -> str:
+    """Embed a single pre-chunked text and store it in pgvector.
+
+    Use this for individual chunks rather than full documents. For full
+    documents, use index_document instead.
+
+    Creates a proper document → chunk → embedding chain so the record is
+    traceable via search_corpus.
+
+    Args:
+        text: The text chunk to embed and store.
+        source: Source identifier for this chunk.
+        metadata_json: JSON string with additional metadata (e.g. '{"type":"research"}').
+    """
+    return await _embed_and_store_impl(text, source, metadata_json)
+
 
 
 async def _index_research_json(research_json: str, source: str, date: str = "") -> str:
@@ -482,7 +488,7 @@ async def _index_research_json(research_json: str, source: str, date: str = "") 
             "source_doc": source,
             "date": doc_date,
         })
-        await embed_and_store(
+        await _embed_and_store_impl(
             chunk_text,
             source=f"{source}:finding:{i}",
             metadata_json=meta,
@@ -510,7 +516,7 @@ async def _index_research_json(research_json: str, source: str, date: str = "") 
             "source_doc": source,
             "date": doc_date,
         })
-        await embed_and_store(
+        await _embed_and_store_impl(
             chunk_text,
             source=f"{source}:subtopic:{i}",
             metadata_json=meta,

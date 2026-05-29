@@ -20,8 +20,8 @@ Email subject format:
 
 Supported commands:
     BLOG      — full pipeline: research → write → edit → publish (draft)
-    RESEARCH  — research only → saves structured notes to corpus
-    REPORT    — research only → full Markdown report emailed back
+    RESEARCH  — research only → saves structured JSON cache to research/ and indexes into pgvector
+    REPORT    — research only → saves structured JSON cache to research/ and indexes into pgvector (same as RESEARCH)
     INDEX     — index attached PDF(s) into knowledge corpus
 
 Usage:
