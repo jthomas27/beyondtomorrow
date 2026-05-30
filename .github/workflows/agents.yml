@@ -31,7 +31,7 @@ jobs:
       GHOST_ADMIN_KEY: ${{ secrets.GHOST_ADMIN_KEY }}
       SMTP_USER: ${{ secrets.SMTP_USER }}
       SMTP_PASS: ${{ secrets.SMTP_PASS }}
-      NOTIFY_EMAIL: admin@beyondtomorrow.world
+      NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
 
     steps:
       - name: Checkout repository
@@ -95,11 +95,15 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-      - name: Notify on failure
-        if: failure()
+      - name: Notify on completion
+        if: always() && env.NOTIFY_EMAIL != ''
         run: |
-          python scripts/notify_research_failure.py \
+          python scripts/notify_pipeline_result.py \
             --to "${{ env.NOTIFY_EMAIL }}" \
-            --topic "Weekly research run" \
-            --error "One or more steps failed — check the Actions log for details." \
+            --status "${{ job.status }}" \
+            --event "${{ github.event_name }}" \
+            --topic1 "${{ steps.topics.outputs.topic1 }}" \
+            --topic2 "${{ steps.topics.outputs.topic2 }}" \
+            --topic3 "${{ steps.topics.outputs.topic3 }}" \
+            --task "${{ github.event.inputs.task }}" \
             --run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
