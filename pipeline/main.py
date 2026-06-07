@@ -55,6 +55,69 @@ _RETRY_BACKOFF_BASE = 20  # seconds; exponential: 20, 40, 80, 160, …
 
 
 # ---------------------------------------------------------------------------
+# Pipeline run notification emails
+# ---------------------------------------------------------------------------
+
+def _send_pipeline_notification(subject: str, body: str) -> None:
+    """Send a plain-text notification email to NOTIFY_EMAIL (if set).
+
+    Uses the same Hostinger SMTP credentials as email_listener.py.
+    Logs and swallows errors — a notification failure must never kill the pipeline.
+    """
+    import smtplib
+    import email.mime.multipart
+    import email.mime.text
+
+    notify_email = os.environ.get("NOTIFY_EMAIL", "").strip()
+    if not notify_email:
+        return
+
+    smtp_host = os.environ.get("SMTP_HOST", "smtp.hostinger.com")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ.get("SMTP_USER") or os.environ.get("EMAIL_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS") or os.environ.get("EMAIL_PASS", "")
+    from_addr = smtp_user or "admin@beyondtomorrow.world"
+
+    if not smtp_user or not smtp_pass:
+        logger.warning("SMTP credentials not set — skipping pipeline notification to %s", notify_email)
+        return
+
+    msg = email.mime.multipart.MIMEMultipart()
+    msg["From"] = f"BeyondTomorrow.World <{from_addr}>"
+    msg["To"] = notify_email
+    msg["Subject"] = subject
+    msg.attach(email.mime.text.MIMEText(body, "plain"))
+
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(from_addr, notify_email, msg.as_string())
+        logger.info("Pipeline notification sent to %s: %s", notify_email, subject)
+    except Exception as exc:
+        logger.error("Failed to send pipeline notification to %s: %s", notify_email, exc)
+
+
+def _fmt_pipeline_stages(run_log) -> str:
+    """Format stage summary lines from a PipelineRunLogger instance."""
+    if run_log is None:
+        return "  (no stage data)"
+    summary = run_log.summary()
+    stages = summary.get("stages", [])
+    if not stages:
+        return "  (no stage data)"
+    lines = []
+    for s in stages:
+        status = s.get("status", "?").upper()
+        name = s.get("stage", "?")
+        elapsed = s.get("elapsed_s")
+        elapsed_str = f" ({elapsed:.0f}s)" if elapsed is not None else ""
+        lines.append(f"  {name:<14} {status}{elapsed_str}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Shared rate-limit / model-limit error detection
 # ---------------------------------------------------------------------------
 
@@ -744,6 +807,19 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
     logger.info("Starting BLOG pipeline")
     logger.info("Topic: %s", topic)
 
+    # Notify personal email that the pipeline has started
+    _send_pipeline_notification(
+        subject=f"[BeyondTomorrow] Starting BLOG: {topic}",
+        body=(
+            f"Command  : BLOG\n"
+            f"Topic    : {topic}\n"
+            f"Status   : Pipeline started\n"
+            f"Started  : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"Stages pending: Research → Write → Edit → Publish → Index\n"
+            f"You will receive a follow-up email when the pipeline completes."
+        ),
+    )
+
     # Pre-flight: warn early if LinkedIn is not configured so it's visible
     # in Railway logs before the pipeline runs (not discovered at the end).
     _li_token_pf = os.environ.get("LINKEDIN_ACCESS_TOKEN", "").strip()
@@ -1299,6 +1375,19 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             "run_log": run_log,
             "total_elapsed_s": _total,
         }
+        # Notify personal email: pipeline succeeded
+        _mins = _total / 60
+        _send_pipeline_notification(
+            subject=f"[BeyondTomorrow] Published: {topic}",
+            body=(
+                f"Command  : BLOG\n"
+                f"Topic    : {topic}\n"
+                f"Status   : Published\n"
+                f"URL      : {publish_output}\n"
+                f"Duration : {int(_total // 60)}m {int(_total % 60)}s\n"
+                f"\nStages:\n{_fmt_pipeline_stages(run_log)}"
+            ),
+        )
     except Exception as exc:
         _total = monotonic() - _pipeline_t0
         if run_log is not None:
@@ -1313,6 +1402,18 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         logger.error(
             "BLOG pipeline failed at stage '%s': %s",
             _current_stage, exc, exc_info=True,
+        )
+        # Notify personal email: pipeline failed
+        _send_pipeline_notification(
+            subject=f"[BeyondTomorrow] FAILED: BLOG: {topic}",
+            body=(
+                f"Command  : BLOG\n"
+                f"Topic    : {topic}\n"
+                f"Status   : FAILED at {_current_stage}\n"
+                f"Error    : {type(exc).__name__}: {exc}\n"
+                f"Duration : {int(_total // 60)}m {int(_total % 60)}s\n"
+                f"\nStages:\n{_fmt_pipeline_stages(run_log)}"
+            ),
         )
     finally:
         # Let fire-and-forget DB writes (run_failed, stage_error) flush
@@ -1526,7 +1627,21 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
     logger.info("Starting %s pipeline", prefix.strip().upper())
     logger.info("Topic: %s", topic)
 
-    _pipeline_t0 = monotonic()
+    # Notify personal email that the pipeline has started
+    _cmd_upper = prefix.strip().upper()
+    _send_pipeline_notification(
+        subject=f"[BeyondTomorrow] Starting {_cmd_upper}: {topic}",
+        body=(
+            f"Command  : {_cmd_upper}\n"
+            f"Topic    : {topic}\n"
+            f"Status   : Pipeline started\n"
+            f"Started  : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"Stages pending: Research → Index\n"
+            f"You will receive a follow-up email when the pipeline completes."
+        ),
+    )
+
+
     _current_stage = "init"
     run_log = None
     _pipeline_result: dict = {"status": "failed", "run_log": None, "total_elapsed_s": 0.0}
@@ -1647,6 +1762,18 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
             "run_log": run_log,
             "total_elapsed_s": _total,
         }
+        # Notify personal email: research/report pipeline succeeded
+        _send_pipeline_notification(
+            subject=f"[BeyondTomorrow] Complete: {prefix.strip().upper()}: {topic}",
+            body=(
+                f"Command  : {prefix.strip().upper()}\n"
+                f"Topic    : {topic}\n"
+                f"Status   : Complete\n"
+                f"Result   : {index_output}\n"
+                f"Duration : {int(_total // 60)}m {int(_total % 60)}s\n"
+                f"\nStages:\n{_fmt_pipeline_stages(run_log)}"
+            ),
+        )
 
     except Exception as exc:
         _total = monotonic() - _pipeline_t0
@@ -1662,6 +1789,18 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
             "%s pipeline failed at stage '%s': %s",
             prefix.strip().upper() if prefix.strip() else "Research",
             _current_stage, exc, exc_info=True,
+        )
+        # Notify personal email: research/report pipeline failed
+        _send_pipeline_notification(
+            subject=f"[BeyondTomorrow] FAILED: {prefix.strip().upper()}: {topic}",
+            body=(
+                f"Command  : {prefix.strip().upper()}\n"
+                f"Topic    : {topic}\n"
+                f"Status   : FAILED at {_current_stage}\n"
+                f"Error    : {type(exc).__name__}: {exc}\n"
+                f"Duration : {int(_total // 60)}m {int(_total % 60)}s\n"
+                f"\nStages:\n{_fmt_pipeline_stages(run_log)}"
+            ),
         )
     finally:
         await asyncio.sleep(0.5)

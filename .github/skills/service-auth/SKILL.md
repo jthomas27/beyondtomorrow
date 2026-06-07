@@ -83,7 +83,7 @@ The script will:
 | `Ghost: HTTP 530 / 521 / timeout` | Railway Ghost service is down — restart it at railway.app → caring-alignment → ghost service → Deployments → Restart. The auth check retries 3× automatically. |
 | `Hostinger IMAP: auth failed` | `EMAIL_PASS` wrong — verify in Hostinger webmail settings |
 | `Hostinger SMTP: auth failed` | Set `SMTP_USER` and `SMTP_PASS` explicitly in `.env` if they differ from IMAP credentials |
-| `GitHub: 401` | `GITHUB_TOKEN` expired or missing `models:read` scope — regenerate at github.com/settings/tokens |
+| `GitHub: 401` | `GITHUB_TOKEN` expired or missing `models:read` scope — regenerate at github.com/settings/tokens, then follow **Rotating the GitHub PAT** below |
 | `LinkedIn: 401` | `LINKEDIN_ACCESS_TOKEN` expired (60-day TTL) — re-run `scripts/linkedin_auth.py` to refresh |
 | `LinkedIn: 403` | Missing OAuth scope — re-run `scripts/linkedin_auth.py`; approve `w_member_social` |
 | `LinkedIn: pipeline warns token expires soon` | Token expires within 7 days — re-run `scripts/linkedin_auth.py` before expiry to avoid downtime |
@@ -91,6 +91,69 @@ The script will:
 ### Step 3 — Proceed
 
 Only proceed with the original task once all required services report ✓.
+
+---
+
+## Rotating the GitHub PAT
+
+The `GITHUB_TOKEN` must be kept in sync across **three** locations. Update all three every time the PAT is regenerated.
+
+### 1. Generate a new PAT
+
+Go to [github.com/settings/tokens](https://github.com/settings/tokens) → **Fine-grained tokens** → **Generate new token**.  
+Required scope: `models:read`. Set an expiry that suits your rotation schedule.  
+Copy the full token — it is only shown once.
+
+### 2. Update `.env` (local)
+
+Open `.env` and replace the `GITHUB_TOKEN` value:
+
+```
+GITHUB_TOKEN=github_pat_<new_token_here>
+```
+
+### 3. Update Railway — ghost service
+
+```bash
+NEW_TOKEN=github_pat_<new_token_here>
+railway variables --service ghost --set "GITHUB_TOKEN=$NEW_TOKEN"
+```
+
+> Updating a Railway variable triggers an automatic redeploy of that service. Ghost will be briefly unavailable (~30–60s) while it restarts. Monitor with:
+> ```bash
+> curl -s -o /dev/null -w "%{http_code}\n" https://beyondtomorrow.world
+> ```
+> Wait for `200` before proceeding.
+
+### 4. Update Railway — email-worker service
+
+```bash
+railway variables --service email-worker --set "GITHUB_TOKEN=$NEW_TOKEN"
+```
+
+### 5. Verify all three are in sync
+
+```bash
+# Local
+python3 -c "from dotenv import load_dotenv; import os; load_dotenv(); print('Local:', os.getenv('GITHUB_TOKEN','')[:30])"
+
+# Railway ghost
+railway variables --service ghost 2>/dev/null | grep GITHUB_TOKEN
+
+# Railway email-worker
+railway variables --service email-worker 2>/dev/null | grep GITHUB_TOKEN
+```
+
+All three should show the same token prefix.
+
+### 6. Run auth check
+
+```bash
+source .venv/bin/activate
+python3 scripts/auth_check.py github
+```
+
+Expect: `✓  GitHub Models  43 models available`
 
 ## Security Rules
 
