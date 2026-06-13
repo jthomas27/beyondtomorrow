@@ -1642,6 +1642,7 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
     )
 
 
+    _pipeline_t0 = monotonic()
     _current_stage = "init"
     run_log = None
     _pipeline_result: dict = {"status": "failed", "run_log": None, "total_elapsed_s": 0.0}
