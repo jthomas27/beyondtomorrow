@@ -90,14 +90,45 @@ DEFAULT_SMTP_PORT = 587
 def send_reply(to_address: str, subject: str, body: str) -> None:
     """Send a plain-text status reply email to *to_address*.
 
-    Uses SMTP credentials from environment variables. Logs and swallows
-    any send errors so a notification failure never kills the main loop.
+    Uses Resend (RESEND_API_KEY) so outbound replies never touch the Hostinger
+    SMTP account — keeping it exclusively for inbound IMAP polling, which
+    prevents Hostinger's security system from flagging the account as suspicious
+    due to repeated SMTP logins from cloud IPs.
+    Falls back to Hostinger SMTP only if RESEND_API_KEY is not set.
+    Logs and swallows any send errors so a notification failure never kills the main loop.
 
     Args:
         to_address: Recipient email address.
         subject:    Email subject line.
         body:       Plain-text message body.
     """
+    import httpx as _httpx
+
+    resend_key = os.environ.get("RESEND_API_KEY", "").strip()
+
+    if resend_key:
+        # --- Resend path (preferred) ---
+        try:
+            resp = _httpx.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                json={
+                    "from": "Beyond Tomorrow <admin@beyondtomorrow.world>",
+                    "to": [to_address],
+                    "subject": subject,
+                    "text": body,
+                },
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                logger.info("Reply sent to %s via Resend: %s", to_address, subject)
+            else:
+                logger.error("Resend reply failed (%s): %s", resp.status_code, resp.text[:200])
+        except Exception as exc:
+            logger.error("Failed to send reply via Resend to %s: %s", to_address, exc)
+        return
+
+    # --- Hostinger SMTP fallback (only if RESEND_API_KEY not set) ---
     smtp_host = os.environ.get("SMTP_HOST", DEFAULT_SMTP_HOST)
     smtp_port = int(os.environ.get("SMTP_PORT", str(DEFAULT_SMTP_PORT)))
     smtp_user = os.environ.get("SMTP_USER") or os.environ.get("EMAIL_USER")
@@ -105,7 +136,7 @@ def send_reply(to_address: str, subject: str, body: str) -> None:
     from_addr = smtp_user or "admin@beyondtomorrow.world"
 
     if not smtp_user or not smtp_pass:
-        logger.warning("SMTP credentials not set — skipping reply to %s", to_address)
+        logger.warning("SMTP credentials not set and RESEND_API_KEY missing — skipping reply to %s", to_address)
         return
 
     msg = email.mime.multipart.MIMEMultipart()
@@ -120,7 +151,7 @@ def send_reply(to_address: str, subject: str, body: str) -> None:
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.sendmail(from_addr, to_address, msg.as_string())
-        logger.info("Reply sent to %s: %s", to_address, subject)
+        logger.info("Reply sent to %s via SMTP: %s", to_address, subject)
     except Exception as exc:
         logger.error("Failed to send reply to %s: %s", to_address, exc)
 

@@ -61,16 +61,45 @@ _RETRY_BACKOFF_BASE = 20  # seconds; exponential: 20, 40, 80, 160, …
 def _send_pipeline_notification(subject: str, body: str) -> None:
     """Send a plain-text notification email to NOTIFY_EMAIL (if set).
 
-    Uses the same Hostinger SMTP credentials as email_listener.py.
+    Uses Resend (RESEND_API_KEY) so outbound notifications never touch the
+    Hostinger SMTP account — keeping it exclusively for inbound IMAP polling.
+    Falls back to Hostinger SMTP only if RESEND_API_KEY is not set.
     Logs and swallows errors — a notification failure must never kill the pipeline.
     """
-    import smtplib
-    import email.mime.multipart
-    import email.mime.text
+    import httpx as _httpx
 
     notify_email = os.environ.get("NOTIFY_EMAIL", "").strip()
     if not notify_email:
         return
+
+    resend_key = os.environ.get("RESEND_API_KEY", "").strip()
+
+    if resend_key:
+        # --- Resend path (preferred) ---
+        try:
+            resp = _httpx.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {resend_key}", "Content-Type": "application/json"},
+                json={
+                    "from": "Beyond Tomorrow <admin@beyondtomorrow.world>",
+                    "to": [notify_email],
+                    "subject": subject,
+                    "text": body,
+                },
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                logger.info("Pipeline notification sent to %s via Resend: %s", notify_email, subject)
+            else:
+                logger.error("Resend notification failed (%s): %s", resp.status_code, resp.text[:200])
+        except Exception as exc:
+            logger.error("Failed to send pipeline notification via Resend: %s", exc)
+        return
+
+    # --- Hostinger SMTP fallback (only if RESEND_API_KEY not set) ---
+    import smtplib
+    import email.mime.multipart
+    import email.mime.text
 
     smtp_host = os.environ.get("SMTP_HOST", "smtp.hostinger.com")
     smtp_port = int(os.environ.get("SMTP_PORT", "587"))
@@ -79,7 +108,7 @@ def _send_pipeline_notification(subject: str, body: str) -> None:
     from_addr = smtp_user or "admin@beyondtomorrow.world"
 
     if not smtp_user or not smtp_pass:
-        logger.warning("SMTP credentials not set — skipping pipeline notification to %s", notify_email)
+        logger.warning("SMTP credentials not set and RESEND_API_KEY missing — skipping pipeline notification to %s", notify_email)
         return
 
     msg = email.mime.multipart.MIMEMultipart()
@@ -94,7 +123,7 @@ def _send_pipeline_notification(subject: str, body: str) -> None:
             server.starttls()
             server.login(smtp_user, smtp_pass)
             server.sendmail(from_addr, notify_email, msg.as_string())
-        logger.info("Pipeline notification sent to %s: %s", notify_email, subject)
+        logger.info("Pipeline notification sent to %s via SMTP: %s", notify_email, subject)
     except Exception as exc:
         logger.error("Failed to send pipeline notification to %s: %s", notify_email, exc)
 
