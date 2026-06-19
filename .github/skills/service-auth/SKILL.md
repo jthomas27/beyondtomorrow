@@ -155,6 +155,23 @@ python3 scripts/auth_check.py github
 
 Expect: `✓  GitHub Models  43 models available`
 
+## Railway Project Reference
+
+| Item | Value |
+|---|---|
+| Project | `caring-alignment` |
+| Project ID | `752fdaea-fd96-4521-bec6-b7d5ef451270` |
+| Environment | `production` (`c9dfebe4-097a-4151-be37-2b1fcd414e74`) |
+| Ghost service ID | `0daf496c-e14f-41d4-b89b-3624a778c99d` |
+| Database proxy | `caboose.proxy.rlwy.net:21688` — always use this; never overwrite with the Railway internal URL |
+
+```bash
+# List variables for the Ghost service
+railway variables --service 0daf496c-e14f-41d4-b89b-3624a778c99d
+```
+
+> The Railway GraphQL API returns 403 on this project — use the CLI for all variable reads/writes.
+
 ## Security Rules
 
 - **Never hardcode credentials** in scripts, notebooks, or source files
@@ -168,7 +185,7 @@ Expect: `✓  GitHub Models  43 models available`
 
 | Service | Auth method | Key variable | Notes |
 |---|---|---|---|
-| Railway | Bearer token → GraphQL API | `RAILWAY_TOKEN` | Also stored in `~/.railway/config.json` after `railway login` |
+| Railway | Bearer token → GraphQL API | `RAILWAY_TOKEN` | Also stored in `~/.railway/config.json` after `railway login`. **GraphQL API returns 403 — always use Railway CLI instead** |
 | Ghost | HMAC-SHA256 JWT (5-min expiry) | `GHOST_ADMIN_KEY` | Generate fresh per request; use `httpx` |
 | Hostinger IMAP | Plain login over IMAP4_SSL | `EMAIL_USER` + `EMAIL_PASS` | Port 993, `imap.hostinger.com` |
 | Hostinger SMTP | STARTTLS login | `SMTP_USER` + `SMTP_PASS` | Port 587, `smtp.hostinger.com`; defaults to IMAP creds |
