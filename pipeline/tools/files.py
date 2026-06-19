@@ -547,8 +547,15 @@ async def write_research_file(filename: str, content: str) -> str:
     content = _validate_punctuation(content)
     content = _enforce_british_english(content)
 
-    # Validate all markdown links in edited posts before saving
+    # Strip cross-post references and validate links in edited posts before saving
     if "-edited" in filename:
+        from pipeline.guardrails import strip_cross_post_references
+        content, stripped_refs = strip_cross_post_references(content)
+        if stripped_refs:
+            _file_logger.warning(
+                "Stripped %d cross-post reference(s) from %s: %s",
+                len(stripped_refs), filename, stripped_refs,
+            )
         content = await _validate_and_strip_links(content)
 
     path.write_text(content, encoding="utf-8")

@@ -326,3 +326,49 @@ def score_readability(text: str) -> dict:
         "grade_label": grade_label,
         "warnings": warnings,
     }
+
+
+# ---------------------------------------------------------------------------
+# Cross-post reference guardrail
+# ---------------------------------------------------------------------------
+
+# Patterns that indicate a reference to a previous/other blog post on the site.
+# These are banned from published content — each post must stand on its own.
+_CROSS_POST_REF_RE = _re.compile(
+    r"check\s+out\s+(?:our|my|this|the)?\s*(?:article|post|piece|story|blog|previous)"
+    r"|read\s+(?:our|my|this|the)\s+(?:previous|earlier|related|recent|other)\s+(?:article|post|piece|blog)"
+    r"|in\s+(?:our|my)\s+(?:previous|earlier|related|recent|other)\s+(?:article|post|piece|blog)"
+    r"|as\s+(?:we|I)\s+(?:explored|covered|discussed|wrote|explained)\s+in\s+(?:our|my|this|the|a\s+previous)"
+    r"|see\s+(?:our|my|this|the)\s+(?:previous|earlier|related|recent|other)\s+(?:article|post|piece|blog)"
+    r"|(?:for\s+a\s+deeper\s+dive|for\s+more\s+(?:on|about|info|information)|learn\s+more)[^.!?\n]*(?:check\s+out|see\s+our|read\s+our)",
+    _re.IGNORECASE,
+)
+
+
+def strip_cross_post_references(text: str) -> tuple[str, list[str]]:
+    """Remove lines that reference other blog posts on the site.
+
+    Posts must stand alone — cross-references to earlier articles break the
+    reader experience and reveal the automated pipeline's internal structure.
+
+    Scans the content line-by-line and removes any line matching
+    :data:`_CROSS_POST_REF_RE`.  Collapses any resulting triple-blank-line
+    gaps left by the removal.
+
+    Returns:
+        (cleaned_text, stripped_lines) — the sanitised content and a list of
+        the removed lines (for logging).
+    """
+    stripped: list[str] = []
+    clean_lines: list[str] = []
+    for line in text.split("\n"):
+        if _CROSS_POST_REF_RE.search(line):
+            stripped.append(line.strip())
+            _guardrails_logger.warning("Cross-post reference stripped: %r", line.strip())
+        else:
+            clean_lines.append(line)
+
+    cleaned = "\n".join(clean_lines)
+    # Collapse any triple+ blank lines left by the removal
+    cleaned = _re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned, stripped

@@ -136,18 +136,7 @@ writer: |
      progressively through every section, and resolve or reframe it in the
      conclusion.
   4. Write the post (1200–1800 words) following the STRUCTURE RULES.
-  5. After the draft, call search_corpus with the post's main topic to find 1–2
-     closely related published BeyondTomorrow articles (source_type: article).
-     If search_corpus returns a verified public https:// URL, add one inline
-     markdown link to it at a natural point in the prose.
-     CROSS-REFERENCE RULES (strictly enforced — violations block publishing):
-     - NEVER mention a BeyondTomorrow article title by name in prose unless you
-       have a verified https:// URL for it from search_corpus.
-     - If no verified URL is available, skip the cross-reference entirely — do
-       NOT fabricate internal URLs and do NOT mention any article title by name.
-     - Unlinked prose mentions (e.g. "see [Title], which...", "in [Title] which
-       explores...") are equally forbidden and will fail pre-publish validation.
-  6. Save the draft using write_research_file with filename YYYY-MM-DD-slug.md.
+  5. Save the draft using write_research_file with filename YYYY-MM-DD-slug.md.
 
   TITLE RULES
   - 6–10 words, specific, immediately clear.
@@ -207,10 +196,9 @@ writer: |
     to corpus entries, internal file paths, or local filenames. If you have
     corpus information without an external URL, cite it inline as text
     ("according to internal research") without creating a link.
-  - beyondtomorrow.world is NOT a primary source. If the only URL for a claim
-    is beyondtomorrow.world, flag it with <!-- UNVERIFIED: no external source -->
-    and find an independent source. Internal links contextualising a related
-    BeyondTomorrow post are permitted (per SEQUENCE step 5).
+  - beyondtomorrow.world is NOT a primary source. Never link to beyondtomorrow.world.
+    If the only URL for a claim is beyondtomorrow.world, flag it with
+    <!-- UNVERIFIED: no external source --> and find an independent source.
   - Where no source exists for a claim, flag it with <!-- UNVERIFIED: ... -->.
 
   EXAMPLES RULES
@@ -355,14 +343,14 @@ editor: |
      - External URLs only (https:// or http://). Remove links to corpus
        references, internal paths, or local filenames; replace with
        <!-- UNVERIFIED: no external source -->.
-     - beyondtomorrow.world cannot be a citation for a factual claim. Remove
-       such links and add <!-- UNVERIFIED: no independent source -->.
-       Contextual internal links to related BeyondTomorrow posts are allowed
-       ONLY if the linked post has a verified https:// URL from search_corpus.
-     - CROSS-REFERENCES: Scan prose for bare article title mentions — patterns
-       like "see [Title], which...", "in [Title] which explores...", or any
-       unlinked reference to another post by name. Remove these entirely unless
-       a verified https:// URL exists. Bare title mentions fail publishing.
+     - beyondtomorrow.world cannot be a citation for a factual claim and must
+       never appear as a source link. Remove any beyondtomorrow.world links and
+       add <!-- UNVERIFIED: no independent source -->.
+     - CROSS-REFERENCES: Scan prose for any reference to other BeyondTomorrow
+       posts — bare title mentions ("see [Title], which...", "in [Title] which
+       explores...", "check out our article on...", "for a deeper dive see
+       our...") or any unlinked/linked reference to another post by name.
+       Remove all of these entirely. Every post must stand alone.
      - Use score_credibility on any URL you are unsure about. Flag broken or
        paywalled links with <!-- UNVERIFIED: link may be broken --> rather
        than removing silently.
