@@ -499,6 +499,50 @@ hr {
     align-items: center !important;
 }
 
+/* ─── Category Tab Bar ─── */
+.bt-category-tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: center;
+    gap: 10px;
+    padding: 2.5rem 0 2.75rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+}
+.bt-category-tabs::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+}
+.bt-tab-btn {
+    display: inline-block;
+    flex-shrink: 0;
+    padding: 12px 32px;
+    border: 1px solid var(--bt-border);
+    border-radius: 100px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 500;
+    color: var(--bt-text-secondary);
+    text-decoration: none !important;
+    background: transparent;
+    transition: all 0.2s ease;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+}
+.bt-tab-btn:hover {
+    background: var(--bt-accent-dim) !important;
+    color: var(--bt-accent) !important;
+    border-color: rgba(200, 184, 255, 0.25) !important;
+    text-decoration: none !important;
+}
+.bt-tab-btn.active {
+    background: var(--bt-accent-dim) !important;
+    color: var(--bt-accent) !important;
+    border-color: rgba(200, 184, 255, 0.3) !important;
+    box-shadow: 0 0 0 1px rgba(200, 184, 255, 0.15) inset;
+    text-decoration: none !important;
+}
+
 /* ─── Hide original Ghost nav, subscribe and sign-in from header bar ─── */
 .gh-head-menu,
 .gh-head-actions .gh-btn,
@@ -698,5 +742,80 @@ document.addEventListener('DOMContentLoaded', function () {
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') closeDrawer();
     });
+});
+</script>
+
+<script>
+/* ─── Category Tab Bar ─────────────────────────────────────────────────────
+   Injects All | Climate | Technology | Geopolitics | Economics tabs above
+   the post feed on the homepage and tag pages. Each tab is a real <a> link
+   so Ghost's pagination is fully respected and every tab always shows posts.
+   The active tab is determined by matching window.location.pathname.
+   Guard: exits silently on individual post/page routes (no feed present).
+──────────────────────────────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', function () {
+
+    // ── Locate the post feed container ───────────────────────────
+    var feed = document.querySelector('.post-feed')
+            || document.querySelector('.gh-feed')
+            || document.querySelector('.site-main > .post-feed')
+            || document.querySelector('.site-main > .gh-feed')
+            || (function () {
+                   var m = document.querySelector('.site-main');
+                   if (!m) return null;
+                   var first = m.querySelector('.post-card, .gh-card');
+                   return first ? first.parentElement : null;
+               }());
+
+    // Only inject on pages that render a feed of post cards.
+    // This theme uses <article class="feed post"> instead of .post-card / .gh-card.
+    if (!feed) return;
+    var hasCards = feed.querySelector('.post-card, .gh-card, article.feed.post, article.post');
+    if (!hasCards) return;
+
+    // ── Tab definitions ───────────────────────────────────────────
+    var tabs = [
+        { label: 'All',         href: '/' },
+        { label: 'Climate',     href: '/tag/climate/' },
+        { label: 'Technology',  href: '/tag/technology/' },
+        { label: 'Geopolitics', href: '/tag/geopolitics/' },
+        { label: 'Economics',   href: '/tag/economics/' }
+    ];
+
+    // ── Determine active tab from current URL ─────────────────────
+    var path = window.location.pathname;
+    function isActive(href) {
+        if (href === '/') {
+            // "All" is active only on the exact homepage (and its pagination)
+            return path === '/' || /^\/page\/\d+\/?$/.test(path);
+        }
+        // Tag pages: /tag/climate/ and /tag/climate/page/2/ etc.
+        return path === href || path.indexOf(href) === 0;
+    }
+
+    // ── Build the tab bar ─────────────────────────────────────────
+    var tabBar = document.createElement('div');
+    tabBar.className = 'bt-category-tabs';
+    tabBar.setAttribute('role', 'navigation');
+    tabBar.setAttribute('aria-label', 'Browse by category');
+
+    tabs.forEach(function (tab) {
+        var a = document.createElement('a');
+        a.href = tab.href;
+        a.className = 'bt-tab-btn' + (isActive(tab.href) ? ' active' : '');
+        a.textContent = tab.label;
+        if (isActive(tab.href)) {
+            a.setAttribute('aria-current', 'page');
+        }
+        tabBar.appendChild(a);
+    });
+    // ── Expanded card layout on tag pages ──────────────────────────────────
+    // The theme hides .feed-image on feeds without the 'expanded' class.
+    // Adding it triggers the theme's own card layout: image on top, title below.
+    if (/^\/tag\//.test(path)) {
+        feed.classList.add('expanded');
+    }
+    // ── Insert above the post feed ────────────────────────────────
+    feed.parentNode.insertBefore(tabBar, feed);
 });
 </script>
