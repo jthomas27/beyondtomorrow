@@ -104,6 +104,7 @@ def send_reply(to_address: str, subject: str, body: str) -> None:
     """
     import httpx as _httpx
 
+    subject = " ".join(subject.split())  # Resend rejects subjects with newlines
     resend_key = os.environ.get("RESEND_API_KEY", "").strip()
 
     if resend_key:
@@ -179,7 +180,7 @@ def parse_subject(subject: str) -> tuple[Optional[str], Optional[str]]:
     command = prefix.strip().upper()
     if command not in VALID_COMMANDS:
         return None, None
-    topic = rest.strip()
+    topic = " ".join(rest.split())  # collapse MIME-folded newlines and extra whitespace
     return command, topic
 
 
