@@ -261,6 +261,11 @@ approved_domains:
     credibility: 4
     notes: "OpenAI research blog — primary source"
 
+  - domain: wheresyoured.at
+    category: technology
+    credibility: 4
+    notes: "Where's Your Ed At (Ed Zitron) — critical analysis of AI industry, tech business, and corporate accountability"
+
   # --- Policy / geopolitics -------------------------------------------------
 
   - domain: foreignaffairs.com

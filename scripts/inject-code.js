@@ -19,7 +19,27 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const GHOST_URL = 'https://beyondtomorrow.world';
+// ── Load .env into process.env (no external deps) ────────────────────────────
+(function loadDotEnv() {
+  const envPath = path.join(__dirname, '..', '.env');
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const eq = t.indexOf('=');
+    if (eq === -1) continue;
+    const k = t.slice(0, eq).trim();
+    if (process.env[k] !== undefined) continue; // don't override existing env
+    let v = t.slice(eq + 1).trim();
+    if ((v.startsWith('"') && v.endsWith('"')) ||
+        (v.startsWith("'") && v.endsWith("'"))) {
+      v = v.slice(1, -1);
+    }
+    process.env[k] = v;
+  }
+})();
+
+const GHOST_URL = process.env.GHOST_URL || 'https://beyondtomorrow.world';
 
 // ── Parse CLI args ──
 function parseArgs() {

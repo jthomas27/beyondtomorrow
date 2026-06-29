@@ -213,6 +213,13 @@ def _clean_llm_text(content: str) -> str:
     #     Ghost strips this control character silently, causing dashes to vanish.
     content = content.replace("\x14", "\u2014")
 
+    # 4d. Fix \x15 (ASCII NAK) used as em-dash substitute followed by stray '1'.
+    #     Confirmed in gpt-4.1-mini 413-fallback output (2026-06-21).
+    #     Pattern: word\x151 nextword — the '1' is a corruption artefact, not text.
+    #     Ghost strips \x15 silently; the stray '1' is left as literal text.
+    content = re.sub(r"\x151(?=\s)", "\u2014", content)   # \x151 <space> → —
+    content = content.replace("\x15", "\u2014")            # any remaining \x15 → —
+
     # 5. Strip any remaining null bytes
     content = content.replace("\x00", "")
 
@@ -242,8 +249,9 @@ def _clean_llm_text(content: str) -> str:
 
     # 8a. U+0019 used as apostrophe — occurs when U+2019 (\u2019) is stripped
     #     to its low byte (0x19) somewhere in the encoding pipeline. Replace
-    #     between word characters with the correct right single quotation mark.
-    content = re.sub(r"(?<=[A-Za-z])\x19(?=[A-Za-z])", "\u2019", content)
+    #     between word characters (letter or digit before, letter after) with
+    #     the correct right single quotation mark. Handles "System 1\x19s" etc.
+    content = re.sub(r"(?<=[A-Za-z0-9])\x19(?=[A-Za-z])", "\u2019", content)
 
     # 8. Windows-1252 C1 control characters (U+0080–U+009F) — emitted by
     #    gpt-4.1-mini fallback. Ghost renders them as their decimal byte value

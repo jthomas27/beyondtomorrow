@@ -501,6 +501,11 @@ async def publish_file_to_ghost(
     except Exception as exc:
         return f"Error generating Ghost JWT: {exc}"
 
+    # Guarantee at least one nav tag is present so the post appears under its
+    # category tab(s). Maps subtopics (e.g. Biology → Science) to nav parents.
+    from pipeline.tools.tags import normalise_tags
+    tags_str = normalise_tags(tags_str)
+
     tag_list = [{"name": t.strip()} for t in tags_str.split(",") if t.strip()]
     lexical = _build_lexical(html_content)
     post_payload: dict = {

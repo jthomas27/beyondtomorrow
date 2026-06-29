@@ -12,7 +12,7 @@
 #   - Each topic is passed directly as: RESEARCH: <topic>
 #
 # ROTATION LOGIC:
-#   Each week, 3 themes are selected (rotating across all 5 each week).
+#   Each week, 3 themes are selected (rotating across all 6 each week).
 #   Within each theme, one topic is chosen using the ISO week number as a seed.
 #   With 6+ topics per theme, the full cycle completes in ~30 weeks.
 #
@@ -27,18 +27,18 @@
 # Each post should have 3–5 tags: one primary theme tag + supporting tags.
 #
 # Primary theme tags (use exactly one per post):
-#   Climate, AI, Technology, Geopolitics, Economics, Futures
+#   Climate, Technology, Geopolitics, Economics, Science
+# Map AI topics to Technology; map futures/foresight topics to the nearest theme.
 #
 # Supporting tags — use as many as genuinely apply:
 #
 canonical_tags:
   # Core themes
   - Climate
-  - AI
   - Technology
   - Geopolitics
   - Economics
-  - Futures
+  - Science
 
   # Climate & energy
   - Energy Transition
@@ -61,7 +61,7 @@ canonical_tags:
   - Cybersecurity
   - Governance
 
-  # Geopolitics & macro
+  # Geopolitics & Society
   - Supply Chains
   - Trade
   - Sanctions
@@ -87,6 +87,17 @@ canonical_tags:
   - Demographics
   - Policy
   - Public Health
+
+  # Science
+  - Space Science
+  - Biology
+  - Physics
+  - Neuroscience
+  - Biotechnology
+  - Medicine
+  - Materials Science
+  - Oceanography
+  - Astronomy
 
 themes:
 
@@ -118,7 +129,7 @@ themes:
       - "Legal rights of AI: personhood, liability, and emerging frameworks"
 
   - name: geopolitics
-    label: "Geopolitics & Macro"
+    label: "Geopolitics & Society"
     topics:
       - "US-China technology decoupling: supply chain restructuring progress"
       - "BRICS expansion and the challenge to dollar dominance"
@@ -155,3 +166,17 @@ themes:
       - "The future of work: hybrid norms, productivity evidence, and urban impact"
       - "Biosecurity gaps: pandemic preparedness funding post-COVID"
       - "Space economy: satellite infrastructure, orbital congestion, and investment flows"
+
+  - name: science
+    label: "Science"
+    topics:
+      - "CRISPR gene editing: clinical trial progress and ethical frontiers"
+      - "Quantum computing: practical milestones and timeline to cryptographic relevance"
+      - "Neuroscience of consciousness: leading theories and experimental evidence"
+      - "Synthetic biology: biosecurity risks and industrial applications"
+      - "Dark matter and dark energy: current detection experiments and theoretical status"
+      - "Microbiome research: gut-brain axis findings and implications for mental health"
+      - "Materials science breakthroughs: room-temperature superconductors and battery chemistry"
+      - "Ocean acidification: rate of change, ecosystem impacts, and monitoring gaps"
+      - "mRNA platform technology: pipeline beyond COVID vaccines"
+      - "Exoplanet atmospheres: James Webb findings and biosignature search progress"
