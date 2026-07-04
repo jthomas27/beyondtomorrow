@@ -829,7 +829,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
     research_dir.mkdir(exist_ok=True)
 
     today_str = datetime.now().strftime("%Y-%m-%d")
-    slug = "-".join(topic.lower().split()[:4]).replace(",", "").replace("'", "")
+    slug = "-".join(topic.lower().split()[:4]).replace(",", "").replace("'", "").replace(":", "")
     draft_filename = f"{today_str}-{slug}.md"
     edited_filename = f"{today_str}-{slug}-edited.md"
 
@@ -1648,7 +1648,7 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
     prefix, _, topic = task.partition(":")
     topic = topic.strip()
     today_str = datetime.now().strftime("%Y-%m-%d")
-    slug = "-".join(topic.lower().split()[:4]).replace(",", "").replace("'", "")
+    slug = "-".join(topic.lower().split()[:4]).replace(",", "").replace("'", "").replace(":", "")
     research_dir = _ResPath(__file__).parent.parent / "research"
     research_dir.mkdir(exist_ok=True)
     research_cache_path = research_dir / f"{today_str}-{slug}-research.json"
