@@ -15,6 +15,7 @@ Tools:
     pick_random_asset_image()              — Return a random image path from assets/images/
 """
 
+import json
 import pathlib
 import random
 from agents._sdk import function_tool
@@ -26,6 +27,29 @@ _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
 # Local cache directory alongside this file's project root
 _RESEARCH_DIR = pathlib.Path(__file__).parents[2] / "research"
+
+# Rolling exclusion window — shared log with pipeline/tools/files.py
+_IMAGE_HISTORY_LOG = pathlib.Path(__file__).parents[2] / "logs" / "image_history.json"
+_IMAGE_HISTORY_WINDOW = 42
+
+
+def _load_image_history() -> list:
+    """Return list of recently used image filenames (oldest first)."""
+    try:
+        if _IMAGE_HISTORY_LOG.exists():
+            return json.loads(_IMAGE_HISTORY_LOG.read_text())
+    except Exception:
+        pass
+    return []
+
+
+def _save_image_history(history: list) -> None:
+    """Persist the image history log; silently ignores write errors."""
+    try:
+        _IMAGE_HISTORY_LOG.parent.mkdir(parents=True, exist_ok=True)
+        _IMAGE_HISTORY_LOG.write_text(json.dumps(history, indent=2))
+    except Exception:
+        pass
 
 
 def _strip_prefix(filename: str) -> str:
@@ -127,6 +151,10 @@ async def write_research_file(filename: str, content: str) -> str:
 async def pick_random_asset_image() -> str:
     """Pick a random image file from the assets/images/ directory.
 
+    Uses a rolling exclusion window (last 42 images) to avoid repeating
+    images in close proximity. Falls back to the full pool if all images
+    have somehow been exhausted (e.g. pool size < window).
+
     Returns the absolute path to the selected image, or an error message
     if the directory is missing or contains no supported images.
     """
@@ -141,5 +169,18 @@ async def pick_random_asset_image() -> str:
     if not images:
         return "Error: No image files found in assets/images/"
 
-    chosen = random.choice(images)
+    # Exclude recently used images to prevent close-proximity duplicates
+    history = _load_image_history()
+    excluded = set(history[-_IMAGE_HISTORY_WINDOW:])
+    fresh = [img for img in images if img.name not in excluded]
+    if not fresh:
+        # Full pool exhausted (pool <= window) — reset and use everything
+        fresh = images
+
+    chosen = random.choice(fresh)
+
+    # Persist selection: append to history, keep only the last window entries
+    history.append(chosen.name)
+    _save_image_history(history[-_IMAGE_HISTORY_WINDOW:])
+
     return str(chosen)

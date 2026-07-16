@@ -251,7 +251,7 @@ a:hover {
 .post-card-meta,
 .gh-card-meta {
     color: var(--bt-text-muted) !important;
-    font-size: 0.85rem !important;
+    font-size: 1.25rem !important;
 }
 
 /* ─── Tags / Categories ─── */
@@ -267,11 +267,11 @@ a:hover {
 .bt-post-tag {
     color: var(--bt-accent) !important;
     font-weight: 500 !important;
-    font-size: 0.75rem !important;
+    font-size: 1.1rem !important;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     background: var(--bt-accent-dim);
-    padding: 2px 10px;
+    padding: 3px 12px;
     border-radius: 100px;
     display: inline-block;
     white-space: nowrap;
@@ -491,6 +491,17 @@ a:hover {
 .post-card:hover::before,
 .gh-card:hover::before {
     opacity: 0.6;
+}
+
+/* ─── Post feed width — scales dynamically with viewport ─── */
+/* Theme default is 1200px hard-coded on .inner. Override with a fluid clamp:
+   - min 1200px   → no regression on medium monitors
+   - preferred 94vw → fills most of the viewport; margin: 0 auto keeps it centred
+   - max 1800px   → comfortable on ultra-wide displays
+   The existing .outer padding (max(4vmin,20px)) adds an additional symmetric
+   gutter between the content and the viewport edge on all screen sizes.      */
+.site-main .inner {
+    max-width: clamp(1200px, 94vw, 1800px) !important;
 }
 
 /* ─── Misc / Utility ─── */
