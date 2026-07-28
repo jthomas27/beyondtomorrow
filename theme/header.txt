@@ -46,7 +46,11 @@ h1, h2, h3, h4, h5, h6,
     letter-spacing: -0.02em;
 }
 
-p, .gh-content p, .post-card-excerpt {
+p, .gh-content p, .post-card-excerpt,
+ul, ol, li,
+.gh-content ul, .gh-content ol, .gh-content li,
+.post-full-content ul, .post-full-content ol, .post-full-content li,
+.kg-html-card ul, .kg-html-card ol, .kg-html-card li {
     font-family: 'Space Grotesk', sans-serif !important;
     color: var(--bt-text-secondary) !important;
     line-height: 1.8;

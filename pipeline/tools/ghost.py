@@ -289,6 +289,15 @@ async def publish_file_to_ghost(
     image_alt = meta.get("image_alt", "") or title
     focus_keyword = meta.get("focus_keyword", "")
 
+    # --- Ensure blank line before list items ---
+    # The LLM sometimes writes "Some text:\n- item" with no blank line separating
+    # the intro line from the list. The markdown parser then treats the dashes as
+    # literal characters inside a <p> instead of converting them to <ul><li>.
+    # Insert a blank line between any non-blank line and a following list marker.
+    body = re.sub(r'([^\n])\n([ \t]*[-*+] )', r'\1\n\n\2', body)
+    # Same fix for numbered lists (e.g. "Steps:\n1. First")
+    body = re.sub(r'([^\n])\n([ \t]*\d+\. )', r'\1\n\n\2', body)
+
     html_content = md_converter.markdown(
         body,
         extensions=["extra", "sane_lists"],
