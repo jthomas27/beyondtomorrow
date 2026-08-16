@@ -1,6 +1,6 @@
 # BeyondTomorrow.World — GitHub Copilot Instructions
 
-This workspace runs an automated research-and-publish pipeline for **BeyondTomorrow.World**, a blog covering climate, technology, geopolitics, economics (including investment risk), and futures. The pipeline uses the OpenAI Agents SDK with GitHub Models API, pgvector for RAG retrieval, and Ghost CMS for publishing.
+This workspace runs an automated research-and-publish pipeline for **BeyondTomorrow.World**, a blog covering climate, technology, geopolitics, economics (including investment risk), and futures. The pipeline uses the OpenAI Agents SDK with the OpenAI API, pgvector for RAG retrieval, and Ghost CMS for publishing.
 
 ---
 
@@ -10,9 +10,9 @@ This workspace runs an automated research-and-publish pipeline for **BeyondTomor
 |---|---|---|
 | Blog CMS | Ghost 5.x (self-hosted) | `https://beyondtomorrow.world` |
 | Hosting | Railway (`caring-alignment` project) | Ghost + agent worker services |
-| Vector DB | PostgreSQL + pgvector (Railway) | 384-dim embeddings for semantic search |
-| AI Framework | OpenAI Agents SDK + GitHub Models API | `gpt-4.1` for research/write/edit; `gpt-4.1-mini` for orchestrate/publish/index |
-| Embeddings | `BAAI/bge-small-en-v1.5` (sentence-transformers) | 384-dim; 512-token context; runs locally; zero API cost |
+| Vector DB | PostgreSQL + pgvector (Railway) | 1536-dim embeddings for semantic search |
+| AI Framework | OpenAI Agents SDK + OpenAI API | `gpt-4.1` for research/write/edit; `gpt-4.1-mini` for orchestrate/publish/index |
+| Embeddings | `text-embedding-3-small` (OpenAI API) | 1536-dim; 8191-token context; ~$0.02/1M tokens |
 | Email trigger | Hostinger IMAP (`admin@beyondtomorrow.world`) | Polled by `pipeline/email_listener.py` |
 
 ---
@@ -63,7 +63,7 @@ All four core variables are required. They are stored in `.env` at the project r
 
 | Variable | Description |
 |---|---|
-| `GITHUB_TOKEN` | Fine-grained PAT with `models:read` scope (GitHub Models API access) |
+| `OPENAI_API_KEY` | OpenAI platform API key (`sk-...`) — powers both the agents and embeddings |
 | `DATABASE_URL` | PostgreSQL connection string — **always use the external TCP proxy**: `caboose.proxy.rlwy.net:21688`. Never overwrite with the Railway internal URL. |
 | `GHOST_URL` | `https://beyondtomorrow.world` |
 | `GHOST_ADMIN_KEY` | Ghost Admin API key in `{id}:{secret}` format |
@@ -280,13 +280,11 @@ Save using `write_research_file` with filename `YYYY-MM-DD-slug.md`.
 
 ### Editor
 
-Uses `gpt-4.1` at `temperature=0.3`, `max_tokens=2500`. Tools: `read_research_file`, `write_research_file`, `search_corpus`, `score_credibility`.
+Uses `gpt-4.1` at `temperature=0.3`, `max_tokens=4000`. Tools: `read_research_file`, `write_research_file`, `search_corpus`, `score_credibility`.
 
-> **Why 2500?** The Editor's total request body = input tokens (~5,000: system prompt + edit prompt + research compact + draft file via tool) + `max_tokens`. Setting `max_tokens=2500` keeps the total under the 8,000-token hard limit, preventing 413 fallback to `gpt-4.1-mini`.
+> **Why 4000?** On native OpenAI there is no 8,000-token request cap (`gpt-4.1` has 1M context and generous per-minute limits), so the Editor runs at `max_tokens=4000` for fuller edits. The old `2500` value existed only to dodge the GitHub Models 8k limit and its 413→`gpt-4.1-mini` fallback.
 >
-> **gpt-4.1-mini C1 punctuation corruption**: when `gpt-4.1-mini` is used as an editor (via 413 fallback), it emits Windows-1252 smart-punctuation codepoints in the Unicode C1 control range (U+0091–U+0097) instead of proper typographic chars. Ghost strips these control characters during HTML rendering, leaving their two-hex-digit code as literal text (e.g. `it's` → `it92s`, `chips—have` → `chips92have`, `restricted—by` → `restricted94by`). `pipeline/tools/files.py` → `_clean_llm_text` contains step 8 which maps the full C1 range to proper Unicode before any content reaches Ghost.
->
-> **gpt-4.1-mini `\x1e`/`\x1f` punctuation omission** *(confirmed 2026-05-04)*: a second fallback failure mode. The model emits ASCII RS (`\x1e`, U+001E) and ASCII US (`\x1f`, U+001F) as punctuation substitutes instead of apostrophes, em-dashes, and scare-quote markers. Ghost silently strips both characters, making punctuation vanish entirely (e.g. `It's` → `Its`, `themselves—and` → `themselvesand`, `'Free'` → `Free`). `_clean_llm_text` step 4b maps the full set of `\x1e`/`\x1f` patterns before any content reaches Ghost — scare quotes (`\x1eword\x1f` → `'word'`), quoted term + em-dash (`\x1eterm\x1e\x1e` → `term—`), currency (`\x1e<digit>` → `€<digit>`), apostrophes, and em-dashes.
+> **Legacy punctuation-corruption defence** *(GitHub Models era)*: the 413→`gpt-4.1-mini` fallback used to emit Windows-1252 C1 control chars (U+0091–U+0097) and ASCII control substitutes (`\x14`, `\x15`, `\x19`, `\x1e`, `\x1f`) for smart quotes/dashes, which Ghost silently stripped (e.g. `it's` → `it92s`, `themselves—and` → `themselvesand`). `_clean_llm_text` in `pipeline/tools/files.py` still sanitises all these patterns defensively, but they should no longer occur now that the pipeline runs on native OpenAI without forced mini-fallback.
 
 **Review checklist**:
 1. **Title quality** — must be punchy (6–10 words), factual, attention-grabbing without being misleading; rewrite before anything else if it fails this standard
@@ -367,29 +365,26 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 
 | Agent | Model | Temperature | Max Tokens | Notes |
 |---|---|---|---|---|
-| Orchestrator | `openai/gpt-4.1-mini` | 0.1 | 2,000 | Fast routing; 1M context |
-| Researcher | `openai/gpt-4.1` | 0.2 | 8,000 | Reasoning + tool-calling + 1M context |
-| Writer | `openai/gpt-4.1` | 0.7 | 4,000 | Blog prose; 1M context |
-| Editor | `openai/gpt-4.1` | 0.3 | 2,500 | Editorial pass; 2,500 keeps total request body under 8,000-token limit, preventing 413 fallback |
-| Publisher | `openai/gpt-4.1-mini` | 0.0 | 1,000 | Deterministic metadata extraction + Ghost API call |
-| Indexer | `openai/gpt-4.1-mini` | 0.0 | 500 | Minimal reasoning; chunking + indexing |
+| Orchestrator | `gpt-4.1-mini` | 0.1 | 2,000 | Fast routing; 1M context |
+| Researcher | `gpt-4.1` | 0.2 | 8,000 | Reasoning + tool-calling + 1M context |
+| Writer | `gpt-4.1` | 0.7 | 4,000 | Blog prose; 1M context |
+| Editor | `gpt-4.1` | 0.3 | 4,000 | Editorial pass; native OpenAI has no 8k request cap |
+| Publisher | `gpt-4.1-mini` | 0.0 | 1,000 | Deterministic metadata extraction + Ghost API call |
+| Indexer | `gpt-4.1-mini` | 0.0 | 500 | Minimal reasoning; chunking + indexing |
 
-> **Plan: Copilot Pro+** — unlimited premium requests; no daily caps.  
-> **GitHub Models API does NOT have Claude/Anthropic models.** Use `openai/gpt-4.1`, `openai/gpt-4.1-mini`, or other supported OpenAI models.  
+> **Provider: OpenAI API** — billed per-token (see openai.com/api/pricing). No Claude/Anthropic models; use `gpt-4.1`, `gpt-4.1-mini`, `gpt-5-mini`, or other supported OpenAI models. Model strings are **bare** (no `openai/` prefix — that was GitHub Models naming).
 > **Fallback chain**: `gpt-4.1` → `gpt-4.1-mini` → `gpt-4.1-nano`
-> **RPM-wait-before-fallback**: when `gpt-4.1` is temporarily rate-limited (RPM exceeded but daily budget fine), `_run_agent_with_fallback` calls `get_rpm_clear_wait()` in `guardrails.py`. If the 60s window clears within 90s, the pipeline **waits** and keeps `gpt-4.1` rather than downgrading to `gpt-4.1-mini`. This prevents quality degradation when two pipeline runs are launched close together.
-> **C1 corruption risk**: `gpt-4.1-mini` emits Windows-1252 C1 control characters (U+0091–U+0097) for smart quotes and dashes. These are sanitised by `_clean_llm_text` in `pipeline/tools/files.py` (step 8). The real guard is keeping the Editor's max_tokens at 2,500 so the primary `gpt-4.1` model is never swapped out.
-> **`\x1e`/`\x1f` omission risk** *(confirmed 2026-05-04)*: a second `gpt-4.1-mini` fallback failure: ASCII RS (`\x1e`) and US (`\x1f`) used as punctuation substitutes (apostrophes, em-dashes, scare quotes, currency symbols). Ghost strips both silently. `_clean_llm_text` step 4b handles all patterns. Post `who-really-pays-for-europes-fuel-relief` was affected and patched directly via Ghost API using `scripts/fix_fuel_relief_post.py`.
-> **`\x14` DC4 em-dash risk** *(confirmed 2026-05-23)*: a third `gpt-4.1-mini` fallback failure: ASCII DC4 (`\x14`, chr(20)) used as an em-dash substitute. Ghost strips it silently, causing dashes to vanish. `_clean_llm_text` step 4c maps `\x14` → `—`. Post `why-companies-are-secretly-scaling-back-ai-data-centre-spending` was affected and re-published after manual byte-level fix.
-> **`\x15`/`\x19` NAK/EM risk** *(confirmed 2026-06-21)*: a fourth `gpt-4.1-mini` fallback failure. ASCII NAK (`\x15`, chr(21)) used as an em-dash substitute, always followed by a stray literal `1` digit (e.g. `word\x151 next` → should be `word— next`). ASCII EM (`\x19`, chr(25)) used as an apostrophe substitute preceded by digits (e.g. `System 1\x19s` → `System 1's`) — the existing step 8a regex only matched letter-preceded `\x19`, now expanded to `[A-Za-z0-9]`. `_clean_llm_text` step 4d maps `\x151<space>` → `—` then any remaining `\x15` → `—`. Step 8a now covers `digit\x19letter` too. Post `how-system-1-and-system-2-shape-our-thinking` was affected and patched via Ghost Admin API.
+> **No 8k request cap** — native OpenAI has generous per-minute limits and 1M context, so the Editor runs at `max_tokens=4000` and the old 413→`gpt-4.1-mini` fallback effectively never fires. This removes the root cause of the punctuation-corruption issues below.
+> **RPM-wait-before-fallback**: when `gpt-4.1` is temporarily rate-limited (RPM exceeded but daily budget fine), `_run_agent_with_fallback` calls `get_rpm_clear_wait()` in `guardrails.py`. If the 60s window clears within 90s, the pipeline **waits** and keeps `gpt-4.1` rather than downgrading. This prevents quality degradation when two runs launch close together.
+> **Legacy punctuation-corruption defence** *(GitHub Models era)*: under the old GitHub Models 8k cap, 413 errors forced a `gpt-4.1-mini` fallback that emitted Windows-1252 C1 control chars (U+0091–U+0097) and ASCII control substitutes (`\x14`, `\x15`, `\x19`, `\x1e`, `\x1f`) for smart quotes/dashes, which Ghost silently stripped. `_clean_llm_text` in `pipeline/tools/files.py` still sanitises every pattern defensively; the affected posts (`who-really-pays-for-europes-fuel-relief`, `why-companies-are-secretly-scaling-back-ai-data-centre-spending`, `how-system-1-and-system-2-shape-our-thinking`) were patched via the Ghost Admin API. These failures should no longer occur on native OpenAI.
 
 ---
 
 ## RAG / Corpus
 
-- **Vector DB**: PostgreSQL + pgvector on Railway; 384-dim vectors from `BAAI/bge-small-en-v1.5`
-- **Chunk size**: ~350 words per chunk (fits within model's 512-token limit)
-- **`search_corpus` output cap**: each returned chunk is truncated to **1,500 chars** (~375 tokens) to prevent 413s. Configurable via `config/limits.yaml` → `search.corpus.max_chars_per_chunk`
+- **Vector DB**: PostgreSQL + pgvector on Railway; 1536-dim vectors from OpenAI `text-embedding-3-small`
+- **Chunk size**: ~350 words per chunk with 50-word (~15%) overlap — a tuning choice (the model allows up to ~6000 words) aligned to the retrieval window
+- **`search_corpus` output cap**: each returned chunk is truncated to **2,500 chars** (~625 tokens). Configurable via `config/limits.yaml` → `search.corpus.max_chars_per_chunk`
 - **Search fallback**: pgvector fails → keyword search; web search returns nothing → corpus only
 - **Research source sanitisation**: after the Researcher LLM call, `_sanitise_research_sources()` validates all source URLs via concurrent HEAD requests (5s timeout). Dead links (4xx/5xx or connection errors) are stripped from `source_list` and `key_findings[].sources` before the JSON is cached or indexed — preventing hallucinated URLs from propagating into the corpus and being re-cited on future runs.
 - **Corpus storage layout** (Railway Object Storage):
@@ -409,7 +404,7 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 
 | Scenario | Action |
 |---|---|
-| GitHub Models API fails | Before falling back, `get_rpm_clear_wait()` checks if the 60s RPM window will clear within 90s — if so, waits and retries the preferred model. If not (or daily budget exhausted), retries up to 6× with exponential backoff (20s base, doubling to 300s cap) using the next model in the fallback chain |
+| OpenAI API fails | Before falling back, `get_rpm_clear_wait()` checks if the 60s RPM window will clear within 90s — if so, waits and retries the preferred model. If not (or daily budget exhausted), retries up to 6× with exponential backoff (20s base, doubling to 300s cap) using the next model in the fallback chain |
 | Ghost API fails | Retry 3×, then save draft locally and alert Slack |
 | Research finds nothing | Fall back to knowledge corpus only |
 | PDF extraction fails | Log error, skip file, continue |
@@ -426,4 +421,4 @@ Uses `gpt-4.1-mini` at `temperature=0.0`, `max_tokens=500`. Tools: `read_researc
 - **Always use `httpx`** for Ghost API calls — Cloudflare blocks `urllib` with 403 1010
 - **Posts publish live** via the Publisher agent (`status='published'`) — the Orchestrator handles the full chain end-to-end
 - **Email triggers** are validated against `config/allowlist.yaml` — subject must begin with `BLOG:`, `RESEARCH:`, `REPORT:`, or `INDEX:`
-- `pipeline/` is the runtime directory (not `agents/`) — the `openai-agents` SDK installs as the `agents` Python package; using `pipeline/` avoids the name clash
+- `pipeline/` is the runtime directory — the `openai-agents` SDK installs as the `agents` Python package; using `pipeline/` avoids the name clash. (The former local `agents/` shim directory was removed; `from agents import ...` now resolves directly to the SDK.)
