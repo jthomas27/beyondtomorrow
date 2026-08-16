@@ -1,5 +1,5 @@
 """
-pipeline/guardrails.py — Rate-limit guardrails for GitHub Models API.
+pipeline/guardrails.py — Rate-limit guardrails for OpenAI API.
 
 Checks the ``rate_limit_log`` table to see how many calls each model has
 consumed today, then blocks (hard threshold) or warns (soft threshold)
@@ -23,31 +23,31 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 # ---------------------------------------------------------------------------
-# Daily budget limits (GitHub Models API, Copilot Pro+ tier)
-# Pro+ has unlimited premium requests but per-minute RPM/TPM limits still
-# apply.  Daily limits here act as a safety net for degradation routing.
+# Daily budget limits (OpenAI API — native tier)
+# Native OpenAI has generous usage tiers; these act as a safety net for
+# degradation routing and cost visibility, not hard API limits.
 # ---------------------------------------------------------------------------
 
 DAILY_LIMITS: dict[str, int] = {
-    "openai/gpt-4.1": 80,       # Primary model — high tier
-    "openai/gpt-4.1-mini": 500, # Fast fallback — generous limits
-    "openai/gpt-4.1-nano": 500, # Last-resort budget tier
-    "openai/gpt-5": 80,         # Available but not in primary chain
-    "openai/gpt-5-mini": 500,
-    "openai/gpt-5-nano": 500,
-    "openai/gpt-4o": 80,
+    "gpt-4.1": 500,       # Primary model
+    "gpt-4.1-mini": 2000, # Fast fallback
+    "gpt-4.1-nano": 2000, # Last-resort budget tier
+    "gpt-5": 500,         # Available but not in primary chain
+    "gpt-5-mini": 2000,
+    "gpt-5-nano": 2000,
+    "gpt-4o": 500,
 }
 
-# Per-minute request limits — mirrors GitHub Models per-minute RPM windows.
-# Used by check_rpm() to proactively throttle before hitting 429s.
+# Per-minute request limits — conservative safety net for OpenAI Tier 1+.
+# Actual limits are much higher; these guard against runaway loops only.
 RPM_LIMITS: dict[str, int] = {
-    "openai/gpt-4.1": 10,
-    "openai/gpt-4.1-mini": 30,
-    "openai/gpt-4.1-nano": 30,
-    "openai/gpt-5": 10,
-    "openai/gpt-5-mini": 30,
-    "openai/gpt-5-nano": 30,
-    "openai/gpt-4o": 10,
+    "gpt-4.1": 60,
+    "gpt-4.1-mini": 200,
+    "gpt-4.1-nano": 200,
+    "gpt-5": 60,
+    "gpt-5-mini": 200,
+    "gpt-5-nano": 200,
+    "gpt-4o": 60,
 }
 
 # Percentage thresholds for soft warning vs. hard block.

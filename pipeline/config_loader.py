@@ -71,9 +71,9 @@ _LIMIT_DEFAULTS: dict[str, Any] = {
 _MODEL_DEFAULTS: dict[str, Any] = {
     "agents": {},
     "fallback_chain": [
-        "openai/gpt-4.1",
-        "openai/gpt-4.1-mini",
-        "openai/gpt-4.1-nano",
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
     ],
     "degradation": {
         "soft_threshold_pct": 80,

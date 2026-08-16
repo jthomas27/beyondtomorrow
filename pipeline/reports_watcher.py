@@ -79,7 +79,7 @@ async def _index_file_async(file_path: pathlib.Path) -> None:
     Storage layout (per _index_document_impl):
         documents row  — full extracted text + source metadata
         chunks rows    — overlapping word-boundary segments (max ~200 words each)
-        embeddings rows — 384-dim all-MiniLM-L6-v2 vector per chunk + JSONB metadata
+        embeddings rows — 1536-dim text-embedding-3-small vector per chunk + JSONB metadata
     """
     import traceback as _tb
     from datetime import date, datetime, timezone

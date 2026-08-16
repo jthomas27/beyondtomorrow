@@ -66,15 +66,17 @@ search:
     hard_max_results: 10
 
   corpus:
-    # NOT ENFORCED — search_corpus() uses hardcoded top_k=5 in function sig
-    default_top_k: 5
+    # NOT ENFORCED — search_corpus() uses hardcoded top_k in function sig
+    default_top_k: 6
     # ENFORCED — corpus.py reads this to cap corpus search results
     hard_max_top_k: 10
-    # ENFORCED — corpus.py filters embeddings by cosine similarity
-    min_similarity_threshold: 0.30   # lowered — bge-small produces tighter similarity scores
+    # ENFORCED — corpus.py filters embeddings by cosine similarity.
+    # text-embedding-3-small: related content ~0.4–0.6, unrelated ~0.0.
+    min_similarity_threshold: 0.30
     # ENFORCED — corpus.py truncates each chunk in search_corpus output.
-    # Caps token usage: 5 chunks × ~1500 chars ≈ ~1800 tokens, safe within 8k limit.
-    max_chars_per_chunk: 1500
+    # Raised from 1500 → 2500: gpt-4.1 has 1M context (no 8k limit), so we can
+    # show full ~350-word chunks untruncated. 6 chunks × ~2500 chars ≈ ~3.7k tokens.
+    max_chars_per_chunk: 2500
 
 # ---------------------------------------------------------------------------
 # Synthesis limits — NOT ENFORCED at runtime
@@ -113,8 +115,8 @@ task:
 # ---------------------------------------------------------------------------
 
 chunking:
-  max_words_per_chunk: 350           # bge-small-en-v1.5 supports 512 tokens (~350 words)
-  overlap_words: 35                  # ~10% overlap — enough for cross-boundary context
+  max_words_per_chunk: 350           # tuning choice (text-embedding-3-small allows up to ~6000 words); 350 aligns with the retrieval window and favours precision
+  overlap_words: 50                  # ~15% overlap — better cross-boundary recall
 
 # ---------------------------------------------------------------------------
 # Embedding limits
@@ -122,4 +124,4 @@ chunking:
 
 embeddings:
   batch_size: 16                      # production: 64
-  model_max_input_tokens: 512        # bge-small-en-v1.5 hard limit
+  model_max_input_tokens: 8191       # text-embedding-3-small hard limit

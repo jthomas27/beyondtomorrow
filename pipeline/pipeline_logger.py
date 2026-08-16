@@ -120,7 +120,7 @@ def _env_snapshot() -> dict:
     snapshot: dict = {
         "python": sys.version.split()[0],
         "platform": sys.platform,
-        "has_github_token": bool(os.environ.get("GITHUB_TOKEN")),
+        "has_openai_key": bool(os.environ.get("OPENAI_API_KEY")),
         "has_database_url": bool(os.environ.get("DATABASE_URL")),
         "has_ghost_url": bool(os.environ.get("GHOST_URL")),
         "has_ghost_admin_key": bool(os.environ.get("GHOST_ADMIN_KEY")),

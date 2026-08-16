@@ -63,7 +63,7 @@ def model_settings_for(
     temperature = cfg.get("temperature", default_temp)
     max_tokens = cfg.get("max_tokens", default_tokens)
 
-    if model.startswith("openai/gpt-5") or model.startswith("openai/o"):
+    if model.startswith("gpt-5") or model.startswith(("o1", "o3", "o4")):
         # gpt-5/o-series: no temperature override, max_completion_tokens via extra_body
         return ModelSettings(extra_body={"max_completion_tokens": max_tokens})
     return ModelSettings(temperature=temperature, max_tokens=max_tokens)
@@ -106,7 +106,7 @@ Rules:
 - Prefer sources from the last 2 years; include older ones if highly relevant.
 - Output ONLY the structured JSON — no preamble.""",
     tools=[search_and_index, search_corpus, fetch_page, search_arxiv, score_credibility],
-    model=_models.get("researcher", {}).get("model", "openai/gpt-4.1"),
+    model=_models.get("researcher", {}).get("model", "gpt-4.1"),
     model_settings=_model_settings("researcher", default_temp=0.2, default_tokens=8000),
 )
 
@@ -174,7 +174,7 @@ Save the draft using write_research_file with a filename like YYYY-MM-DD-slug.md
 Once the file is saved, hand off to the Editor by calling transfer_to_editor.
 Include the filename you used so the Editor can find the draft.""",
     tools=[read_research_file, write_research_file, search_corpus],
-    model=_models.get("writer", {}).get("model", "openai/gpt-4.1"),
+    model=_models.get("writer", {}).get("model", "gpt-4.1"),
     model_settings=_model_settings("writer", default_temp=0.7, default_tokens=4000),
 )
 
@@ -216,7 +216,7 @@ Save the edited version using write_research_file (append -edited to the filenam
 Once the edited file is saved, hand off to the Publisher by calling
 transfer_to_publisher. Include the filename of the edited file.""",
     tools=[read_research_file, write_research_file, search_corpus, score_credibility],
-    model=_models.get("editor", {}).get("model", "openai/gpt-4.1"),
+    model=_models.get("editor", {}).get("model", "gpt-4.1"),
     model_settings=_model_settings("editor", default_temp=0.3, default_tokens=4000),
 )
 
@@ -261,7 +261,7 @@ IMPORTANT:
 - Always use status='published' (never 'draft').
 - LinkedIn cross-posting is handled by the pipeline after you return — do not call it.""",
     tools=[pick_random_asset_image, upload_image_to_ghost, publish_file_to_ghost],
-    model=_models.get("publisher", {}).get("model", "openai/gpt-4.1-mini"),
+    model=_models.get("publisher", {}).get("model", "gpt-4.1-mini"),
     model_settings=_model_settings("publisher", default_temp=0.0, default_tokens=500),
 )
 
@@ -285,7 +285,7 @@ Given a document (research output, article, or web content):
 Return a brief final summary: chunks stored, source name, and the post URL if provided.
 Do not repeat tool outputs verbatim — one short sentence is sufficient.""",
     tools=[read_research_file, index_document, embed_and_store],
-    model=_models.get("indexer", {}).get("model", "openai/gpt-4.1-mini"),
+    model=_models.get("indexer", {}).get("model", "gpt-4.1-mini"),
     model_settings=_model_settings("indexer", default_temp=0.0, default_tokens=1000),
 )
 
@@ -335,6 +335,6 @@ When given a task, determine the type from the prefix and execute the appropriat
 Always log your decisions after each handoff.
 If any agent fails, log the error and continue with the remaining steps where possible.""",
     handoffs=[researcher, writer, editor, publisher, indexer],
-    model=_models.get("orchestrator", {}).get("model", "openai/gpt-4.1-mini"),
+    model=_models.get("orchestrator", {}).get("model", "gpt-4.1-mini"),
     model_settings=_model_settings("orchestrator", default_temp=0.1, default_tokens=2000),
 )

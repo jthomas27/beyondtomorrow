@@ -1,14 +1,17 @@
 """
-embeddings.py — Local embedding module using BAAI/bge-small-en-v1.5
+embeddings.py — Embedding module using OpenAI text-embedding-3-small
 
-Provides a simple interface for generating 384-dim embeddings locally
-on Railway compute using the sentence-transformers library. No API calls,
-no API keys, zero cost.
+Generates 1536-dim embeddings via the OpenAI API. This replaces the former
+local sentence-transformers/torch implementation, cutting the worker's resident
+memory from ~1.2 GB to ~150 MB (no torch/transformers/scikit-learn loaded).
+
+The embed()/embed_batch()/similarity() interface is unchanged, so callers need
+no modification. Requires OPENAI_API_KEY.
 
 Usage:
     from pipeline.embeddings import embed, embed_batch, similarity
 
-    vector = embed("some text")                    # → list[float] (384 dims)
+    vector = embed("some text")                    # → list[float] (1536 dims)
     vectors = embed_batch(["text a", "text b"])    # → list[list[float]]
     score = similarity(vec_a, vec_b)               # → float (0.0 to 1.0)
 """
@@ -22,24 +25,31 @@ from typing import Union
 # Config
 # ---------------------------------------------------------------------------
 
-MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
-DIMENSIONS = 384  # bge-small-en-v1.5 output size (same as MiniLM)
-MAX_INPUT_TOKENS = 512  # model max input (word pieces, ~350 words)
+MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-small")
+DIMENSIONS = int(os.environ.get("EMBEDDING_DIMENSIONS", "1536"))
+MAX_INPUT_TOKENS = 8191  # text-embedding-3-small context limit
 
 
 # ---------------------------------------------------------------------------
-# Model loading (singleton — loaded once, stays in memory)
+# Client (singleton — lightweight; no model weights held in memory)
 # ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=1)
-def _get_model():
-    """Load the sentence-transformers model. Cached — only runs once."""
-    from sentence_transformers import SentenceTransformer
+def _get_client():
+    """Return a cached synchronous OpenAI client. Reads OPENAI_API_KEY."""
+    from openai import OpenAI
 
-    print(f"[embeddings] Loading model: {MODEL_NAME} ({DIMENSIONS} dims)...")
-    model = SentenceTransformer(MODEL_NAME)
-    print(f"[embeddings] Model loaded successfully.")
-    return model
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY environment variable is not set — required for embeddings."
+        )
+    return OpenAI(api_key=api_key)
+
+
+def _clean(text: str) -> str:
+    """Coerce empty/whitespace-only input to a single space (the API rejects '')."""
+    return text if (text and text.strip()) else " "
 
 
 # ---------------------------------------------------------------------------
@@ -47,36 +57,49 @@ def _get_model():
 # ---------------------------------------------------------------------------
 
 def embed(text: str) -> list[float]:
-    """Generate a 384-dim embedding for a single text string.
+    """Generate a 1536-dim embedding for a single text string.
 
     Args:
-        text: The text to embed. Texts longer than ~200 words are truncated
-              by the model automatically.
+        text: The text to embed.
 
     Returns:
-        A list of 384 floats representing the text's semantic meaning.
+        A list of 1536 floats representing the text's semantic meaning.
     """
-    model = _get_model()
-    vector = model.encode(text, show_progress_bar=False)
-    return vector.tolist()
+    client = _get_client()
+    resp = client.embeddings.create(
+        model=MODEL_NAME,
+        input=_clean(text),
+        dimensions=DIMENSIONS,
+    )
+    return resp.data[0].embedding
 
 
-def embed_batch(texts: list[str], batch_size: int = 64) -> list[list[float]]:
-    """Generate embeddings for multiple texts efficiently.
+def embed_batch(texts: list[str], batch_size: int = 128) -> list[list[float]]:
+    """Generate embeddings for multiple texts efficiently (batched API calls).
 
     Args:
         texts: List of text strings to embed.
-        batch_size: Number of texts to process at once (default 64).
+        batch_size: Number of texts per API request (default 128).
 
     Returns:
-        A list of 384-dim vectors, one per input text.
+        A list of 1536-dim vectors, one per input text, in input order.
     """
     if not texts:
         return []
 
-    model = _get_model()
-    vectors = model.encode(texts, batch_size=batch_size, show_progress_bar=False)
-    return vectors.tolist()
+    client = _get_client()
+    out: list[list[float]] = []
+    for start in range(0, len(texts), batch_size):
+        batch = [_clean(t) for t in texts[start:start + batch_size]]
+        resp = client.embeddings.create(
+            model=MODEL_NAME,
+            input=batch,
+            dimensions=DIMENSIONS,
+        )
+        # Response order is not guaranteed — sort by index to match input order.
+        ordered = sorted(resp.data, key=lambda d: d.index)
+        out.extend(d.embedding for d in ordered)
+    return out
 
 
 def similarity(vec_a: Union[list[float], np.ndarray],
@@ -108,15 +131,13 @@ def get_model_info() -> dict:
     """Return metadata about the current embedding model.
 
     Returns:
-        Dict with model name, dimensions, and load status.
+        Dict with model name, dimensions, and provider.
     """
-    is_loaded = _get_model.cache_info().hits > 0 or _get_model.cache_info().currsize > 0
     return {
         "model": MODEL_NAME,
         "dimensions": DIMENSIONS,
         "max_input_tokens": MAX_INPUT_TOKENS,
-        "loaded": is_loaded,
-        "cost_per_call": 0.0,  # free — runs locally
+        "provider": "openai",
     }
 
 

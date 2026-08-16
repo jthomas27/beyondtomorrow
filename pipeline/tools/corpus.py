@@ -22,9 +22,9 @@ Normalized schema (documents → chunks → embeddings):
         id SERIAL PRIMARY KEY
         chunk_id INTEGER → chunks(id) ON DELETE CASCADE
         content TEXT NOT NULL                  — denormalized for fast search (no join)
-        embedding vector(384)
+        embedding vector(1536)
         metadata JSONB DEFAULT '{}'
-        model VARCHAR(100) DEFAULT 'all-MiniLM-L6-v2'
+        model VARCHAR(100) DEFAULT 'text-embedding-3-small'
         created_at TIMESTAMPTZ
 
 Tools:

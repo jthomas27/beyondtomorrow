@@ -1,33 +1,33 @@
 """
-agents/main.py — CLI entrypoint for the BeyondTomorrow.World research agent
+pipeline/main.py — CLI entrypoint for the BeyondTomorrow.World research agent
 
 Usage:
     # Run a full blog pipeline
-    python -m agents.main "BLOG: quantum computing and cryptography"
+    python -m pipeline.main "BLOG: quantum computing and cryptography"
 
     # Run research only (saves to corpus)
-    python -m agents.main "RESEARCH: EU AI regulation 2025"
+    python -m pipeline.main "RESEARCH: EU AI regulation 2025"
 
     # Generate a standalone research report
-    python -m agents.main "REPORT: impact of rising sea levels on Pacific nations"
+    python -m pipeline.main "REPORT: impact of rising sea levels on Pacific nations"
 
     # Index a document from a file
-    python -m agents.main "INDEX: path/to/document.txt"
+    python -m pipeline.main "INDEX: path/to/document.txt"
 
     # Override the model for a run
-    python -m agents.main --model openai/gpt-4.1-mini "RESEARCH: quick topic"
+    python -m pipeline.main --model gpt-4.1-mini "RESEARCH: quick topic"
 
     # Check status (env vars, db connection, rate limits)
-    python -m agents.main status
+    python -m pipeline.main status
 
 Options:
     --model MODEL   Override the orchestrator model for this run
-                    (e.g. openai/gpt-4.1, openai/gpt-4.1-mini, openai/gpt-4.1-nano)
+                    (e.g. gpt-4.1, gpt-4.1-mini, gpt-4.1-nano)
     --dry-run       Print what the agent would do without executing LLM calls
     --debug         Enable verbose SDK tracing output
 
 Environment variables required:
-    GITHUB_TOKEN      — Fine-grained PAT with models:read scope
+    OPENAI_API_KEY    — OpenAI platform API key (sk-...)
     DATABASE_URL      — PostgreSQL connection string (pgvector public TCP proxy)
     GHOST_URL         — Ghost site URL (e.g. https://beyondtomorrow.world)
     GHOST_ADMIN_KEY   — Ghost Admin API key (id:secret format)
@@ -690,7 +690,7 @@ async def _check_status() -> None:
 
     # Check env vars
     checks = [
-        ("GITHUB_TOKEN", "GitHub Models API access"),
+        ("OPENAI_API_KEY", "OpenAI API access"),
         ("DATABASE_URL", "pgvector knowledge corpus"),
         ("GHOST_URL", "Ghost CMS publishing"),
         ("GHOST_ADMIN_KEY", "Ghost Admin API"),
@@ -771,7 +771,7 @@ async def _fix_title_via_llm(openai_client, edited_path) -> bool:
     logger.info("Fixing title via LLM: %r (%d words)", old_title, len(old_title.split()))
     try:
         resp = await openai_client.chat.completions.create(
-            model="openai/gpt-4.1-mini",
+            model="gpt-4.1-mini",
             max_tokens=30,
             temperature=0.3,
             messages=[
@@ -812,15 +812,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
     from pathlib import Path
 
     from pipeline._sdk import Runner
-    from pipeline.setup import init_github_models
+    from pipeline.setup import init_openai
     from pipeline.definitions import researcher, writer, editor, publisher, indexer, model_settings_for
     from pipeline.db import get_pool, close_pool
     from pipeline.degradation import select_model
     from pipeline.guardrails import log_model_call
 
-    _openai_client = init_github_models()
+    _openai_client = init_openai()
 
-    # Disable tracing — GitHub token is not a valid OpenAI key
     import os as _os
     _os.environ["OPENAI_AGENTS_DISABLE_TRACING"] = "1"
 
@@ -1458,14 +1457,13 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
 
     Usage:  python -m pipeline.main "PUBLISH: 2026-03-13-my-post-edited.md"
     """
-    from pipeline.setup import init_github_models
+    from pipeline.setup import init_openai
     from pipeline.definitions import publisher
     from pipeline.db import get_pool, close_pool
     from pathlib import Path as _Path
 
-    _openai_client = init_github_models()
+    _openai_client = init_openai()
 
-    # Disable tracing — GitHub token is not a valid OpenAI key
     import os as _os
     _os.environ["OPENAI_AGENTS_DISABLE_TRACING"] = "1"
 
@@ -1634,14 +1632,13 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
       - ``total_elapsed_s`` — wall-clock seconds
     """
     from pathlib import Path as _ResPath
-    from pipeline.setup import init_github_models
+    from pipeline.setup import init_openai
     from pipeline.definitions import researcher
     from pipeline.db import get_pool, close_pool
     from pipeline.guardrails import log_model_call
 
-    init_github_models()
+    init_openai()
 
-    # Disable tracing — GitHub token is not a valid OpenAI key
     import os as _os
     _os.environ["OPENAI_AGENTS_DISABLE_TRACING"] = "1"
 
@@ -1849,9 +1846,9 @@ async def _run_index(task: str) -> None:
     from datetime import date
     from pipeline.tools.corpus import _index_document_impl, _is_source_indexed
     from pipeline.db import close_pool
-    from pipeline.setup import init_github_models
+    from pipeline.setup import init_openai
 
-    init_github_models()
+    init_openai()
 
     raw_path = task[len("INDEX:"):].strip()
     project_root = pathlib.Path(__file__).parent.parent
@@ -1919,11 +1916,11 @@ async def _run_index(task: str) -> None:
 async def _run_agent(task: str, model_override: str | None = None, debug: bool = False) -> None:
     """Initialise the SDK and run the orchestrator with the given task."""
     from pipeline._sdk import Runner
-    from pipeline.setup import init_github_models
+    from pipeline.setup import init_openai
     from pipeline.definitions import orchestrator
     from pipeline.db import close_pool
 
-    init_github_models()
+    init_openai()
 
     if model_override:
         from pipeline._sdk import ModelSettings
@@ -1977,7 +1974,7 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default=None,
-        help="Override the orchestrator model (e.g. openai/gpt-4.1-mini)",
+        help="Override the orchestrator model (e.g. gpt-4.1-mini)",
     )
     parser.add_argument(
         "--dry-run",

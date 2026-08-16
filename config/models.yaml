@@ -30,37 +30,37 @@
 
 agents:
   orchestrator:
-    model: openai/gpt-4.1-mini
+    model: gpt-4.1-mini
     temperature: 0.1
     max_tokens: 2000
     note: "Multi-step handoff chain — gpt-4.1-mini is fast and sufficient for routing"
 
   researcher:
-    model: openai/gpt-4.1
+    model: gpt-4.1
     temperature: 0.2
     max_tokens: 2000
-    note: "Research JSON synthesis — output is structured JSON only (~500-1000 tokens); 2000 gives headroom without risking 413"
+    note: "Research JSON synthesis — output is structured JSON only (~500-1000 tokens); 2000 gives headroom"
 
   writer:
-    model: openai/gpt-4.1
+    model: gpt-4.1
     temperature: 0.7
     max_tokens: 4000
     note: "Blog writing — gpt-4.1 with 1M context; falls back to gpt-4.1-mini"
 
   editor:
-    model: openai/gpt-4.1
+    model: gpt-4.1
     temperature: 0.3
-    max_tokens: 2500
-    note: "Editorial pass — gpt-4.1 for reliable fact-check + grammar + structure. 2500 keeps total request body (input ~5000 + output 2500) under the 8000-token hard limit, preventing 413 fallback to gpt-4.1-mini which produces apostrophe/em-dash corruption."
+    max_tokens: 4000
+    note: "Editorial pass — gpt-4.1. Native OpenAI has no 8k-token request cap, so max_tokens raised from 2500 to 4000 for fuller edits."
 
   publisher:
-    model: openai/gpt-4.1-mini
+    model: gpt-4.1-mini
     temperature: 0.0
     max_tokens: 1000
     note: "Deterministic metadata extraction + Ghost API call — gpt-4.1-mini is fast"
 
   indexer:
-    model: openai/gpt-4.1-mini
+    model: gpt-4.1-mini
     temperature: 0.0
     max_tokens: 500
     note: "Chunking + indexing decisions — gpt-4.1-mini is sufficient"
@@ -88,9 +88,9 @@ agents:
 # ---------------------------------------------------------------------------
 
 fallback_chain:
-  - openai/gpt-4.1        # Primary — high quality, 1M context
-  - openai/gpt-4.1-mini   # Fast fallback — 1M context, lightweight
-  - openai/gpt-4.1-nano   # Last resort — budget fallback
+  - gpt-4.1        # Primary — high quality, 1M context
+  - gpt-4.1-mini   # Fast fallback — 1M context, lightweight
+  - gpt-4.1-nano   # Last resort — budget fallback
 
 # ---------------------------------------------------------------------------
 # Degradation thresholds

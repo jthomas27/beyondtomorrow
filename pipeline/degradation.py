@@ -9,8 +9,8 @@ Usage::
 
     from pipeline.degradation import select_model
 
-    model = await select_model("openai/gpt-4.1", pool=pool)
-    # Returns "openai/gpt-4.1-mini" if gpt-4.1 is exhausted, etc.
+    model = await select_model("gpt-4.1", pool=pool)
+    # Returns "gpt-4.1-mini" if gpt-4.1 is exhausted, etc.
 """
 
 from typing import Optional
@@ -23,9 +23,9 @@ from pipeline.guardrails import check_model_budget
 # ---------------------------------------------------------------------------
 
 FALLBACK_CHAIN: list[str] = [
-    "openai/gpt-4.1",
-    "openai/gpt-4.1-mini",
-    "openai/gpt-4.1-nano",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
 ]
 
 
