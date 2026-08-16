@@ -24,8 +24,11 @@ All sensitive values live in `.env`. The file is gitignored and never committed.
 # GitHub Models API
 GITHUB_TOKEN=github_pat_...
 
-# Railway GraphQL API (personal token from railway.app/account/tokens)
-RAILWAY_TOKEN=...
+# Railway CLI — PERSONAL/account token from railway.app/account/tokens.
+# IMPORTANT: the Railway CLI reads a personal token from RAILWAY_API_TOKEN,
+# NOT RAILWAY_TOKEN. RAILWAY_TOKEN is for *project* tokens only; passing a
+# personal token there fails with "Project Token not found" / "Unauthorized".
+RAILWAY_API_TOKEN=...
 
 # Ghost CMS
 GHOST_URL=https://beyondtomorrow.world
@@ -75,8 +78,8 @@ The script will:
 
 | Error | Fix |
 |---|---|
-| `RAILWAY_TOKEN not set` | Go to railway.app/account/tokens → Create Token → paste into `.env` |
-| `Railway: Unauthorized` | Token expired — create a new one at railway.app/account/tokens |
+| `RAILWAY_API_TOKEN not set` | Go to railway.app/account/tokens → Create Token (personal) → paste into `.env` as `RAILWAY_API_TOKEN` |
+| `Railway: Unauthorized` / `Project Token not found` | The token is in the wrong variable (personal tokens go in `RAILWAY_API_TOKEN`, not `RAILWAY_TOKEN`) or is expired — create a new personal token at railway.app/account/tokens |
 | `Ghost: 401 Unauthorized` | `GHOST_ADMIN_KEY` wrong or expired — copy fresh key from Ghost Admin → Settings → Integrations |
 | `Ghost: 403 Forbidden` | Using `urllib` — always use `httpx` for Ghost calls |
 | `Ghost settings API: 501 Not Implemented` | Custom integration keys cannot edit settings — use session auth via `node scripts/inject-code.js`. Requires `GHOST_ADMIN_EMAIL` + `GHOST_ADMIN_PASSWORD` in `.env` (owner account credentials, same as Ghost Admin login). |
@@ -163,7 +166,11 @@ Expect: `✓  GitHub Models  43 models available`
 | Project ID | `752fdaea-fd96-4521-bec6-b7d5ef451270` |
 | Environment | `production` (`c9dfebe4-097a-4151-be37-2b1fcd414e74`) |
 | Ghost service ID | `0daf496c-e14f-41d4-b89b-3624a778c99d` |
+| email-worker service ID | `15b13afb-8515-49e9-ab38-7e138069064f` (Python pipeline daemon — the service to redeploy for code/deps changes) |
+| Other services | `pgvector`, `MySQL` (managed; IDs via `railway status --json`) |
 | Database proxy | `caboose.proxy.rlwy.net:21688` — always use this; never overwrite with the Railway internal URL |
+
+> **CLI auth**: export the personal token as `RAILWAY_API_TOKEN` (not `RAILWAY_TOKEN`). Link once with `railway link --project 752fdaea-fd96-4521-bec6-b7d5ef451270 --environment production`, then `railway status`, `railway redeploy --service <id>`, etc. work.
 
 ```bash
 # List variables for the Ghost service
@@ -178,14 +185,14 @@ railway variables --service 0daf496c-e14f-41d4-b89b-3624a778c99d
 - **Never commit `.env`** — verify it is in `.gitignore` before any `git add`
 - **Never log full credential values** — mask after first 8 chars: `val[:8] + "..."`
 - **Never use `urllib` for Ghost** — Cloudflare blocks it with 403; always use `httpx`
-- **Railway token scope**: use a personal token (railway.app/account/tokens), not a project token — project tokens cannot read variables across services
+- **Railway token type**: use a **personal** token (railway.app/account/tokens) in **`RAILWAY_API_TOKEN`**. Do not use a project token (`RAILWAY_TOKEN`) — project tokens cannot read variables across services and fail `whoami`
 - **Rotate tokens** if they are accidentally logged, pasted in chat, or pushed to git
 
 ## Service Reference
 
 | Service | Auth method | Key variable | Notes |
 |---|---|---|---|
-| Railway | Bearer token → GraphQL API | `RAILWAY_TOKEN` | Also stored in `~/.railway/config.json` after `railway login`. **GraphQL API returns 403 — always use Railway CLI instead** |
+| Railway | Personal token via CLI | `RAILWAY_API_TOKEN` | Personal/account token from railway.app/account/tokens. **Must be `RAILWAY_API_TOKEN`, not `RAILWAY_TOKEN`** (the latter is for project tokens). **GraphQL API returns 403 — always use the Railway CLI instead** |
 | Ghost | HMAC-SHA256 JWT (5-min expiry) | `GHOST_ADMIN_KEY` | Generate fresh per request; use `httpx` |
 | Hostinger IMAP | Plain login over IMAP4_SSL | `EMAIL_USER` + `EMAIL_PASS` | Port 993, `imap.hostinger.com` |
 | Hostinger SMTP | STARTTLS login | `SMTP_USER` + `SMTP_PASS` | Port 587, `smtp.hostinger.com`; defaults to IMAP creds |
