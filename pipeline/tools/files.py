@@ -582,7 +582,9 @@ async def write_research_file(filename: str, content: str) -> str:
     content = _validate_punctuation(content)
     content = _enforce_british_english(content)
 
-    # Strip cross-post references and validate links in edited posts before saving
+    # Strip cross-post references, validate links, and remove any explicit
+    # "Sources" section in edited posts before saving. Inline references are
+    # allowed, but a dedicated Sources block is not.
     if "-edited" in filename:
         from pipeline.guardrails import strip_cross_post_references
         content, stripped_refs = strip_cross_post_references(content)
@@ -592,6 +594,18 @@ async def write_research_file(filename: str, content: str) -> str:
                 len(stripped_refs), filename, stripped_refs,
             )
         content = await _validate_and_strip_links(content)
+
+        # Remove any "## Sources" (or "### Sources") section and its list until the next H2/H3 or end of file
+        try:
+            # Regex: match heading line starting with 2-3 hashes and 'Sources' (case-insensitive),
+            # then consume any subsequent non-heading lines until next heading of same/higher level or end
+            import re as _re_rm
+            pattern = _re_rm.compile(r"^#{2,3}\s+Sources\b[\s\S]*?(?=^#{2,3}\s|\Z)", _re_rm.IGNORECASE | _re_rm.MULTILINE)
+            if pattern.search(content):
+                content = pattern.sub("\n", content).strip() + "\n"
+                _file_logger.info("Removed explicit 'Sources' section from %s per site policy.", filename)
+        except Exception:
+            pass  # non-fatal hygiene step
 
     path.write_text(content, encoding="utf-8")
 
