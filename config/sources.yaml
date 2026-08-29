@@ -452,6 +452,11 @@ approved_domains:
     credibility: 4
     notes: "The Economist — data-driven analysis"
 
+  - domain: gatesnotes.com
+    category: news
+    credibility: 3
+    notes: "Bill Gates’ personal blog — commentary on global health, climate, AI; verify claims and cite primary sources when possible"
+
   - domain: esgtoday.com
     category: news
     credibility: 4
