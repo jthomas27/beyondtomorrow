@@ -281,6 +281,11 @@ approved_domains:
     credibility: 4
     notes: "Google official blog — Sundar Pichai author page and company announcements; use as primary source for official statements and link underlying data when cited"
 
+  - domain: blogs.nvidia.com
+    category: technology
+    credibility: 4
+    notes: "NVIDIA official blog — Jensen (Jen-Hsun) Huang author page and company announcements; use as primary source and cite underlying papers/data when available"
+
   # --- Policy / geopolitics -------------------------------------------------
 
   - domain: foreignaffairs.com
