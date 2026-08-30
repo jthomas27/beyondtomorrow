@@ -271,6 +271,11 @@ approved_domains:
     credibility: 3
     notes: "Dario Amodei’s personal blog — commentary on AI safety, policy, and industry; verify claims and cite primary sources when possible"
 
+  - domain: blog.samaltman.com
+    category: technology
+    credibility: 3
+    notes: "Sam Altman’s personal blog — commentary on AI, technology, and policy; verify claims and cite primary sources when possible"
+
   # --- Policy / geopolitics -------------------------------------------------
 
   - domain: foreignaffairs.com
