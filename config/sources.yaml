@@ -343,6 +343,11 @@ approved_domains:
     credibility: 5
     notes: "Organisation for Economic Co-operation and Development — authoritative economic, social and environmental data and policy analysis"
 
+  - domain: treasury.gov
+    category: policy
+    credibility: 5
+    notes: "U.S. Department of the Treasury — official policy statements, OFAC sanctions, and economic reports (includes home.treasury.gov)"
+
   # --- Economics / investment risk ------------------------------------------
 
   - domain: research.google
