@@ -276,6 +276,11 @@ approved_domains:
     credibility: 3
     notes: "Sam Altman’s personal blog — commentary on AI, technology, and policy; verify claims and cite primary sources when possible"
 
+  - domain: blog.google
+    category: technology
+    credibility: 4
+    notes: "Google official blog — Sundar Pichai author page and company announcements; use as primary source for official statements and link underlying data when cited"
+
   # --- Policy / geopolitics -------------------------------------------------
 
   - domain: foreignaffairs.com
