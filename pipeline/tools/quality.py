@@ -6,6 +6,7 @@ and a curated tier list. Used by the Researcher agent to filter low-quality
 sources from research outputs.
 """
 
+from urllib.parse import urlsplit
 from pipeline._sdk import function_tool
 
 # Curated domain tiers (5 = highest credibility)
@@ -73,7 +74,23 @@ async def score_credibility(domain: str) -> str:
         domain: The domain to score (e.g. 'nist.gov', 'medium.com', 'arxiv.org').
     """
     # Normalise: strip www. and path components
-    domain = domain.lower().removeprefix("www.").split("/")[0].strip()
+    raw = domain.strip().lower()
+    domain = (urlsplit(raw if "://" in raw else "//" + raw).hostname or "").removeprefix("www.")
+
+    # The source configuration is authoritative; a second hardcoded list must
+    # not reject approved evidence as unknown. Match on hostname boundaries,
+    # preferring the most specific configured entry.
+    from pipeline.config_loader import get_sources
+    matches = []
+    for entry in get_sources().get("approved_domains", []):
+        host = entry.get("domain", "").lower().strip()
+        score = entry.get("credibility")
+        if host and (domain == host or domain.endswith("." + host)) and isinstance(score, int) and 1 <= score <= 5:
+            matches.append((len(host), score, entry.get("notes", "Configured source")))
+    if matches:
+        _, score, label = max(matches)
+        return f"Credibility score: {score}/5 — {label} (domain: {domain})"
+
 
     # Check suffix for gov/edu/ac domains
     tld = ".".join(domain.split(".")[-2:])  # e.g. "nist.gov", "mit.edu"

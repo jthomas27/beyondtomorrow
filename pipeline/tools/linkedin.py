@@ -29,7 +29,7 @@ _LINKEDIN_POSTS_URL = "https://api.linkedin.com/rest/posts"
 _LINKEDIN_IMAGES_URL = "https://api.linkedin.com/rest/images?action=initializeUpload"
 # Bump this when LinkedIn deprecates the current API version.
 # Check https://learn.microsoft.com/en-us/linkedin/marketing/versioning
-_LINKEDIN_API_VERSION = "202503"
+_LINKEDIN_API_VERSION = "202610"
 _MAX_COMMENTARY_CHARS = 700
 _RETRY_ATTEMPTS = 3
 _RETRY_DELAYS = [5, 15, 30]  # seconds; conservative — LinkedIn rate limits are strict

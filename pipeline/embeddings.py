@@ -52,6 +52,18 @@ def _clean(text: str) -> str:
     return text if (text and text.strip()) else " "
 
 
+def _normalise(vector: list[float]) -> list[float]:
+    """Keep the unit-vector contract despite small service rounding differences.
+
+    Scaling does not alter cosine similarity or require re-indexing existing rows.
+    """
+    values = np.asarray(vector, dtype=np.float64)
+    norm = float(np.linalg.norm(values))
+    if values.shape != (DIMENSIONS,) or not np.isfinite(norm) or norm == 0:
+        raise ValueError("Embedding response has invalid dimensions or magnitude")
+    return (values / norm).tolist()
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -71,7 +83,7 @@ def embed(text: str) -> list[float]:
         input=_clean(text),
         dimensions=DIMENSIONS,
     )
-    return resp.data[0].embedding
+    return _normalise(resp.data[0].embedding)
 
 
 def embed_batch(texts: list[str], batch_size: int = 128) -> list[list[float]]:
@@ -98,7 +110,7 @@ def embed_batch(texts: list[str], batch_size: int = 128) -> list[list[float]]:
         )
         # Response order is not guaranteed — sort by index to match input order.
         ordered = sorted(resp.data, key=lambda d: d.index)
-        out.extend(d.embedding for d in ordered)
+        out.extend(_normalise(d.embedding) for d in ordered)
     return out
 
 

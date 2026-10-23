@@ -39,7 +39,7 @@ def init_openai() -> AsyncOpenAI:
         api_key=token,
     )
     set_default_openai_client(client)
-    set_default_openai_api("chat_completions")
+    set_default_openai_api("responses")
     return client
 
 

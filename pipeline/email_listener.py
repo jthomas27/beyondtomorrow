@@ -652,6 +652,13 @@ async def run_poll_loop() -> None:
 
     interval = int(os.environ.get("EMAIL_POLL_INTERVAL", str(DEFAULT_POLL_INTERVAL)))
     logger.info("Email listener starting — polling every %ds", interval)
+    from pipeline.config_loader import get_models
+    assignments = get_models().get("agents", {})
+    logger.info(
+        "Model migration sol-luna-responses-2026-10-22: %s",
+        ", ".join(f"{name}={cfg.get('model')}({cfg.get('reasoning_effort')})"
+                  for name, cfg in assignments.items()),
+    )
 
     # Register the DB pool with the logger so all _write_entry calls persist to
     # PostgreSQL (shared with local runs), surviving Railway redeployments.

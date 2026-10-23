@@ -28,26 +28,14 @@ from typing import Optional
 # degradation routing and cost visibility, not hard API limits.
 # ---------------------------------------------------------------------------
 
+# Application safety limits, not OpenAI account limits. Count each model turn.
 DAILY_LIMITS: dict[str, int] = {
-    "gpt-4.1": 500,       # Primary model
-    "gpt-4.1-mini": 2000, # Fast fallback
-    "gpt-4.1-nano": 2000, # Last-resort budget tier
-    "gpt-5": 500,         # Available but not in primary chain
-    "gpt-5-mini": 2000,
-    "gpt-5-nano": 2000,
-    "gpt-4o": 500,
+    "gpt-6.1-sol": 500,
+    "gpt-6-luna": 2000,
 }
-
-# Per-minute request limits — conservative safety net for OpenAI Tier 1+.
-# Actual limits are much higher; these guard against runaway loops only.
 RPM_LIMITS: dict[str, int] = {
-    "gpt-4.1": 60,
-    "gpt-4.1-mini": 200,
-    "gpt-4.1-nano": 200,
-    "gpt-5": 60,
-    "gpt-5-mini": 200,
-    "gpt-5-nano": 200,
-    "gpt-4o": 60,
+    "gpt-6.1-sol": 60,
+    "gpt-6-luna": 200,
 }
 
 # Percentage thresholds for soft warning vs. hard block.
@@ -100,7 +88,7 @@ async def check_rpm(pool, model: str) -> dict:
             "model":   str,
         }
     """
-    limit = RPM_LIMITS.get(model, 0)
+    limit = RPM_LIMITS.get(model, 60)
     if limit == 0:
         return {"ok": True, "used": 0, "limit": 0, "model": model}
 
@@ -128,10 +116,9 @@ async def check_model_budget(pool, model: str) -> dict:
             "model":     str,
         }
 
-    If the model is unknown (not in :data:`DAILY_LIMITS`), it is always
-    available (no budget applies).
+    Unknown model overrides use conservative limits: 500 calls/day and 60/minute.
     """
-    limit = DAILY_LIMITS.get(model, 0)
+    limit = DAILY_LIMITS.get(model, 500)
     if limit == 0:
         return {
             "available": True,
@@ -172,7 +159,7 @@ async def get_rpm_clear_wait(pool, model: str, max_wait: int = 90) -> int:
         max_wait — window won't clear within *max_wait* seconds; caller
                    should fall back to the next model rather than waiting.
     """
-    limit = RPM_LIMITS.get(model, 0)
+    limit = RPM_LIMITS.get(model, 60)
     if limit == 0:
         return 0  # no RPM tracking for this model
 

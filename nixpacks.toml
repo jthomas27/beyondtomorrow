@@ -2,3 +2,6 @@
 # Without this, nixpacks detects package.json first and uses Node instead of Python.
 
 providers = ["python"]
+
+[phases.build]
+cmds = ["python3 scripts/restore_release_assets.py"]

@@ -1,85 +1,31 @@
-"""
-pipeline/degradation.py — Automatic model fallback selection.
-
-Selects the best available model from the fallback chain by checking each
-model's daily budget status via the guardrails module. Falls back to cheaper
-models when the preferred one is at or near its rate limit.
-
-Usage::
-
-    from pipeline.degradation import select_model
-
-    model = await select_model("gpt-4.1", pool=pool)
-    # Returns "gpt-4.1-mini" if gpt-4.1 is exhausted, etc.
-"""
-
+"""Budget-aware routing using the configured chain; never override an unknown preference."""
 from typing import Optional
 
+from pipeline.config_loader import get_models
 from pipeline.guardrails import check_model_budget
 
-# ---------------------------------------------------------------------------
-# Fallback chain — ordered from most capable to most available.
-# When a model is exhausted the agent steps forward to the next entry.
-# ---------------------------------------------------------------------------
-
-FALLBACK_CHAIN: list[str] = [
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-]
+FALLBACK_CHAIN: list[str] = get_models()["fallback_chain"]
 
 
-def get_fallback(model: str) -> Optional[str]:
-    """Return the next model in the fallback chain after *model*.
-
-    Returns ``None`` if *model* is already the last entry or if the chain
-    is exhausted. For unknown models (not in the chain), returns the first
-    chain entry.
-
-    Args:
-        model: Current model identifier string.
-    """
-    try:
-        idx = FALLBACK_CHAIN.index(model)
-    except ValueError:
-        # Unknown model — direct to the start of the chain
-        return FALLBACK_CHAIN[0] if FALLBACK_CHAIN else None
-
-    next_idx = idx + 1
-    return FALLBACK_CHAIN[next_idx] if next_idx < len(FALLBACK_CHAIN) else None
+class ModelBudgetExceeded(RuntimeError):
+    """No permitted model has capacity. Preserve work and defer the run."""
 
 
-async def select_model(preferred_model: str, pool=None) -> str:
-    """Select the best available model, falling back if budget is exhausted.
+def get_fallback(model: str, *, allow_fallback: bool = True) -> Optional[str]:
+    if not allow_fallback or model not in FALLBACK_CHAIN:
+        return None
+    idx = FALLBACK_CHAIN.index(model) + 1
+    return FALLBACK_CHAIN[idx] if idx < len(FALLBACK_CHAIN) else None
 
-    Walks the fallback chain starting at *preferred_model* and returns the
-    first model whose budget check passes. If every model is exhausted,
-    returns the last model in the chain (last resort).
 
-    Args:
-        preferred_model: The model you'd ideally like to use.
-        pool: asyncpg connection pool. If ``None``, skips DB checks and
-              returns *preferred_model* unchanged (useful for dry-run / tests
-              that do not need a real DB).
-
-    Returns:
-        Model name string — always returns a non-empty string.
-    """
+async def select_model(preferred_model: str, pool=None, *, allow_fallback: bool = True) -> str:
     if pool is None:
         return preferred_model
-
-    # Build an ordered list starting at preferred_model's position in chain.
-    try:
-        start_idx = FALLBACK_CHAIN.index(preferred_model)
-    except ValueError:
-        start_idx = 0
-
-    candidates = FALLBACK_CHAIN[start_idx:]
-
+    candidates = [preferred_model]
+    if allow_fallback and preferred_model in FALLBACK_CHAIN:
+        candidates = FALLBACK_CHAIN[FALLBACK_CHAIN.index(preferred_model):]
     for model in candidates:
         status = await check_model_budget(pool, model)
         if status["available"]:
             return model
-
-    # All candidates exhausted — return last resort.
-    return FALLBACK_CHAIN[-1]
+    raise ModelBudgetExceeded(f"No permitted model has capacity for {preferred_model}; defer the run")

@@ -529,6 +529,16 @@ approved_domains:
     credibility: 5
     notes: "NASA Earthdata — satellite and climate datasets"
 
+  - domain: nasdaq.com
+    category: data
+    credibility: 4
+    notes: "Exchange data and market commentary; distinguish issuer/sponsored commentary from independent reporting."
+
+  - domain: cnbc.com
+    category: news
+    credibility: 4
+    notes: "Financial news; verify dated market moves and separate analyst opinion from observed facts."
+
 # ---------------------------------------------------------------------------
 # Domain blocklist
 # These domains are explicitly disallowed regardless of search results.

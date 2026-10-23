@@ -1,3 +1,10 @@
+> **Current model configuration (October 2026):** use `config/models.yaml` and
+> AGENTS.md as the source of truth. Researcher/Writer/Editor use `gpt-6.1-sol`
+> with low reasoning; routing/publishing/indexing use `gpt-6-luna` with none.
+> Agents use Responses. Do not apply the older GPT-4.1 assignments, token-limit
+> assumptions, or fallback descriptions below. Content agents disable automatic
+> quality downgrades; model usage is recorded for each completed call.
+
 # BeyondTomorrow.World — GitHub Copilot Instructions
 
 This workspace runs an automated research-and-publish pipeline for **BeyondTomorrow.World**, a blog covering climate, technology, geopolitics, economics (including investment risk), and futures. The pipeline uses the OpenAI Agents SDK with the OpenAI API, pgvector for RAG retrieval, and Ghost CMS for publishing.

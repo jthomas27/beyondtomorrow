@@ -1,104 +1,49 @@
-# config/models.yaml
-#
-# Model assignments for the BeyondTomorrow.World research agent pipeline.
-#
-# Edit this file to override which model handles each agent or task.
-# Changes take effect at agent startup — no code changes needed.
-#
-# Available models (GitHub Models API — inference endpoint):
-#
-#   NOTE: Claude/Anthropic models are only available in the Copilot Chat UI,
-#         NOT via the models.github.ai/inference API endpoint.
-#
-#   Plan: Copilot Pro+ (unlimited premium requests)
-#
-#   Custom tier:  openai/gpt-5, openai/gpt-5-mini, openai/gpt-5-nano, openai/o3, openai/o4-mini
-#   High tier:    openai/gpt-4.1, openai/gpt-4o
-#   Low tier:     openai/gpt-4.1-mini, openai/gpt-4.1-nano
-#
-# Model selection strategy:
-#   - openai/gpt-4.1      : primary model for all agents — 1M context, high quality, reliable
-#   - openai/gpt-4.1-mini : fast fallback — 1M context, lightweight, low cost
-#   - openai/gpt-4.1-nano : last-resort budget fallback
-#
-# See docs/GITHUB_COPILOT_MODELS.md for the full model catalog.
-
-# ---------------------------------------------------------------------------
-# Agent model assignments
-# Each entry maps an agent name to its primary model.
-# ---------------------------------------------------------------------------
-
+# Native OpenAI Responses API. Loaded once at worker startup.
+# max_tokens includes reasoning and visible output; start with existing caps.
 agents:
   orchestrator:
-    model: gpt-4.1-mini
+    model: gpt-6-luna
+    reasoning_effort: none
     temperature: 0.1
     max_tokens: 2000
-    note: "Multi-step handoff chain — gpt-4.1-mini is fast and sufficient for routing"
-
   researcher:
-    model: gpt-4.1
-    temperature: 0.2
-    max_tokens: 2000
-    note: "Research JSON synthesis — output is structured JSON only (~500-1000 tokens); 2000 gives headroom"
-
+    model: gpt-6.1-sol
+    reasoning_effort: low
+    allow_fallback: false
+    # Live research truncated valid evidence at 2,000 tokens; JSON needs this headroom.
+    max_tokens: 4000
   writer:
-    model: gpt-4.1
-    temperature: 0.7
+    model: gpt-6.1-sol
+    reasoning_effort: low
+    allow_fallback: false
     max_tokens: 4000
-    note: "Blog writing — gpt-4.1 with 1M context; falls back to gpt-4.1-mini"
-
   editor:
-    model: gpt-4.1
-    temperature: 0.3
+    model: gpt-6.1-sol
+    reasoning_effort: low
+    allow_fallback: false
     max_tokens: 4000
-    note: "Editorial pass — gpt-4.1. Native OpenAI has no 8k-token request cap, so max_tokens raised from 2500 to 4000 for fuller edits."
-
   publisher:
-    model: gpt-4.1-mini
+    model: gpt-6-luna
+    reasoning_effort: none
     temperature: 0.0
     max_tokens: 1000
-    note: "Deterministic metadata extraction + Ghost API call — gpt-4.1-mini is fast"
-
   indexer:
-    model: gpt-4.1-mini
+    model: gpt-6-luna
+    reasoning_effort: none
     temperature: 0.0
     max_tokens: 500
-    note: "Chunking + indexing decisions — gpt-4.1-mini is sufficient"
+  title_repair:
+    model: gpt-6-luna
+    reasoning_effort: none
+    temperature: 0.3
+    max_tokens: 64
 
-# ---------------------------------------------------------------------------
-# Optional: deep synthesis override
-#
-# Uncomment to use Opus for high-stakes or complex research tasks
-# triggered with the --deep flag or OPUS: prefix in email subject.
-# Opus is limited to 50 calls/day — use sparingly.
-# ---------------------------------------------------------------------------
-
-# deep_synthesis:
-#   model: openai/gpt-4.1
-#   temperature: 0.3
-#   max_tokens: 8000
-#   note: "Reserved for complex multi-source synthesis tasks only"
-
-# ---------------------------------------------------------------------------
-# Automatic degradation chain
-#
-# When a model's daily budget is exhausted (tracked in rate_limit_log),
-# the agent automatically falls back to the next model in this list.
-# The degradation logic lives in pipeline/guardrails.py (not yet implemented).
-# ---------------------------------------------------------------------------
-
+# Routing order only; content agents explicitly disable cheaper fallbacks
+# until their quality has been validated. Exhaustion defers the run.
 fallback_chain:
-  - gpt-4.1        # Primary — high quality, 1M context
-  - gpt-4.1-mini   # Fast fallback — 1M context, lightweight
-  - gpt-4.1-nano   # Last resort — budget fallback
-
-# ---------------------------------------------------------------------------
-# Degradation thresholds
-#
-# When a model's daily usage reaches these percentages of its limit,
-# the agent warns (soft) or switches to the next model (hard).
-# ---------------------------------------------------------------------------
+  - gpt-6.1-sol
+  - gpt-6-luna
 
 degradation:
-  soft_threshold_pct: 80   # Log a warning, continue using current model
-  hard_threshold_pct: 95   # Automatically fall back to next model in chain
+  soft_threshold_pct: 80
+  hard_threshold_pct: 95

@@ -11,7 +11,7 @@ Project-level rules for AI coding agents (Cline, etc.). Read this before editing
 | Blog CMS | Ghost 5.x (self-hosted) | `https://beyondtomorrow.world` |
 | Hosting | Railway (`caring-alignment` project) | Ghost + agent worker services |
 | Vector DB | PostgreSQL + pgvector (Railway) | 1536-dim embeddings for semantic search |
-| AI Framework | OpenAI Agents SDK + OpenAI API | `gpt-4.1` for research/write/edit; `gpt-4.1-mini` for orchestrate/publish/index |
+| AI Framework | OpenAI Agents SDK + OpenAI API | `gpt-6.1-sol` for research/write/edit; `gpt-6-luna` for orchestrate/publish/index (Responses API) |
 | Embeddings | `text-embedding-3-small` | 1536-dim; ~$0.02/1M tokens |
 | Email trigger | Hostinger IMAP (`admin@beyondtomorrow.world`) | Polled by `pipeline/email_listener.py` |
 
@@ -73,16 +73,20 @@ CLI flags: `--model MODEL`, `--dry-run`, `--debug`.
 
 ## Model Assignments
 
-| Agent | Model | Temperature | Max Tokens |
+| Agent | Model | Reasoning effort | Max output tokens (incl. reasoning) |
 |---|---|---|---|
-| Orchestrator | `gpt-4.1-mini` | 0.1 | 2,000 |
-| Researcher | `gpt-4.1` | 0.2 | 8,000 |
-| Writer | `gpt-4.1` | 0.7 | 4,000 |
-| Editor | `gpt-4.1` | 0.3 | 4,000 |
-| Publisher | `gpt-4.1-mini` | 0.0 | 1,000 |
-| Indexer | `gpt-4.1-mini` | 0.0 | 500 |
+| Orchestrator | `gpt-6-luna` | none | 2,000 |
+| Researcher | `gpt-6.1-sol` | low | 4,000 |
+| Writer | `gpt-6.1-sol` | low | 4,000 |
+| Editor | `gpt-6.1-sol` | low | 4,000 |
+| Publisher | `gpt-6-luna` | none | 1,000 |
+| Indexer | `gpt-6-luna` | none | 500 |
 
-Fallback chain: `gpt-4.1` → `gpt-4.1-mini` → `gpt-4.1-nano`.
+Agents use the Responses API. Omit temperature for Sol reasoning requests.
+Routing order: `gpt-6.1-sol` → `gpt-6-luna`, loaded from `config/models.yaml`.
+Researcher, Writer, and Editor disable automatic downgrades until fallback
+quality is validated. Exhausted budgets defer work; they never bypass limits.
+Usage is recorded per completed model turn, including turns before tool failures.
 
 ---
 
@@ -169,7 +173,7 @@ source .venv/bin/activate
 .venv/bin/python -m pipeline.main "RESEARCH: a small test topic"
 ```
 
-Confirm: no import/model-name errors, bare model strings in logs (`gpt-4.1`, not `openai/gpt-4.1`), and DB reachable via the external proxy.
+Confirm: no import/model-name errors, bare model strings in logs (`gpt-6.1-sol`, not `openai/gpt-6.1-sol`), and DB reachable via the external proxy.
 
 ---
 

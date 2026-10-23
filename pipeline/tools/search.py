@@ -11,8 +11,9 @@ Tools:
 import asyncio
 import json
 import logging
+import re
 from datetime import date as _date
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit, parse_qsl, urlencode
 
 import httpx
 import trafilatura
@@ -84,25 +85,63 @@ def _is_approved(url: str) -> bool:
 
 def _query_variants(query: str) -> list[str]:
     """Return progressively simplified query variants for rate-limit retry."""
-    words = query.split()
-    candidates = [
-        query,
-        " ".join(words[:min(6, len(words))]),
-        " ".join(words[:min(4, len(words))]) + " 2024 2025",
-    ]
-    seen: set[str] = set()
-    unique: list[str] = []
-    for v in candidates:
-        if v not in seen:
-            seen.add(v)
-            unique.append(v)
-    return unique
+    # Keep dates, entities and site restrictions: prefix truncation silently
+    # changed a technology-stock question into a generic equity search.
+    simplified = re.sub(r"\bwhat[’']s\b", " ", query, flags=re.I)
+    simplified = re.sub(r"[^\w\s:.-]", " ", simplified)
+    simplified = " ".join(w for w in simplified.split() if w.lower() not in {
+        "explore", "please", "what", "whats", "the", "main", "are", "is", "in", "of", "a", "an"
+    })
+    return list(dict.fromkeys(v for v in (query, simplified) if v.strip()))
+
+
+def _recovery_queries(query: str) -> list[str]:
+    """Bounded alternative-source searches, still subject to the allowlist."""
+    base = re.sub(r"-?site:\S+", "", query, flags=re.I)
+    base = re.sub(r"\bOR\b", "", base)
+    base = " ".join(base.split())
+    financial = bool(re.search(r"\b(stock|stocks|equity|nasdaq|market|markets|selloff|sell|financial)\b", base, re.I))
+    domains = ("nasdaq.com", "cnbc.com") if financial else ("apnews.com", "bbc.com")
+    return [f"{base} site:{domain}" for domain in domains if _is_approved(f"https://{domain}/")]
 
 
 def _ddg_text(query: str, max_results: int) -> list[dict]:
     """Run a single DuckDuckGo text search."""
     with DDGS() as ddgs:
         return list(ddgs.text(query, max_results=max_results))
+
+
+def _approved_results(candidates: list[dict]) -> list[dict]:
+    """Remove tracking/cookie-query duplicates before spending the fetch budget."""
+    results = []
+    seen = set()
+    for result in candidates:
+        url = result.get("href", "")
+        if not _is_approved(url):
+            continue
+        parts = urlsplit(url)
+        pairs = parse_qsl(parts.query)
+        cookie_error = any(key == "error" and value == "cookies_not_supported" for key, value in pairs)
+        pairs = [(key, value) for key, value in pairs
+                 if not key.startswith("utm_") and key not in {"ref", "fbclid", "gclid"}
+                 and not (cookie_error and key in {"error", "code"})]
+        canonical = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(pairs), ""))
+        if canonical not in seen:
+            results.append({**result, "href": canonical})
+            seen.add(canonical)
+    return results
+
+
+def _extract_response_text(response: httpx.Response) -> str:
+    """Extract primary HTML, text, or PDF evidence rather than treating PDF bytes as HTML."""
+    content_type = response.headers.get("content-type", "").lower()
+    if "application/pdf" in content_type or response.content.startswith(b"%PDF-"):
+        from io import BytesIO
+        from pypdf import PdfReader
+        return "\n\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(response.content)).pages)
+    if content_type.startswith(("text/plain", "text/markdown")):
+        return response.text.strip()
+    return trafilatura.extract(response.text, include_comments=False, include_tables=True) or ""
 
 
 @function_tool
@@ -115,7 +154,7 @@ async def web_search(query: str, max_results: int = 10) -> str:
         max_results: Maximum number of results to return (default 10).
     """
     for variant in _query_variants(query):
-        results = _ddg_text(variant, max_results)
+        results = await asyncio.to_thread(_ddg_text, variant, max_results)
         if results:
             return "\n\n".join(
                 f"**{r['title']}**\n{r['href']}\n{r['body']}"
@@ -130,7 +169,7 @@ async def web_search(query: str, max_results: int = 10) -> str:
     )
 
 
-async def _search_and_index_impl(query: str, max_results: int = 8) -> str:
+async def _search_and_index_impl(query: str, max_results: int = 8, *, _recover: bool = True) -> str:
     """Core implementation of search + embed + store. Called by the @function_tool
     wrapper and by _prefetch_topic (which runs outside the LLM loop)."""
     from pipeline.embeddings import embed_batch
@@ -151,17 +190,34 @@ async def _search_and_index_impl(query: str, max_results: int = 8) -> str:
     # Step 1: Search with auto-retry on rate limit
     results: list[dict] = []
     used_variant = query
+    filtered_count = 0
     for variant in _query_variants(query):
-        results = _ddg_text(variant, max_results)
+        # Apply the domain policy before the page-fetch cap so disallowed popular
+        # results cannot crowd every primary source out of a small result set.
+        try:
+            candidates = await asyncio.to_thread(_ddg_text, variant, min(max_results * 4, 40))
+        except Exception as exc:
+            logger.warning("Search backend failed (%s); trying the next query", type(exc).__name__)
+            candidates = []
+        approved = _approved_results(candidates)
+        filtered_count += sum(not _is_approved(r.get("href", "")) for r in candidates)
+        results = approved[:max_results]
         if results:
             used_variant = variant
             break
         await asyncio.sleep(2)
 
     if not results:
+        if _recover:
+            receipts = [await _search_and_index_impl(q, min(max_results, 3), _recover=False)
+                        for q in _recovery_queries(query)]
+            if receipts:
+                return "Alternative-source search after no approved results:\n" + "\n".join(receipts)
         return (
-            f"No web results found for '{query}' after multiple retry attempts. "
-            "Use search_corpus to query existing knowledge, or try fetch_page with a direct URL."
+            f"No approved web results found for '{query}' after retry attempts "
+            f"({filtered_count} results excluded by the source policy). "
+            "Try a targeted site: query for an approved primary source or use search_arxiv. "
+            "Use search_corpus for existing knowledge; do not invent sources."
         )
 
     today = str(_date.today())
@@ -195,7 +251,7 @@ async def _search_and_index_impl(query: str, max_results: int = 8) -> str:
             title = r.get("title", url)
 
             if url in recent_urls:
-                indexed.append(f'"{title}" (cached)')
+                indexed.append(f'"{title}" {url} (cached)')
                 continue
 
             # Filter out unapproved domains
@@ -203,22 +259,18 @@ async def _search_and_index_impl(query: str, max_results: int = 8) -> str:
                 skipped.append(f"{title} (domain not approved)")
                 continue
 
-            # Fetch full page text; fall back to search snippet on failure
+            # Fetch evidence. Do not present a search-engine snippet as a full source.
             text = ""
             try:
                 resp = await client.get(url)
                 resp.raise_for_status()
-                text = trafilatura.extract(
-                    resp.text, include_comments=False, include_tables=True
-                ) or ""
+                text = _extract_response_text(resp)
             except Exception as fetch_err:
                 logger.warning("Failed to fetch %s: %s", url, fetch_err)
                 failed.append(f"{title} ({fetch_err.__class__.__name__})")
 
             if len(text) < 100:
-                text = r.get("body", "")  # snippet fallback
-            if not text:
-                skipped.append(title)
+                skipped.append(f"{title} (no extractable full text)")
                 continue
 
             if len(text) > cfg_max_chars:
@@ -230,7 +282,7 @@ async def _search_and_index_impl(query: str, max_results: int = 8) -> str:
             chunks = _chunk_text(text, max_words=max_w, overlap_words=overlap_w)
             if not chunks:
                 continue
-            vectors = embed_batch(chunks)
+            vectors = await asyncio.to_thread(embed_batch, chunks)
             pages_to_store.append({
                 "url": url, "title": title, "text": text,
                 "chunks": chunks, "vectors": vectors,
@@ -279,17 +331,24 @@ async def _search_and_index_impl(query: str, max_results: int = 8) -> str:
                             for row, chunk, vector in zip(chunk_ids, page["chunks"], page["vectors"])
                         ],
                     )
-                    indexed.append(f'"{page["title"]}"')
+                    indexed.append(f'"{page["title"]}" {page["url"]}')
 
     lines = [f"Indexed {len(indexed)} pages into pgvector corpus (query: '{used_variant}')."]
     if indexed:
         lines.append("Pages stored: " + ", ".join(indexed[:5]))
         if len(indexed) > 5:
             lines.append(f"... and {len(indexed) - 5} more.")
+    if filtered_count:
+        lines.append(f"Excluded {filtered_count} search results outside approved domains.")
     if skipped:
-        lines.append(f"Skipped {len(skipped)} pages with no extractable text.")
+        lines.append(f"Skipped {len(skipped)} pages: " + "; ".join(skipped[:5]))
     if failed:
         lines.append(f"Failed to fetch {len(failed)} pages: " + "; ".join(failed[:3]))
+    if not indexed and _recover:
+        # At most two recovery searches, each capped at three fetches; recursion
+        # is disabled. Never substitute snippets for inaccessible full text.
+        for recovery in _recovery_queries(query):
+            lines.append(await _search_and_index_impl(recovery, min(max_results, 3), _recover=False))
     lines.append("Use search_corpus to retrieve information from these pages.")
     return "\n".join(lines)
 
@@ -344,12 +403,12 @@ async def search_arxiv(query: str, max_results: int = 5) -> str:
     for paper in client.results(search):
         results.append(
             f"**{paper.title}**\n"
-            f"URL: {paper.entry_id}\n"
+            f"URL: {paper.entry_id.replace('http://arxiv.org/', 'https://arxiv.org/')}\n"
             f"Published: {paper.published.strftime('%Y-%m-%d')}\n"
             f"Abstract: {paper.summary[:500]}"
         )
         papers_to_index.append({
-            "url": paper.entry_id,
+            "url": paper.entry_id.replace("http://arxiv.org/", "https://arxiv.org/"),
             "title": paper.title,
             "abstract": paper.summary,
             "date": paper.published.strftime("%Y-%m-%d"),
@@ -422,7 +481,7 @@ async def fetch_page(url: str) -> str:
     except httpx.HTTPError as exc:
         return f"Failed to fetch {url}: {exc}"
 
-    text = trafilatura.extract(resp.text, include_comments=False, include_tables=True)
+    text = _extract_response_text(resp)
     if not text:
         return f"Could not extract text from {url}"
 
@@ -452,18 +511,12 @@ async def _prefetch_topic(topic: str, num_queries: int = 2) -> list[str]:
     Returns:
         List of index-result strings from search_and_index.
     """
-    words = [w for w in topic.lower().replace(",", "").replace("'", "").split() if len(w) > 2]
-
-    # Build simple keyword-only queries (no LLM needed)
-    queries: list[str] = []
-    # Query 1: First 5 meaningful words
-    queries.append(" ".join(words[:5]))
-    # Query 2: Append "analysis 2025" for a recency-focused angle
-    if num_queries >= 2:
-        queries.append(" ".join(words[:4]) + " analysis 2025")
-    # Query 3: "latest" variant
-    if num_queries >= 3:
-        queries.append("latest " + " ".join(words[:4]))
+    # Preserve the whole subject and event date instead of the first five words.
+    queries = _query_variants(topic)
+    recovery = _recovery_queries(queries[-1])
+    if recovery:
+        queries.insert(1, recovery[0])
+    queries = list(dict.fromkeys(queries))
 
     results: list[str] = []
     for q in queries[:num_queries]:

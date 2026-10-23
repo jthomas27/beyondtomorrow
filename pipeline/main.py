@@ -15,14 +15,14 @@ Usage:
     python -m pipeline.main "INDEX: path/to/document.txt"
 
     # Override the model for a run
-    python -m pipeline.main --model gpt-4.1-mini "RESEARCH: quick topic"
+    python -m pipeline.main --model gpt-6-luna "Summarise this topic"
 
     # Check status (env vars, db connection, rate limits)
     python -m pipeline.main status
 
 Options:
     --model MODEL   Override the orchestrator model for this run
-                    (e.g. gpt-4.1, gpt-4.1-mini, gpt-4.1-nano)
+                    (e.g. gpt-6.1-sol, gpt-6-luna)
     --dry-run       Print what the agent would do without executing LLM calls
     --debug         Enable verbose SDK tracing output
 
@@ -162,7 +162,7 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     if isinstance(exc, BadRequestError):
         msg = str(exc).lower()
         if "unsupported parameter" in msg or "unsupported value" in msg:
-            return True
+            return False  # request-schema bugs must fail immediately, not burn retries
         # Azure content filter false positives — retry with fallback model
         if "content_filter" in msg or "content management policy" in msg:
             return True
@@ -227,7 +227,16 @@ async def _run_agent_with_fallback(
     """
     from pipeline._sdk import Runner
     from pipeline.definitions import model_settings_for
-    from pipeline.degradation import get_fallback, select_model
+    from pipeline.degradation import get_fallback, select_model, ModelBudgetExceeded
+    from pipeline.config_loader import get_models
+    from pipeline.model_usage import ModelUsageHooks
+
+    cfg = get_models()["agents"].get(agent_name.lower(), {})
+    allow_fallback = cfg.get("allow_fallback", agent_name.lower() not in {"researcher", "writer", "editor"})
+    if agent_name.lower() == "publisher":
+        # A completed Ghost tool call followed by a model timeout must not be replayed.
+        max_attempts = 1
+    usage_hooks = ModelUsageHooks(pool, run_log=run_log)
 
     # Snapshot original model so we can restore it after this call
     original_model = agent.model
@@ -240,7 +249,7 @@ async def _run_agent_with_fallback(
     # wait and keep the preferred model rather than falling back.
     from pipeline.guardrails import check_model_budget, get_rpm_clear_wait
     try:
-        selected = await select_model(current_model, pool=pool)
+        selected = await select_model(current_model, pool=pool, allow_fallback=allow_fallback)
         if selected != current_model:
             # Only switched because of RPM pressure — check if we should just wait
             try:
@@ -274,6 +283,16 @@ async def _run_agent_with_fallback(
             agent.model_settings = model_settings_for(
                 agent_name.lower(), model_override=current_model
             )
+    except ModelBudgetExceeded:
+        # A daily hard limit must not be swallowed. Short RPM pressure can clear.
+        budget = await check_model_budget(pool, current_model)
+        if not budget.get("rpm_exceeded") or budget.get("pct", 0) >= 95:
+            raise
+        wait_s = await get_rpm_clear_wait(pool, current_model, max_wait=90)
+        if wait_s >= 90:
+            raise
+        await asyncio.sleep(wait_s)
+        await select_model(current_model, pool=pool, allow_fallback=allow_fallback)
     except Exception as sel_err:
         logger.warning("%s: select_model failed (non-fatal): %s", agent_name, sel_err)
 
@@ -282,11 +301,25 @@ async def _run_agent_with_fallback(
         for attempt in range(max_attempts):
             try:
                 result = await asyncio.wait_for(
-                    Runner.run(agent, max_turns=max_turns, input=input_text),
+                    Runner.run(agent, max_turns=max_turns, input=input_text, hooks=usage_hooks),
                     timeout=_AGENT_TIMEOUT,
                 )
                 tokens_in, tokens_out = _extract_usage(result)
-                return result.final_output, tokens_in, tokens_out
+                output = result.final_output
+                if agent_name.lower() == "researcher":
+                    # Model identity is execution metadata, not a fact for the LLM to infer.
+                    import json
+                    try:
+                        research = json.loads(output)
+                        if isinstance(research, dict):
+                            research["model_used"] = current_model
+                            output = json.dumps(research, ensure_ascii=False)
+                    except (ValueError, TypeError) as exc:
+                        # Do not cache or index a token-truncated JSON response as successful research.
+                        raise RuntimeError("Research returned incomplete or invalid JSON; defer before caching") from exc
+                    if not isinstance(research, dict):
+                        raise RuntimeError("Research must return a JSON object; defer before caching")
+                return output, tokens_in, tokens_out
             except asyncio.TimeoutError:
                 logger.warning(
                     "%s timed out after %ds (attempt %d/%d)",
@@ -296,7 +329,7 @@ async def _run_agent_with_fallback(
                     raise
                 # First timeout: retry same model; subsequent: fall back
                 if attempt > 0:
-                    fallback = get_fallback(current_model)
+                    fallback = get_fallback(current_model, allow_fallback=allow_fallback)
                     if fallback:
                         logger.warning(
                             "%s: repeated timeout on %s — falling back to %s",
@@ -334,11 +367,8 @@ async def _run_agent_with_fallback(
                                 "max_tokens %d → %d before falling back",
                                 agent_name, current_model, current_mt, reduced_mt,
                             )
-                            from agents import ModelSettings
-                            agent.model_settings = ModelSettings(
-                                temperature=agent.model_settings.temperature,
-                                max_tokens=reduced_mt,
-                            )
+                            from dataclasses import replace
+                            agent.model_settings = replace(agent.model_settings, max_tokens=reduced_mt)
                             agent._413_retried = True  # noqa: SLF001
                             await asyncio.sleep(5)
                             continue  # retry same attempt slot
@@ -371,7 +401,7 @@ async def _run_agent_with_fallback(
                             pass  # check failed — fall through to normal backoff
 
                     last_exc = exc
-                    fallback = get_fallback(current_model)
+                    fallback = get_fallback(current_model, allow_fallback=allow_fallback)
                     if fallback:
                         backoff = min(_RETRY_BACKOFF_BASE * (2 ** attempt), 300)
                         logger.warning(
@@ -392,6 +422,10 @@ async def _run_agent_with_fallback(
                         agent.model_settings = model_settings_for(
                             agent_name.lower(), model_override=current_model
                         )
+                        await asyncio.sleep(backoff)
+                    elif attempt + 1 < max_attempts:
+                        backoff = min(_RETRY_BACKOFF_BASE * (2 ** attempt), 300)
+                        logger.info("%s: retrying %s in %ds without quality downgrade", agent_name, current_model, backoff)
                         await asyncio.sleep(backoff)
                     else:
                         logger.error(
@@ -418,6 +452,43 @@ async def _run_agent_with_fallback(
         # Clean up 413 retry flag
         if hasattr(agent, "_413_retried"):
             del agent._413_retried
+
+
+def _valid_research_cache(path, *, require_evidence: bool = False) -> bool:
+    """An older token-truncated cache must not poison every subsequent retry."""
+    import json
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        valid = isinstance(data, dict) and isinstance(data.get("key_findings"), list) and isinstance(data.get("source_list"), list)
+        if valid and require_evidence:
+            _require_research_evidence(json.dumps(data))
+        return valid
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return False
+
+
+def _require_research_evidence(research_output: str) -> None:
+    """Prevent writing an article from malformed or source-free research.
+
+    This checks evidence presence and association, not whether a source entails a claim.
+    """
+    import json
+    try:
+        data = json.loads(research_output)
+        sources = {
+            source["url"] for source in data.get("source_list", [])
+            if isinstance(source, dict) and str(source.get("url", "")).startswith("https://")
+        }
+        findings = data.get("key_findings", [])
+        supported = any(
+            isinstance(finding, dict) and finding.get("finding")
+            and sources.intersection(finding.get("sources", [])) for finding in findings
+        )
+        if len(sources) >= 3 and supported:
+            return
+    except (ValueError, TypeError, AttributeError):
+        pass
+    raise RuntimeError("Research lacks at least three external sources and a supported finding; retain research and defer writing")
 
 
 def _compact_research(research_output: str, max_chars: int = 3000) -> str:
@@ -451,6 +522,11 @@ def _compact_research(research_output: str, max_chars: int = 3000) -> str:
             src = ", ".join(ext_sources[:2])
             conf = f.get("confidence", "unknown")
             parts.append(f"- {f.get('finding', '')} [{conf}] ({src})")
+
+    gaps = data.get("gaps", [])
+    if gaps:
+        parts.append("\nGAPS / UNCERTAINTY:")
+        parts.extend(f"- {gap}" for gap in gaps)
 
     # Suggested angles
     angles = data.get("suggested_angles", [])
@@ -534,6 +610,8 @@ async def _sanitise_research_sources(research_json: str) -> str:
             ) as client:
                 try:
                     resp = await client.head(url)
+                    if resp.status_code >= 400:
+                        resp = await client.get(url)
                 except Exception:
                     resp = await client.get(url)  # some servers reject HEAD
                 return url, resp.status_code < 400
@@ -699,8 +777,7 @@ async def _check_status() -> None:
     for var, desc in checks:
         val = os.environ.get(var)
         if val:
-            preview = val[:8] + "..." if len(val) > 8 else val
-            logger.info("  ✓ %s %s (%s)", f"{var:<20}", desc, preview)
+            logger.info("  ✓ %s %s (set)", f"{var:<20}", desc)
         else:
             logger.error("  ✗ %s %s — NOT SET", f"{var:<20}", desc)
             all_ok = False
@@ -753,7 +830,7 @@ async def _check_status() -> None:
         logger.error("Status: NOT READY — fix the issues above before running agents")
 
 
-async def _fix_title_via_llm(openai_client, edited_path) -> bool:
+async def _fix_title_via_llm(openai_client, edited_path, *, pool=None, run_log=None) -> bool:
     """Rewrite an over-long title in-place using a minimal LLM call (~30 tokens).
 
     Reads the current title from frontmatter, asks the model to shorten it to
@@ -770,11 +847,21 @@ async def _fix_title_via_llm(openai_client, edited_path) -> bool:
 
     logger.info("Fixing title via LLM: %r (%d words)", old_title, len(old_title.split()))
     try:
-        resp = await openai_client.chat.completions.create(
-            model="gpt-4.1-mini",
-            max_tokens=30,
-            temperature=0.3,
-            messages=[
+        from pipeline.config_loader import get_models
+        from pipeline.definitions import model_settings_for
+        model = get_models()["agents"].get("title_repair", {}).get("model", "gpt-6-luna")
+        settings = model_settings_for("title_repair", default_tokens=64)
+        from pipeline.model_usage import ModelUsageHooks
+        from types import SimpleNamespace
+        hooks = ModelUsageHooks(pool, run_log=run_log)
+        title_agent = SimpleNamespace(name="TitleRepair", model=model)
+        await hooks.on_llm_start(None, title_agent, None, [])
+        resp = await openai_client.responses.create(
+            model=model,
+            max_output_tokens=settings.max_tokens,
+            reasoning=settings.reasoning,
+            temperature=settings.temperature,
+            input=[
                 {
                     "role": "system",
                     "content": (
@@ -794,7 +881,11 @@ async def _fix_title_via_llm(openai_client, edited_path) -> bool:
                 },
             ],
         )
-        new_title = resp.choices[0].message.content.strip().strip('"').strip("'")
+        if getattr(resp, "usage", None):
+            await hooks.on_llm_end(None, title_agent, resp)
+        if getattr(resp, "status", "completed") != "completed":
+            return False
+        new_title = resp.output_text.strip().strip('"').strip("'")
         if not new_title or not (5 <= len(new_title.split()) <= 10):
             logger.warning("LLM title fix returned unusable result: %r", new_title)
             return False
@@ -816,7 +907,6 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
     from pipeline.definitions import researcher, writer, editor, publisher, indexer, model_settings_for
     from pipeline.db import get_pool, close_pool
     from pipeline.degradation import select_model
-    from pipeline.guardrails import log_model_call
 
     _openai_client = init_openai()
 
@@ -920,7 +1010,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         if (research_dir / draft_filename).exists() or (research_dir / edited_filename).exists():
             logger.info("Draft already exists — skipping research step.")
             research_output = "{}"
-        elif research_cache_path.exists():
+        elif research_cache_path.exists() and _valid_research_cache(research_cache_path, require_evidence=True):
             logger.info("Research cache found — loading from %s", research_cache_path.name)
             research_output = research_cache_path.read_text(encoding="utf-8")
         else:
@@ -958,7 +1048,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                 f"REQUIRED STEPS:\n"
                 f"1. Generate 2-3 targeted search queries covering different angles.\n"
                 f"2. For each query call search_and_index to fetch and store any new pages.\n"
-                f"3. Call search_corpus ONCE with top_k=3 to retrieve the stored knowledge.\n"
+                f"3. Call search_corpus TWICE with top_k=3: main topic, then a contrasting angle.\n"
                 f"4. Return structured research JSON with key_findings, subtopics, "
                 f"suggested_angles, gaps, source_list, total_sources, model_used."
             )
@@ -966,7 +1056,6 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                 researcher, research_input,
                 agent_name="Researcher", pool=pool, max_turns=8, run_log=run_log,
             )
-            await log_model_call(pool, researcher.model, tokens_in=r_tin, tokens_out=r_tout, phase="research")
             logger.info("Research complete (tokens: in=%d out=%d).", r_tin, r_tout)
 
             # Strip hallucinated/dead source URLs before caching or indexing —
@@ -999,6 +1088,9 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         except Exception as _idx_err:
             logger.warning("Could not save research to DB: %s", _idx_err)
 
+        if not (research_dir / draft_filename).exists() and not (research_dir / edited_filename).exists():
+            _require_research_evidence(research_output)
+
         run_log.stage_ok("Research", elapsed_s=round(monotonic() - _t0, 1), model=researcher.model)
         logger.info("[1/5] Research done in %.1fs", monotonic() - _t0)
 
@@ -1012,15 +1104,13 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         _t0 = monotonic()
         # Writer needs full context: all subtopics, angles, and source URLs
         research_compact_writer = _compact_research(research_output, max_chars=8000)
-        # Editor only needs key findings + sources for fact-checking; it reads the draft directly.
-        # Keep this small — the draft itself (~2,500 tokens) plus system prompt already uses
-        # most of gpt-4.1's 8,000-token request limit, causing 413 fallbacks to gpt-4.1-mini.
-        # Reduced from 1500→1200 chars to give ~75 tokens more headroom for longer drafts.
-        research_compact_editor = _compact_research(research_output, max_chars=1200)
+        # Preserve claim/source pairs and uncertainty for the fact-check pass.
+        research_compact_editor = _compact_research(research_output, max_chars=8000)
 
         if (research_dir / draft_filename).exists():
             logger.info("Draft already exists, skipping writer: %s", draft_filename)
         else:
+            _require_research_evidence(research_output)
             existing_drafts = set(research_dir.glob("*.md"))
 
             write_input = (
@@ -1033,7 +1123,6 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                 writer, write_input,
                 agent_name="Writer", pool=pool, max_turns=6, run_log=run_log,
             )
-            await log_model_call(pool, writer.model, tokens_in=w_tin, tokens_out=w_tout, phase="writer")
 
             new_drafts = [
                 f for f in research_dir.glob("*.md")
@@ -1053,7 +1142,6 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                     writer, retry_input,
                     agent_name="Writer", pool=pool, max_turns=6, run_log=run_log,
                 )
-                await log_model_call(pool, writer.model, tokens_in=wr_tin, tokens_out=wr_tout, phase="writer-retry")
                 new_drafts = [
                     f for f in research_dir.glob("*.md")
                     if f not in existing_drafts and "-edited" not in f.name
@@ -1143,7 +1231,6 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                     editor, edit_input,
                     agent_name="Editor", pool=pool, max_turns=6, run_log=run_log,
                 )
-                await log_model_call(pool, editor.model, tokens_in=e_tin, tokens_out=e_tout, phase="editor")
             except asyncio.TimeoutError as _te:
                 run_log.warning("Edit", f"Editor timed out after {_AGENT_TIMEOUT}s")
                 logger.error("Editor timed out after %ds", _AGENT_TIMEOUT)
@@ -1176,7 +1263,6 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             publisher, publish_input,
             agent_name="Publisher", pool=pool, max_turns=6, run_log=run_log,
         )
-        await log_model_call(pool, publisher.model, tokens_in=p_tin, tokens_out=p_tout, phase="publisher")
 
         # --- Handle MISSING: validation failures from publish_file_to_ghost ---
         if publish_output.strip().startswith("MISSING:"):
@@ -1186,7 +1272,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             # Title-length failure: fix with a single ~30-token LLM call.
             # No need to load the full post — the existing title is all the model needs.
             if "title length" in missing_lower:
-                _fixed = await _fix_title_via_llm(_openai_client, research_dir / edited_filename)
+                _fixed = await _fix_title_via_llm(_openai_client, research_dir / edited_filename, pool=pool, run_log=run_log)
                 if _fixed:
                     publish_input = _build_publish_input(edited_filename)
                     missing_lower = missing_lower.replace("title length", "")
@@ -1216,14 +1302,12 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                     editor, recovery_input,
                     agent_name="Editor", pool=pool, max_turns=10, run_log=run_log,
                 )
-                await log_model_call(pool, editor.model, tokens_in=er_tin, tokens_out=er_tout, phase="editor-recovery")
 
             logger.info("Retrying Publisher after recovery...")
             publish_output, pr_tin, pr_tout = await _run_agent_with_fallback(
                 publisher, publish_input,
                 agent_name="Publisher", pool=pool, max_turns=6, run_log=run_log,
             )
-            await log_model_call(pool, publisher.model, tokens_in=pr_tin, tokens_out=pr_tout, phase="publisher-retry")
 
             if publish_output.strip().startswith("MISSING:"):
                 raise RuntimeError(
@@ -1502,7 +1586,7 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
         # Title-length fix (same logic as _run_blog_pipeline)
         if publish_output.strip().startswith("MISSING:") and "title length" in publish_output.lower():
             research_dir_pub = _Path(__file__).parent.parent / "research"
-            _fixed = await _fix_title_via_llm(_openai_client, research_dir_pub / filename)
+            _fixed = await _fix_title_via_llm(_openai_client, research_dir_pub / filename, pool=pool, run_log=run_log)
             if _fixed:
                 publish_input = _build_publish_input(filename)
                 publish_output, _, _ = await _run_agent_with_fallback(
@@ -1635,7 +1719,6 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
     from pipeline.setup import init_openai
     from pipeline.definitions import researcher
     from pipeline.db import get_pool, close_pool
-    from pipeline.guardrails import log_model_call
 
     init_openai()
 
@@ -1699,7 +1782,7 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
         run_log.stage_start("Research")
         _t0 = monotonic()
 
-        if research_cache_path.exists():
+        if research_cache_path.exists() and _valid_research_cache(research_cache_path):
             logger.info("Research cache found — loading from %s", research_cache_path.name)
             research_output = research_cache_path.read_text(encoding="utf-8")
         else:
@@ -1734,7 +1817,7 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
                 f"REQUIRED STEPS:\n"
                 f"1. Generate 2-3 search queries covering different angles.\n"
                 f"2. For each query call search_and_index.\n"
-                f"3. Call search_corpus ONCE with top_k=3 after indexing.\n"
+                f"3. Call search_corpus TWICE with top_k=3: main topic, then a contrasting angle.\n"
                 f"4. Return structured research JSON with key_findings, subtopics, "
                 f"suggested_angles, gaps, source_list, total_sources, model_used."
             )
@@ -1742,7 +1825,6 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
                 researcher, research_input,
                 agent_name="Researcher", pool=pool, max_turns=8, run_log=run_log,
             )
-            await log_model_call(pool, researcher.model, tokens_in=r_tin, tokens_out=r_tout, phase="research")
             logger.info("Research complete (tokens: in=%d out=%d)", r_tin, r_tout)
 
             # Strip hallucinated/dead source URLs before caching or indexing
@@ -1923,8 +2005,9 @@ async def _run_agent(task: str, model_override: str | None = None, debug: bool =
     init_openai()
 
     if model_override:
-        from pipeline._sdk import ModelSettings
+        from pipeline.definitions import model_settings_for
         orchestrator.model = model_override
+        orchestrator.model_settings = model_settings_for("orchestrator", model_override=model_override)
 
     if debug:
         import sys as _sys
@@ -1945,8 +2028,11 @@ async def _run_agent(task: str, model_override: str | None = None, debug: bool =
     logger.info("Starting: %s", task)
 
     try:
+        from pipeline.model_usage import ModelUsageHooks
+        from pipeline.db import get_pool
+        pool = await get_pool()
         result = await asyncio.wait_for(
-            Runner.run(orchestrator, input=task, max_turns=30),
+            Runner.run(orchestrator, input=task, max_turns=30, hooks=ModelUsageHooks(pool)),
             timeout=_AGENT_TIMEOUT * 3,  # orchestrator may run multiple agents
         )
         logger.info("Complete")
@@ -1974,7 +2060,7 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default=None,
-        help="Override the orchestrator model (e.g. gpt-4.1-mini)",
+        help="Override the orchestrator model for unprefixed tasks (e.g. gpt-6-luna)",
     )
     parser.add_argument(
         "--dry-run",

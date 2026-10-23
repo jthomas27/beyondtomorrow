@@ -14,7 +14,7 @@ on:
         required: true
         type: string
       model:
-        description: "Override agent model (e.g. openai/gpt-4.1-mini for faster/cheaper runs)"
+        description: "Override orchestrator model for unprefixed tasks (e.g. gpt-6-luna)"
         required: false
         default: ""
 
