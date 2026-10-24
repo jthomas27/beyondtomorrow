@@ -25,8 +25,8 @@ restartPolicyMaxRetries = 5
 #   EMAIL_PASS       — IMAP password
 #   EMAIL_POLL_INTERVAL — polling interval in seconds (optional, default: 300)
 #
-# Also required (same values as Ghost service):
-#   GITHUB_TOKEN     — GitHub Models API PAT
+# Also required for the worker:
+#   OPENAI_API_KEY   — OpenAI API key
 #   DATABASE_URL     — PostgreSQL external proxy (caboose.proxy.rlwy.net:21688)
 #   GHOST_URL        — https://beyondtomorrow.world
 #   GHOST_ADMIN_KEY  — Ghost Admin API key

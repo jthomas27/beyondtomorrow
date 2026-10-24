@@ -4,11 +4,32 @@ Project-level rules for AI coding agents (Cline, etc.). Read this before editing
 
 ---
 
+## Execution Preferences
+
+- Carry out explicitly requested work without repeatedly asking for confirmation.
+- Use the smallest set of checks relevant to the task.
+- Do not run full test suites, browser tests, or unrelated integration checks
+  unless explicitly requested or directly necessary.
+- For deployments, run relevant tests, deploy, and perform one status check.
+  If still building, report that status rather than repeatedly polling.
+- Reuse existing approvals and approved command prefixes.
+- Request additional approval only when required by platform permissions or
+  when an action exceeds the user's authorised scope.
+- If permission blocks progress, explain the blocker once. Do not repeatedly
+  retry equivalent commands or trigger repeated approval prompts. An approval
+  that was denied or cancelled is not permission to try another route.
+- Keep progress updates and final responses concise.
+- These preferences supersede broader verification recommendations in this
+  project's documentation and skills, while preserving credential protection
+  and required platform permission boundaries.
+
+---
+
 ## Stack at a Glance
 
 | Layer | Service | Notes |
 |---|---|---|
-| Blog CMS | Ghost 5.x (self-hosted) | `https://beyondtomorrow.world` |
+| Blog CMS | Ghost 6.72.0 (self-hosted) | `https://beyondtomorrow.world` |
 | Hosting | Railway (`caring-alignment` project) | Ghost + agent worker services |
 | Vector DB | PostgreSQL + pgvector (Railway) | 1536-dim embeddings for semantic search |
 | AI Framework | OpenAI Agents SDK + OpenAI API | `gpt-6.1-sol` for research/write/edit; `gpt-6-luna` for orchestrate/publish/index (Responses API) |
@@ -94,7 +115,7 @@ Usage is recorded per completed model turn, including turns before tool failures
 
 | File | Purpose |
 |---|---|
-| `pipeline/main.py` | CLI entry point |
+| `pipeline/main.py` | Compatible CLI entry point; workflows live in `pipeline/workflows/` |
 | `pipeline/definitions.py` | All six agent definitions |
 | `pipeline/embeddings.py` | Embedding generation and pgvector operations |
 | `pipeline/tools/files.py` | Research file I/O + text sanitisation |
@@ -155,7 +176,9 @@ All required variables live in `.env` at the project root (gitignored).
 
 ## Verifying Changes
 
-After editing pipeline code, validate before committing or deploying:
+Before committing or deploying, run only checks relevant to the change.
+For a LinkedIn-only change, use the LinkedIn tests rather than the full suite.
+The commands below are available checks, not a mandatory checklist:
 
 ```bash
 source .venv/bin/activate
@@ -163,17 +186,21 @@ source .venv/bin/activate
 # 1. Env vars + DB connection sanity check
 .venv/bin/python -m pipeline.main status
 
-# 2. Run the test suite
-.venv/bin/python -m pytest
+# 2. Run the relevant tests (example: LinkedIn)
+.venv/bin/python -m pytest tests/test_linkedin.py
 
 # 3. Dry-run the pipeline (no LLM calls, no publish)
 .venv/bin/python -m pipeline.main --dry-run "BLOG: test topic"
 
-# 4. Cheap end-to-end check (research only — no Ghost publish)
+# 4. Optional live end-to-end check; only when requested or directly necessary
 .venv/bin/python -m pipeline.main "RESEARCH: a small test topic"
 ```
 
-Confirm: no import/model-name errors, bare model strings in logs (`gpt-6.1-sol`, not `openai/gpt-6.1-sol`), and DB reachable via the external proxy.
+Where relevant, confirm no import/model-name errors, bare model strings in logs
+(`gpt-6.1-sol`, not `openai/gpt-6.1-sol`), and DB connectivity via the external
+proxy. Do not broaden or repeat checks after relevant validation passes unless
+new evidence warrants it. For deployments, perform one status check and report
+the result; do not wait and poll repeatedly unless the user requests monitoring.
 
 ---
 
@@ -337,3 +364,23 @@ Update in all three places:
 1. `.env` (local)
 2. Railway ghost service: `railway variables --service 0daf496c-e14f-41d4-b89b-3624a778c99d --set "OPENAI_API_KEY=sk-..."`
 3. Railway email-worker service: `railway variables --service 15b13afb-8515-49e9-ab38-7e138069064f --set "OPENAI_API_KEY=sk-..."`
+
+## Authorised Ghost/MySQL recovery exception — 24 October 2026
+
+The user explicitly approved the migration described in
+`ghost-migration-validation-2026-10-24.md`, including a narrow exception to
+Hard Rule 6: direct writes for an isolated MySQL 8 restore/validation and
+coordinated database credential changes are authorised for this recovery.
+Preserve the original MySQL 9 data. Validate the replacement before production
+cutover. This does not authorise unrelated database writes.
+Do not ask the user to reconfirm this scope. Platform permission boundaries
+and credential protection still apply.
+
+## Repository structure
+
+See `docs/CODEBASE_STRUCTURE.md` for module ownership and `infra/README.md`
+for releases and PostgreSQL schema migrations. Pool startup no longer creates
+schema objects. Preview migrations with `.venv/bin/python -m pipeline.storage.migrate`;
+`--apply` explicitly writes PostgreSQL changes. This is separate from Ghost-managed
+MySQL migrations. Maintained scripts, tests and docs are no longer blanket-ignored;
+review files and stage explicitly. Private archives and operational state stay ignored.

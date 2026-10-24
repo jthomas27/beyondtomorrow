@@ -1,204 +1,85 @@
 # BeyondTomorrow.World
 
-> A blog exploring ideas that shape our future — written, reviewed, and published entirely by AI.
+A Ghost publication with a Python research, writing and publishing pipeline.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.app)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+The Python application lives in `pipeline/`; Ghost and MySQL run as separate
+Railway services. The pipeline uses OpenAI directly and PostgreSQL/pgvector for
+its knowledge corpus. Ghost 6.72.0 and MySQL 8.4.13 were verified during the
+October 2026 upgrade; see the migration record for operational evidence.
 
----
+## Setup
 
-## What Is This?
+Python 3.11 is the declared project/CI target. Always use the project `.venv`.
+An existing environment is not recreated by a source-code refactor.
 
-BeyondTomorrow is a self-running blog. AI agents handle the entire process — from finding topics to publishing finished articles. You provide the direction; the system does the rest.
-
-**What it does:**
-
-- 📝 **Writes blog posts automatically** — AI agents research, draft, edit, and publish
-- 🔍 **Learns from your documents** — upload PDFs, emails, or web pages to inform the writing
-- ⏱️ **Runs on a schedule** — new posts appear daily or weekly without manual effort
-- 📧 **Accepts email commands** — send an email to trigger a post on a specific topic
-
----
-
-## How It Works
-
-The system follows a simple pipeline. Each step is handled by a dedicated AI agent.
-
-```
-  Schedule / Email
-        │
-        ▼
-   ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
-   │ Research  │ ──▶ │  Write   │ ──▶ │  Review  │ ──▶ │ Publish  │
-   └──────────┘     └──────────┘     └──────────┘     └──────────┘
-        │                                                    │
-        ▼                                                    ▼
-   ┌──────────┐                                     ┌──────────────┐
-   │ Knowledge│                                     │ Live on Blog │
-   │  Corpus  │                                     │              │
-   └──────────┘                                     └──────────────┘
-```
-
-### Step by Step
-
-| Step | What Happens |
-|------|-------------|
-| **1. Trigger** | A scheduled timer fires, or you send an email |
-| **2. Research** | The AI searches the web and your uploaded documents for relevant info |
-| **3. Summarise** | Key findings are condensed into notes |
-| **4. Write** | A draft blog post is created |
-| **5. Edit** | A separate AI agent reviews for quality, tone, and accuracy |
-| **6. Publish** | The finished post goes live on the blog |
-| **7. Notify** | You receive a success or failure alert |
-
-### Knowledge Corpus
-
-The AI doesn't just search the web — it also reads **your own documents** for context. This uses a technique called *Retrieval-Augmented Generation (RAG)*:
-
-1. You upload files (PDFs, emails, web pages) to storage
-2. The system extracts and indexes the text
-3. Before writing, agents search these documents for relevant information
-4. Posts are more accurate because they draw on your source material
-
-> 📖 Full details in [docs/RAG_WORKFLOW.md](docs/RAG_WORKFLOW.md)
-
----
-
-## Getting Started
-
-### What You'll Need
-
-| Requirement | Why |
-|-------------|-----|
-| [Railway](https://railway.app) account | Hosts the blog and all services |
-| [GitHub](https://github.com) account | Stores code and runs scheduled tasks |
-| Domain name | Your blog's web address (e.g. beyondtomorrow.world) |
-| GitHub PAT (models:read) | Powers all AI agents via [GitHub Models API](https://github.com/marketplace/models) |
-| Hostinger email *(optional)* | Lets you trigger posts via email |
-
-### Quick Start
-
-**1. Clone this repository**
 ```bash
-git clone https://github.com/jthomas27/beyondtomorrow.git
-cd beyondtomorrow
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -r requirements-dev.txt
+cp .env.example .env
 ```
 
-**2. Deploy to Railway**
-- Log in to [railway.app](https://railway.app)
-- Click **New Project** → **Deploy from GitHub repo**
-- Select this repository — Railway handles the rest
+Fill `.env` locally. Required pipeline credentials are `OPENAI_API_KEY`,
+`DATABASE_URL`, `GHOST_URL` and `GHOST_ADMIN_KEY`. Email polling also needs
+`EMAIL_USER` and `EMAIL_PASS`. Newsletter delivery uses `RESEND_API_KEY`;
+LinkedIn posting requires its separate OAuth credentials. Never commit secrets.
 
-**3. Add services in Railway**
+Retain the configured external PostgreSQL proxy
+`caboose.proxy.rlwy.net:21688`. Do not replace it with a Railway internal URL.
+For a fresh PostgreSQL database, review and explicitly apply the schema:
 
-| Service | What It Does |
-|---------|-------------|
-| Ghost | The blog platform (displays your posts) |
-| MySQL | Stores blog content |
-| PostgreSQL | Stores document embeddings for AI search |
-| Object Storage | Holds uploaded PDFs, images, and media |
-
-**4. Set environment variables**
-
-Add these in Railway's dashboard under **Variables**:
-
-| Variable | Value |
-|----------|-------|
-| `GHOST_URL` | `https://beyondtomorrow.world` |
-| `DATABASE_CLIENT` | `mysql` |
-| `GITHUB_TOKEN` | Your GitHub PAT with `models:read` scope |
-
-**5. Connect your domain**
-- Go to Railway → **Settings** → **Domains**
-- Add `beyondtomorrow.world`
-- Update your DNS records at your registrar (instructions provided by Railway)
-- SSL is set up automatically
-
-> 🚀 Full walkthrough in [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md)
-
----
-
-## Project Structure
-
-```
-BeyondTomorrow.World/
-├── README.md                 # This file
-├── package.json              # Dependencies & npm scripts
-│
-├── docs/                     # Documentation
-│   ├── ARCHITECTURE.md       # System design — services, databases, agents
-│   ├── DEPLOYMENT_PLAN.md    # Step-by-step Railway deployment guide
-│   ├── GHOST_PUBLISHING_GUIDE.md  # Ghost Admin API reference
-│   ├── POSTGRES_SETUP_GUIDE.md    # pgvector setup on Railway
-│   ├── RAG_WORKFLOW.md       # How AI reads and learns from documents
-│   └── SMTP_ISSUE.md         # SMTP troubleshooting log (historical)
-│
-├── theme/                    # Ghost Code Injection source files
-│   ├── header.txt            # CSS → injected into Site Header
-│   └── footer.txt            # Footer injection placeholder (empty by default)
-│
-├── scripts/                  # Utility & maintenance scripts
-│   ├── inject-code.js        # Push theme to Ghost (reusable)
-│   ├── setup-ghost-api.js    # One-time API key setup
-│   ├── db-test.js            # PostgreSQL / pgvector connectivity
-│   ├── mysql-test.js         # MySQL diagnostic
-│   └── fix-migration-lock.js # Emergency migration lock release
-│
-└── assets/                   # Static assets
-    └── images/               # Feature images for blog posts
+```bash
+.venv/bin/python -m pipeline.storage.migrate
+.venv/bin/python -m pipeline.storage.migrate --apply
 ```
 
-### npm Scripts
+The default command only lists migration files; `--apply` writes. Existing
+incompatible schemas require a reviewed migration, not an automatic reset.
+Ghost manages its own MySQL schema; the PostgreSQL command never touches it.
 
-| Command | Description |
-|---------|-------------|
-| `npm run ghost:inject` | Push theme CSS to Ghost (prompts for password; security headers are set in Cloudflare, not here) |
-| `npm run ghost:setup` | One-time Ghost API key setup |
-| `npm run db:test` | Test PostgreSQL connection |
-| `npm run db:connect` | Test via Railway (`railway run`) |
-| `npm run mysql:test` | Test MySQL connection |
-| `npm run mysql:fix-lock` | Fix stuck Ghost migration lock |
+## Commands
 
-### Documentation
+```bash
+.venv/bin/python -m pipeline.main --dry-run "BLOG: a topic"
+.venv/bin/python -m pipeline.main "BLOG: a topic"
+.venv/bin/python -m pipeline.main "RESEARCH: a topic"
+.venv/bin/python -m pipeline.main "REPORT: a topic"
+.venv/bin/python -m pipeline.main "INDEX: reports/document.pdf"
+.venv/bin/python -m pipeline.main "PUBLISH: an-edited-article.md"
+.venv/bin/python -m pipeline.email_listener
+```
 
-| Document | What's Inside |
-|----------|---------------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full system design — services, databases, agents, data flow |
-| [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md) | Step-by-step deployment and domain setup guide |
-| [docs/GHOST_PUBLISHING_GUIDE.md](docs/GHOST_PUBLISHING_GUIDE.md) | Ghost Admin API — auth, Lexical format, publishing |
-| [docs/POSTGRES_SETUP_GUIDE.md](docs/POSTGRES_SETUP_GUIDE.md) | pgvector setup, table schema, pgAdmin |
-| [docs/RAG_WORKFLOW.md](docs/RAG_WORKFLOW.md) | How the AI reads and learns from your documents |
+Commands without `--dry-run` can call paid APIs, change stored data, publish
+articles or send configured emails. `python -m pipeline.cli` is an equivalent
+CLI; the established `pipeline.main` entry point remains supported.
 
----
+## Development
 
-## Services & Costs
+Run tests for the component being changed, for example:
 
-All services run on [Railway](https://railway.app). Costs depend on how often posts are published.
+```bash
+.venv/bin/python -m pytest tests/test_model_migration.py tests/test_ghost.py -m "not integration"
+```
 
-| Service | Role | Est. Monthly Cost |
-|---------|------|-------------------|
-| Railway | Hosting, databases, storage | $5 – $25 |
-| GitHub Copilot Pro+ | All AI agents (research, writing, editing, publishing) | $39 (subscription) |
-| Hostinger Email | Email triggers | Included with domain |
-| GitHub Actions | Scheduled automation | Free |
-| **Total** | | **$44 – $64** |
+Unit tests block accidental live HTTP. Live database, browser and publication
+checks are separate operations; they are not prerequisites for every edit.
+CI uses Python 3.11. The scheduled research workflow requires an
+`OPENAI_API_KEY` GitHub Actions secret plus its configured service secrets.
+Dependency installation remains requirements-based; no new package manager
+or dependency upgrade is required for this restructure.
 
-> 💡 Start small. You can scale up as the blog grows.
+## Project guide
 
----
+- [Architecture and module ownership](docs/CODEBASE_STRUCTURE.md)
+- [Deployment, schema migrations and rollback](infra/README.md)
+- [Service inventory](infra/services.json)
+- [Operational rules](AGENTS.md)
+- [Maintenance scripts](scripts/README.md)
+- [Historical notes and private archive](archive/README.md)
 
-## Security
+Keep application code, tests, operational scripts and current documentation in
+version control. Generated `logs/`, `research/`, `reports/`, dependency folders,
+credentials and `archive/local/` remain ignored. Source-control changes should
+always stage explicitly reviewed files.
 
-| Measure | Detail |
-|---------|--------|
-| **API keys** | Stored securely in Railway environment variables — never in code |
-| **Email triggers** | Only emails from approved senders are accepted |
-| **Logging** | All AI agent actions are recorded for review |
-| **Rate limiting** | External API calls are throttled to prevent misuse |
-| **File validation** | Only approved file types (e.g. PDF) are processed |
-
----
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
+Incident handoff notes and credential-bearing rollback evidence remain local.
+Use the maintained infrastructure runbook for release procedures.

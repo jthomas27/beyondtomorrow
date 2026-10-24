@@ -1,0 +1,28 @@
+{
+  "description": "Reviewed service inventory, not an automatic deployment command",
+  "project": "caring-alignment",
+  "environment": "production",
+  "ghost": {
+    "service_id": "0daf496c-e14f-41d4-b89b-3624a778c99d",
+    "image": "ghost:6.72.0",
+    "content_mount": "/var/lib/ghost/content",
+    "database_service": "ghost-mysql8-validation",
+    "database_name": "ghost_ready"
+  },
+  "mysql": {
+    "service_id": "1d4abe2d-e4df-4d8a-a72c-3e8a1d9b1914",
+    "service_name": "ghost-mysql8-validation",
+    "role": "LIVE database; retain despite validation-era service name",
+    "image": "mysql:8.4.13@sha256:76f0358884cb92d9a086d24e5671c38048d3fef40f2588703d73eb55392d6b69",
+    "data_mount": "/var/lib/mysql"
+  },
+  "legacy_mysql": {
+    "service_id": "375d48d7-df84-4acc-a93b-9fc69159a44e",
+    "role": "Preserved write-protected rollback data; do not downgrade its data directory"
+  },
+  "email_worker": {
+    "service_id": "15b13afb-8515-49e9-ab38-7e138069064f",
+    "configuration": "railway.toml",
+    "start_command": "python3 -m pipeline.email_listener"
+  }
+}

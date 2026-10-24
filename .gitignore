@@ -5,7 +5,6 @@
 # Dependencies
 node_modules/
 npm-cache/
-package-lock.json
 
 # Python
 .venv/
@@ -34,33 +33,20 @@ build/
 # Research output — local only
 research/
 reports/
-scripts/*
-tests/*
-# Keep migration validation and its focused regression suite reviewable.
-!scripts/validate_model_migration.py
-!tests/__init__.py
-!tests/conftest.py
-!tests/test_model_migration.py
-!tests/test_degradation.py
-!tests/test_setup.py
-!tests/test_config_loader.py
-!tests/test_guardrails.py
-!tests/test_corpus.py
-!tests/test_db.py
-!tests/test_embeddings.py
-!tests/test_linkedin.py
-!tests/test_search.py
-!tests/test_portal_triggers.py
-!tests/test_welcome_popup.py
-!scripts/auth_check.py
-!tests/test_service_auth.py
-docs/
 
 # Secrets — never commit credentials
 mailgun.txt
 *.env
 .env.*
 
-!scripts/restore_release_assets.py
 
-!tests/test_quality.py
+
+# Local maintenance archive can contain private historical scripts.
+archive/local/
+
+# Placeholder-only environment template is maintained source.
+!.env.example
+
+# Private incident handoff records; maintained release procedures live in infra/.
+SECURITY-RECOVERY-CHECKLIST.md
+ghost-migration-validation-2026-10-24.md

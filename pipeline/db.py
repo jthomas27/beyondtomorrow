@@ -11,7 +11,6 @@ Required env var:
 
 import os
 import asyncpg
-from functools import lru_cache
 
 _pool: asyncpg.Pool | None = None
 
@@ -42,56 +41,16 @@ async def get_pool() -> asyncpg.Pool:
                 "Enable the TCP proxy on the pgvector Railway service "
                 "to get a public connection URL."
             )
-        # Derive SSL setting from the URL:
-        #   - sslmode=require/verify-ca/verify-full  → ssl="require"
-        #   - sslmode=disable or internal Railway URL → ssl=False
-        #   - no sslmode param                       → ssl=False (TCP proxy default)
-        from urllib.parse import urlparse, parse_qs
-        _parsed = urlparse(database_url)
-        _qs = parse_qs(_parsed.query)
-        _sslmode = (_qs.get("sslmode") or [""])[0].lower()
-        _internal = ".railway.internal" in (_parsed.hostname or "")
-        if _sslmode in ("require", "verify-ca", "verify-full"):
-            _ssl: object = "require"
-        elif _sslmode == "disable" or _internal or not _sslmode:
-            _ssl = False
-        else:
-            _ssl = False
+        from pipeline.storage.postgres import ssl_for_url
 
         _pool = await asyncpg.create_pool(
             database_url,
             min_size=1,
             max_size=5,
             command_timeout=30,
-            ssl=_ssl,
+            ssl=ssl_for_url(database_url),
             init=_setup_vector_codec,
         )
-        # Ensure HNSW index and pipeline_logs table exist (idempotent)
-        async with _pool.acquire() as conn:
-            await conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx
-                    ON embeddings USING hnsw (embedding vector_cosine_ops)
-                    WITH (m = 16, ef_construction = 64)
-                """
-            )
-            await conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS pipeline_logs (
-                    id          BIGSERIAL PRIMARY KEY,
-                    run_id      TEXT        NOT NULL DEFAULT '',
-                    event       TEXT        NOT NULL,
-                    stage       TEXT,
-                    ts          TIMESTAMPTZ NOT NULL,
-                    data        JSONB       NOT NULL,
-                    created_at  TIMESTAMPTZ DEFAULT NOW()
-                );
-                CREATE INDEX IF NOT EXISTS pipeline_logs_run_id_idx
-                    ON pipeline_logs (run_id);
-                CREATE INDEX IF NOT EXISTS pipeline_logs_ts_idx
-                    ON pipeline_logs (ts DESC);
-                """
-            )
     return _pool
 
 

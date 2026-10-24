@@ -21,11 +21,10 @@ import httpx
 import jwt
 import markdown as md_converter
 from pipeline._sdk import function_tool
+from pipeline.integrations.ghost import create_admin_token, _ghost_post_with_retry
 
 logger = logging.getLogger(__name__)
 
-_GHOST_RETRY_ATTEMPTS = 3
-_GHOST_RETRY_DELAYS = [2, 4, 8]  # seconds
 
 
 def _build_lexical(html: str) -> str:
@@ -39,21 +38,6 @@ def _build_lexical(html: str) -> str:
     })
 
 
-async def _ghost_post_with_retry(client: httpx.AsyncClient, url: str, json_data: dict, headers: dict) -> httpx.Response:
-    """POST to Ghost Admin API with retry + exponential backoff."""
-    last_exc: Exception | None = None
-    for attempt in range(_GHOST_RETRY_ATTEMPTS):
-        try:
-            resp = await client.post(url, json=json_data, headers=headers)
-            resp.raise_for_status()
-            return resp
-        except httpx.HTTPError as exc:
-            last_exc = exc
-            if attempt < _GHOST_RETRY_ATTEMPTS - 1:
-                delay = _GHOST_RETRY_DELAYS[attempt]
-                logger.warning("Ghost API attempt %d failed (%s), retrying in %ds...", attempt + 1, exc, delay)
-                await asyncio.sleep(delay)
-    raise last_exc  # type: ignore[misc]
 
 _RESEARCH_DIR = pathlib.Path(__file__).parents[2] / "research"
 
@@ -112,18 +96,8 @@ async def publish_to_ghost(
     if ":" not in admin_key:
         return "Error: GHOST_ADMIN_KEY must be in 'id:secret' format."
 
-    key_id, secret = admin_key.split(":", 1)
-    iat = int(time.time())
-    header = {"alg": "HS256", "typ": "JWT", "kid": key_id}
-    payload = {"iat": iat, "exp": iat + 300, "aud": "/admin/"}
-
     try:
-        token = jwt.encode(
-            payload,
-            bytes.fromhex(secret),
-            algorithm="HS256",
-            headers=header,
-        )
+        token = create_admin_token(admin_key)
     except Exception as exc:
         return f"Error generating Ghost JWT: {exc}"
 
@@ -185,18 +159,8 @@ async def upload_image_to_ghost(image_path: str) -> str:
     if not path.exists():
         return f"Error: Image file not found: {image_path}"
 
-    key_id, secret = admin_key.split(":", 1)
-    iat = int(time.time())
-    header = {"alg": "HS256", "typ": "JWT", "kid": key_id}
-    payload = {"iat": iat, "exp": iat + 300, "aud": "/admin/"}
-
     try:
-        token = jwt.encode(
-            payload,
-            bytes.fromhex(secret),
-            algorithm="HS256",
-            headers=header,
-        )
+        token = create_admin_token(admin_key)
     except Exception as exc:
         return f"Error generating Ghost JWT: {exc}"
 
@@ -229,15 +193,8 @@ async def _fetch_published_slugs(ghost_url: str, admin_key: str) -> set[str] | N
     """
     if not ghost_url or ":" not in admin_key:
         return None
-    key_id, secret = admin_key.split(":", 1)
-    iat = int(time.time())
     try:
-        token = jwt.encode(
-            {"iat": iat, "exp": iat + 300, "aud": "/admin/"},
-            bytes.fromhex(secret),
-            algorithm="HS256",
-            headers={"alg": "HS256", "typ": "JWT", "kid": key_id},
-        )
+        token = create_admin_token(admin_key)
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(
                 f"{ghost_url}/ghost/api/admin/posts/"
@@ -504,17 +461,8 @@ async def publish_file_to_ghost(
     if ":" not in admin_key:
         return "Error: GHOST_ADMIN_KEY must be in 'id:secret' format."
 
-    key_id, secret = admin_key.split(":", 1)
-    iat = int(time.time())
-    header = {"alg": "HS256", "typ": "JWT", "kid": key_id}
-    payload = {"iat": iat, "exp": iat + 300, "aud": "/admin/"}
     try:
-        token = jwt.encode(
-            payload,
-            bytes.fromhex(secret),
-            algorithm="HS256",
-            headers=header,
-        )
+        token = create_admin_token(admin_key)
     except Exception as exc:
         return f"Error generating Ghost JWT: {exc}"
 
