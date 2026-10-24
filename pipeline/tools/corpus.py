@@ -110,7 +110,7 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
     hard_max = corpus_cfg.get("hard_max_top_k", 20)
     sim_threshold = corpus_cfg.get("min_similarity_threshold", 0.40)
     top_k = min(top_k, hard_max)
-    fetch_k = top_k * 2  # over-fetch so RRF has enough candidates to re-rank
+    fetch_k = max(top_k * 4, 12)  # allow different publishers to survive chunk ranking
 
     pool = await get_pool()
 
@@ -173,7 +173,7 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
             rrf.setdefault(rid, {"row": row, "score": 0.0})
             rrf[rid]["score"] += 1.0 / (60 + rank)
 
-        top_items = sorted(rrf.values(), key=lambda x: x["score"], reverse=True)[:top_k]
+        top_items = sorted(rrf.values(), key=lambda x: x["score"], reverse=True)
         rows = [item["row"] for item in top_items]
         for item in top_items:
             display_scores[item["row"]["id"]] = (item["score"], "hybrid")
@@ -194,7 +194,7 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
                 ORDER BY e.embedding <=> $1::vector
                 LIMIT $2
                 """,
-                query_vector, top_k, sim_threshold,
+                query_vector, fetch_k, sim_threshold,
             )
         for row in rows:
             display_scores[row["id"]] = (row["similarity"], "similarity")
@@ -220,10 +220,23 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
                         ORDER BY d.updated_at DESC
                         LIMIT $2
                         """,
-                        like_pattern, top_k,
+                        like_pattern, fetch_k,
                     )
                 for row in rows:
                     display_scores[row["id"]] = (0.0, "keyword")
+
+    from pipeline.tools.search import _is_approved
+    from pipeline.source_policy import diversify
+
+    def source_url(row):
+        meta = row["metadata"] or {}
+        if isinstance(meta, str):
+            meta = json.loads(meta)
+        return row["source"] or meta.get("source", "unknown")
+
+    rows = [row for row in rows if not source_url(row).startswith(("http://", "https://"))
+            or _is_approved(source_url(row))]
+    rows = diversify(rows, source_url)[:top_k]
 
     if not rows:
         return "No relevant documents found in the knowledge corpus."

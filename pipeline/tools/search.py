@@ -74,12 +74,15 @@ def _domain_of(url: str) -> str:
 def _is_approved(url: str) -> bool:
     """Check if a URL's domain is in the approved list.
 
-    Returns True if no approved domains are configured (permissive fallback).
+    Fail closed if the approved list cannot be loaded.
     """
     approved = _get_approved_domains()
-    if not approved:
-        return True  # no allowlist configured — allow all
+    if not approved or urlsplit(url).scheme not in {"http", "https"}:
+        return False
     domain = _domain_of(url)
+    blocked = (_cached_sources or {}).get("blocked_domains", [])
+    if any(domain == d or domain.endswith("." + d) for d in blocked):
+        return False
     return any(domain == d or domain.endswith("." + d) for d in approved)
 
 
@@ -96,13 +99,15 @@ def _query_variants(query: str) -> list[str]:
 
 
 def _recovery_queries(query: str) -> list[str]:
-    """Bounded alternative-source searches, still subject to the allowlist."""
+    """Choose alternatives from topic-relevant approved sources, not fixed outlets."""
+    from pipeline.source_policy import ranked_sources
     base = re.sub(r"-?site:\S+", "", query, flags=re.I)
     base = re.sub(r"\bOR\b", "", base)
     base = " ".join(base.split())
-    financial = bool(re.search(r"\b(stock|stocks|equity|nasdaq|market|markets|selloff|sell|financial)\b", base, re.I))
-    domains = ("nasdaq.com", "cnbc.com") if financial else ("apnews.com", "bbc.com")
-    return [f"{base} site:{domain}" for domain in domains if _is_approved(f"https://{domain}/")]
+    excluded = set(re.findall(r"site:([^\s/]+)", query, flags=re.I))
+    domains = [s["domain"] for s in ranked_sources(base)
+               if s["domain"] not in excluded and _is_approved(f'https://{s["domain"]}/')]
+    return [f"{base} site:{domain}" for domain in domains[:3]]
 
 
 def _ddg_text(query: str, max_results: int) -> list[dict]:
@@ -129,7 +134,9 @@ def _approved_results(candidates: list[dict]) -> list[dict]:
         if canonical not in seen:
             results.append({**result, "href": canonical})
             seen.add(canonical)
-    return results
+    # Give each publisher an initial slot before taking additional pages from it.
+    from pipeline.source_policy import diversify
+    return diversify(results, lambda item: item["href"])
 
 
 def _extract_response_text(response: httpx.Response) -> str:
@@ -154,7 +161,7 @@ async def web_search(query: str, max_results: int = 10) -> str:
         max_results: Maximum number of results to return (default 10).
     """
     for variant in _query_variants(query):
-        results = await asyncio.to_thread(_ddg_text, variant, max_results)
+        results = _approved_results(await asyncio.to_thread(_ddg_text, variant, max_results))
         if results:
             return "\n\n".join(
                 f"**{r['title']}**\n{r['href']}\n{r['body']}"
@@ -243,7 +250,7 @@ async def _search_and_index_impl(query: str, max_results: int = 8, *, _recover: 
 
     async with httpx.AsyncClient(
         timeout=float(cfg_timeout),
-        follow_redirects=True,
+        follow_redirects=False,
         headers={"User-Agent": "BeyondTomorrow-Research/1.0"},
     ) as client:
         for r in results:
@@ -262,7 +269,7 @@ async def _search_and_index_impl(query: str, max_results: int = 8, *, _recover: 
             # Fetch evidence. Do not present a search-engine snippet as a full source.
             text = ""
             try:
-                resp = await client.get(url)
+                resp = await _get_approved_page(client, url)
                 resp.raise_for_status()
                 text = _extract_response_text(resp)
             except Exception as fetch_err:
@@ -345,7 +352,7 @@ async def _search_and_index_impl(query: str, max_results: int = 8, *, _recover: 
     if failed:
         lines.append(f"Failed to fetch {len(failed)} pages: " + "; ".join(failed[:3]))
     if not indexed and _recover:
-        # At most two recovery searches, each capped at three fetches; recursion
+        # At most three recovery searches, each capped at three fetches; recursion
         # is disabled. Never substitute snippets for inaccessible full text.
         for recovery in _recovery_queries(query):
             lines.append(await _search_and_index_impl(recovery, min(max_results, 3), _recover=False))
@@ -468,15 +475,17 @@ async def fetch_page(url: str) -> str:
     Args:
         url: The URL of the web page to fetch and extract text from.
     """
+    if not _is_approved(url):
+        return f"Refused to fetch {url}: domain is outside the approved source policy."
     fetch_cfg = _get_limits().get("fetch", {})
     timeout = fetch_cfg.get("request_timeout_seconds", 15)
     try:
         async with httpx.AsyncClient(
             timeout=float(timeout),
-            follow_redirects=True,
+            follow_redirects=False,
             headers={"User-Agent": "BeyondTomorrow-Research/1.0"},
         ) as client:
-            resp = await client.get(url)
+            resp = await _get_approved_page(client, url)
             resp.raise_for_status()
     except httpx.HTTPError as exc:
         return f"Failed to fetch {url}: {exc}"
@@ -491,6 +500,22 @@ async def fetch_page(url: str) -> str:
         text = text[:max_chars] + "\n\n[... truncated]"
 
     return f"Source: {url}\n\n{text}"
+
+
+async def _get_approved_page(client: httpx.AsyncClient, url: str) -> httpx.Response:
+    """Check every redirect before sending a request to its destination."""
+    from urllib.parse import urljoin
+    for _ in range(6):
+        if not _is_approved(url):
+            raise httpx.HTTPError("Redirect destination is outside the approved source policy")
+        response = await client.get(url)
+        if response.status_code not in {301, 302, 303, 307, 308}:
+            return response
+        location = response.headers.get("location")
+        if not location:
+            raise httpx.HTTPError("Redirect has no destination")
+        url = urljoin(url, location)
+    raise httpx.HTTPError("Too many source redirects")
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +540,7 @@ async def _prefetch_topic(topic: str, num_queries: int = 2) -> list[str]:
     queries = _query_variants(topic)
     recovery = _recovery_queries(queries[-1])
     if recovery:
+        # Preserve one broad search, then favour the best matching primary source.
         queries.insert(1, recovery[0])
     queries = list(dict.fromkeys(queries))
 

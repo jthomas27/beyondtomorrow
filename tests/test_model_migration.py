@@ -134,9 +134,8 @@ def test_missing_evidence_stops_writing(research):
         _require_research_evidence(research)
 
 
-def test_evidence_gate_requires_association_not_just_urls():
-    data = {"key_findings": [{"finding": "Supported", "sources": ["https://example.test/a"]}],
-            "source_list": [{"url": f"https://example.test/{suffix}"} for suffix in "abc"]}
+def test_evidence_gate_requires_association_not_just_urls(credible_research):
+    data = credible_research
     _require_research_evidence(json.dumps(data))
     data["key_findings"][0]["sources"] = ["https://unrelated.test"]
     with pytest.raises(RuntimeError):
@@ -185,14 +184,13 @@ def test_truncated_cache_is_ignored_on_retry(tmp_path):
     assert _valid_research_cache(path)
 
 
-def test_blog_retry_ignores_evidence_gap_cache_but_research_can_reuse_it(tmp_path):
+def test_blog_retry_ignores_evidence_gap_cache_but_research_can_reuse_it(tmp_path, credible_research):
     from pipeline.main import _valid_research_cache
     path = tmp_path / "research.json"
     path.write_text(json.dumps({"key_findings": [], "source_list": [], "gaps": ["Blocked publishers"]}))
     assert _valid_research_cache(path)
     assert not _valid_research_cache(path, require_evidence=True)
-    sources = [f"https://source{i}.example/report" for i in range(3)]
-    path.write_text(json.dumps({"source_list": [{"url": url} for url in sources], "key_findings": [{"finding": "Supported claim", "sources": [sources[0]]}]}))
+    path.write_text(json.dumps(credible_research))
     assert _valid_research_cache(path, require_evidence=True)
 
 

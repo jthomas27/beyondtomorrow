@@ -188,6 +188,22 @@ async def test_search_corpus_embeds_the_query(mocker, fake_db_row):
     mock_embed.assert_called_once_with("ocean acidification")
 
 
+async def test_corpus_selects_different_approved_publishers_before_repeat_chunks(mocker):
+    urls = ["https://cnbc.com/a", "https://cnbc.com/b", "https://unapproved.test/c",
+            "https://reuters.com/d", "https://bbc.com/e"]
+    rows = [{"id": i, "source": url, "source_type": "webpage", "metadata": {},
+             "chunk_index": 0, "content": "Retrieved evidence", "similarity": 0.9}
+            for i, url in enumerate(urls)]
+    conn = mocker.AsyncMock()
+    conn.fetch.return_value = rows
+    pool = _make_pool_mock(mocker, conn)
+    mocker.patch("pipeline.tools.corpus.get_pool", mocker.AsyncMock(return_value=pool))
+    mocker.patch("pipeline.tools.corpus.embed", return_value=[0.0] * 1536)
+    result = await call_tool(search_corpus, query="market evidence", top_k=3)
+    assert all(url in result for url in (urls[0], urls[3], urls[4]))
+    assert urls[1] not in result and urls[2] not in result
+
+
 # ---------------------------------------------------------------------------
 # index_document — chunk + embed + upsert pipeline (mocked DB)
 # ---------------------------------------------------------------------------

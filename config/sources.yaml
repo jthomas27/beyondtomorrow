@@ -370,6 +370,19 @@ approved_domains:
 
   # --- Economics / investment risk ------------------------------------------
 
+  - domain: sec.gov
+    category: economics
+    credibility: 5
+    primary: true
+    notes: "SEC EDGAR — company financial filings, audited accounts, debt maturities, liabilities, revenue and risk disclosures."
+
+  - domain: investors.coreweave.com
+    category: economics
+    credibility: 4
+    primary: true
+    entities: [coreweave]
+    notes: "CoreWeave investor relations — earnings, revenue, debt, liquidity and financial disclosures. Company statements need independent corroboration."
+
   - domain: research.google
     category: economics
     credibility: 4

@@ -468,27 +468,13 @@ def _valid_research_cache(path, *, require_evidence: bool = False) -> bool:
 
 
 def _require_research_evidence(research_output: str) -> None:
-    """Prevent writing an article from malformed or source-free research.
+    from pipeline.source_policy import require_research_evidence
+    require_research_evidence(research_output)
 
-    This checks evidence presence and association, not whether a source entails a claim.
-    """
-    import json
-    try:
-        data = json.loads(research_output)
-        sources = {
-            source["url"] for source in data.get("source_list", [])
-            if isinstance(source, dict) and str(source.get("url", "")).startswith("https://")
-        }
-        findings = data.get("key_findings", [])
-        supported = any(
-            isinstance(finding, dict) and finding.get("finding")
-            and sources.intersection(finding.get("sources", [])) for finding in findings
-        )
-        if len(sources) >= 3 and supported:
-            return
-    except (ValueError, TypeError, AttributeError):
-        pass
-    raise RuntimeError("Research lacks at least three external sources and a supported finding; retain research and defer writing")
+
+def _require_publish_evidence(path, research_output: str | None = None) -> None:
+    from pipeline.source_policy import require_publish_file
+    require_publish_file(path, research_output)
 
 
 def _compact_research(research_output: str, max_chars: int = 3000) -> str:
@@ -508,6 +494,11 @@ def _compact_research(research_output: str, max_chars: int = 3000) -> str:
         return research_output[:max_chars] + ("\n[truncated]" if len(research_output) > max_chars else "")
 
     parts: list[str] = []
+    if data.get("question_coverage"):
+        parts.append("REQUESTED QUESTIONS / EVIDENCE:")
+        for question in data["question_coverage"]:
+            parts.append(f'- {question.get("question", "")}: {question.get("answer", "")} '
+                         f'[{question.get("status", "unknown")}] ({", ".join(question.get("sources", []))})')
 
     def _is_external_url(url: str) -> bool:
         """Return True only for http/https URLs (not file paths or corpus refs)."""
@@ -601,19 +592,22 @@ async def _sanitise_research_sources(research_json: str) -> str:
 
     # Validate URLs concurrently
     async def _check(url: str) -> tuple[str, bool]:
+        from pipeline.tools.search import _is_approved, _get_approved_page
+        if not _is_approved(url):
+            return url, False
         try:
             import httpx as _httpx
             async with _httpx.AsyncClient(
                 timeout=5.0,
-                follow_redirects=True,
+                follow_redirects=False,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; BeyondTomorrow/1.0)"},
             ) as client:
                 try:
                     resp = await client.head(url)
-                    if resp.status_code >= 400:
-                        resp = await client.get(url)
+                    if resp.status_code >= 300:
+                        resp = await _get_approved_page(client, url)
                 except Exception:
-                    resp = await client.get(url)  # some servers reject HEAD
+                    resp = await _get_approved_page(client, url)  # some servers reject HEAD
                 return url, resp.status_code < 400
         except Exception:
             return url, False
@@ -641,6 +635,11 @@ async def _sanitise_research_sources(research_json: str) -> str:
         finding["sources"] = [
             u for u in finding.get("sources", []) if u not in dead
         ]
+    for question in data.get("question_coverage", []):
+        question["sources"] = [u for u in question.get("sources", []) if u not in dead]
+        if question.get("essential") is True and not question["sources"]:
+            question["status"] = "unanswered"
+            data["ready_to_write"] = False
 
     return _json.dumps(data, ensure_ascii=False, indent=2)
 
@@ -1007,12 +1006,11 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
 
         research_cache_path = research_dir / f"{today_str}-{slug}-research.json"
 
-        if (research_dir / draft_filename).exists() or (research_dir / edited_filename).exists():
-            logger.info("Draft already exists — skipping research step.")
-            research_output = "{}"
-        elif research_cache_path.exists() and _valid_research_cache(research_cache_path, require_evidence=True):
+        if research_cache_path.exists() and _valid_research_cache(research_cache_path, require_evidence=True):
             logger.info("Research cache found — loading from %s", research_cache_path.name)
             research_output = research_cache_path.read_text(encoding="utf-8")
+        elif (research_dir / draft_filename).exists() or (research_dir / edited_filename).exists():
+            raise RuntimeError("Existing draft lacks research meeting the current evidence policy; retain it for review before publishing")
         else:
             # --- RPM pacing for gpt-4.1 (10 RPM limit) ---
             # The Researcher makes multiple rapid tool-call turns that can
@@ -1042,6 +1040,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             except Exception as _pf_err:
                 logger.warning("Pre-fetch failed (non-fatal): %s", _pf_err)
 
+            from pipeline.source_policy import source_guidance
             research_input = (
                 f"Research this topic thoroughly for a blog post: {topic}\n\n"
                 f"The knowledge corpus has already been seeded with pages on this topic.\n"
@@ -1050,7 +1049,10 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                 f"2. For each query call search_and_index to fetch and store any new pages.\n"
                 f"3. Call search_corpus TWICE with top_k=3: main topic, then a contrasting angle.\n"
                 f"4. Return structured research JSON with key_findings, subtopics, "
-                f"suggested_angles, gaps, source_list, total_sources, model_used."
+                f"suggested_angles, gaps, source_list, total_sources, model_used, "
+                f"question_coverage, ready_to_write. Assess EVERY requested question; "
+                f"mark essential unanswered questions as not ready to write.\n\n"
+                f"Topic-specific source candidates:\n{source_guidance(topic)}"
             )
             research_output, r_tin, r_tout = await _run_agent_with_fallback(
                 researcher, research_input,
@@ -1088,8 +1090,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         except Exception as _idx_err:
             logger.warning("Could not save research to DB: %s", _idx_err)
 
-        if not (research_dir / draft_filename).exists() and not (research_dir / edited_filename).exists():
-            _require_research_evidence(research_output)
+        _require_research_evidence(research_output)
 
         run_log.stage_ok("Research", elapsed_s=round(monotonic() - _t0, 1), model=researcher.model)
         logger.info("[1/5] Research done in %.1fs", monotonic() - _t0)
@@ -1246,6 +1247,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                 edited_filename = draft_filename
 
         logger.info("Edit complete: %s", edited_filename)
+        _require_publish_evidence(research_dir / edited_filename, research_output)
         run_log.stage_ok("Edit", elapsed_s=round(monotonic() - _t0, 1), edited=edited_filename)
         logger.info("[3/5] Edit done in %.1fs", monotonic() - _t0)
 
@@ -1577,6 +1579,7 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
         _current_stage = "Publish"
         run_log.stage_start("Publish")
         _t0 = monotonic()
+        _require_publish_evidence(_Path(__file__).parent.parent / "research" / filename)
         publish_input = _build_publish_input(filename)
         publish_output, _, _ = await _run_agent_with_fallback(
             publisher, publish_input,
@@ -1811,6 +1814,7 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
             except Exception as _pf_err:
                 logger.warning("Pre-fetch failed (non-fatal): %s", _pf_err)
 
+            from pipeline.source_policy import source_guidance
             research_input = (
                 f"Research this topic thoroughly: {topic}\n\n"
                 f"The knowledge corpus has already been seeded with pages on this topic.\n"
@@ -1819,7 +1823,9 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
                 f"2. For each query call search_and_index.\n"
                 f"3. Call search_corpus TWICE with top_k=3: main topic, then a contrasting angle.\n"
                 f"4. Return structured research JSON with key_findings, subtopics, "
-                f"suggested_angles, gaps, source_list, total_sources, model_used."
+                f"suggested_angles, gaps, source_list, total_sources, model_used, "
+                f"question_coverage, ready_to_write.\n\n"
+                f"Topic-specific source candidates:\n{source_guidance(topic)}"
             )
             research_output, r_tin, r_tout = await _run_agent_with_fallback(
                 researcher, research_input,

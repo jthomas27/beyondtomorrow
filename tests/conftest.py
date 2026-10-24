@@ -12,6 +12,20 @@ import json
 import pytest
 
 
+@pytest.fixture
+def credible_research():
+    return {
+        "source_list": [{"url": url, "credibility_score": 4} for url in
+                        ["https://nature.com/study", "https://noaa.gov/data", "https://reuters.com/report"]],
+        "key_findings": [{"finding": "A supported comparison", "confidence": "medium",
+                          "sources": ["https://nature.com/study", "https://noaa.gov/data"]}],
+        "question_coverage": [{"question": "What do the measurements show?", "essential": True,
+                               "status": "answered", "answer": "A measured change",
+                               "sources": ["https://nature.com/study", "https://noaa.gov/data"]}],
+        "ready_to_write": True,
+    }
+
+
 @pytest.fixture(autouse=True)
 def block_accidental_unit_test_http(request, monkeypatch):
     """Unit tests must not send real requests when an expected mock is missing."""

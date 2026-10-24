@@ -335,6 +335,14 @@ async def publish_file_to_ghost(
         logger.info("meta_description trimmed to %d chars.", len(meta_description))
 
     # Read Ghost credentials now so the cross-reference guardrail can use them.
+    # Validate the final rendered article on every attempt, including recovery
+    # edits, before any Ghost API call or deletion can occur.
+    from pipeline.source_policy import require_publish_file
+    try:
+        require_publish_file(safe_path, content=html_content)
+    except RuntimeError as exc:
+        return f"Error: {exc}"
+
     ghost_url = os.environ.get("GHOST_URL", "").rstrip("/")
     admin_key = os.environ.get("GHOST_ADMIN_KEY", "")
 

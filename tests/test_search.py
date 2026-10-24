@@ -82,7 +82,7 @@ class _FakeResponse:
 async def test_web_search_returns_formatted_results():
     """Results should include title, URL, and snippet for each hit."""
     fake_results = [
-        {"title": "AI Breakthrough 2024", "href": "https://example.com/ai", "body": "New advances in AI."},
+        {"title": "AI Breakthrough 2024", "href": "https://science.org/ai", "body": "New advances in AI."},
         {"title": "Climate Tipping Points", "href": "https://nature.com/climate", "body": "Rapid climate shifts."},
     ]
     with patch("pipeline.tools.search.DDGS") as mock_cls:
@@ -94,7 +94,7 @@ async def test_web_search_returns_formatted_results():
         result = await call_tool(web_search, query="AI climate", max_results=2)
 
     assert "AI Breakthrough 2024" in result
-    assert "https://example.com/ai" in result
+    assert "https://science.org/ai" in result
     assert "New advances in AI." in result
     assert "Climate Tipping Points" in result
     assert "https://nature.com/climate" in result
@@ -163,7 +163,7 @@ async def test_fetch_page_truncates_long_content():
         mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
         mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        result = await call_tool(fetch_page, url="https://example.com/long-read")
+        result = await call_tool(fetch_page, url="https://nature.com/long-read")
 
     assert "[... truncated]" in result
     # Content portion should not exceed the limit by more than a small header overhead
@@ -181,10 +181,10 @@ async def test_fetch_page_returns_error_on_http_failure():
         mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
         mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        result = await call_tool(fetch_page, url="https://down.example.com/page")
+        result = await call_tool(fetch_page, url="https://nature.com/page")
 
     assert "Failed to fetch" in result
-    assert "https://down.example.com/page" in result
+    assert "https://nature.com/page" in result
 
 
 @pytest.mark.asyncio
@@ -198,10 +198,10 @@ async def test_fetch_page_handles_empty_extraction():
         mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_http)
         mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        result = await call_tool(fetch_page, url="https://adspam.example.com/")
+        result = await call_tool(fetch_page, url="https://nature.com/")
 
     assert "Could not extract text" in result
-    assert "https://adspam.example.com/" in result
+    assert "https://nature.com/" in result
 
 
 # ---------------------------------------------------------------------------
@@ -276,12 +276,13 @@ async def test_prefetch_preserves_event_context_and_uses_alternative_source(mock
     queries = [call.args[0] for call in search.await_args_list]
     assert len(queries) == 2
     assert all(all(term in query for term in ("technology", "stocks", "October", "2026")) for query in queries)
-    assert "site:nasdaq.com" in queries[1]
+    assert "site:" in queries[1]
 
 
 def test_recovery_removes_old_site_filters_and_stays_bounded(mocker):
     from pipeline.tools.search import _recovery_queries
     mocker.patch("pipeline.tools.search._get_approved_domains", return_value={"nasdaq.com", "cnbc.com"})
+    mocker.patch("pipeline.source_policy.ranked_sources", return_value=[{"domain": "nasdaq.com"}, {"domain": "cnbc.com"}])
     queries = _recovery_queries("October 2026 technology stocks site:reuters.com OR site:ft.com")
     assert len(queries) == 2
     assert all(query.count("site:") == 1 and "reuters.com" not in query and "ft.com" not in query for query in queries)
@@ -290,6 +291,7 @@ def test_recovery_removes_old_site_filters_and_stays_bounded(mocker):
 async def test_blocked_fetch_recovers_from_approved_alternative_without_snippets(mocker):
     from pipeline.tools.search import _search_and_index_impl
     mocker.patch("pipeline.tools.search._get_approved_domains", return_value={"reuters.com", "nasdaq.com", "cnbc.com"})
+    mocker.patch("pipeline.source_policy.ranked_sources", return_value=[{"domain": "nasdaq.com"}, {"domain": "cnbc.com"}])
     def search(query, count):
         if "site:nasdaq.com" in query:
             return [{"href": "https://nasdaq.com/news/report", "title": "Dated exchange report"}]
@@ -327,3 +329,140 @@ async def test_search_backend_error_allows_next_variant(mocker):
     result = await _search_and_index_impl("please investigate optics")
     assert "No approved web results" in result
     assert ddg.call_count == 2
+
+
+# Source selection and publication evidence regression tests
+import json
+from unittest.mock import AsyncMock
+
+import httpx
+import pytest
+
+from pipeline.source_policy import (
+    diversify, ranked_sources, require_article_evidence, require_research_evidence,
+)
+
+
+def test_candidates_follow_topic_and_avoid_unrelated_issuers():
+    finance = [s["domain"] for s in ranked_sources("CoreWeave liabilities revenue debt financial distress")]
+    climate = [s["domain"] for s in ranked_sources("climate carbon emissions warming")]
+    assert "investors.coreweave.com" in finance[:3] and "sec.gov" in finance[:3]
+    assert "investors.coreweave.com" not in climate
+    assert "sec.gov" not in climate[:3]
+    assert "cnbc.com" not in climate[:3]
+
+
+def test_multiple_subdomains_do_not_count_as_independent_publishers():
+    urls = ["https://www.cnbc.com/a", "https://cnbc.com/b", "https://reuters.com/c", "https://bbc.com/d"]
+    assert diversify(urls, lambda u: u)[:3] == [urls[0], urls[2], urls[3]]
+
+
+def test_approved_supported_research_passes(credible_research):
+    require_research_evidence(json.dumps(credible_research))
+
+
+@pytest.mark.parametrize("status", ["partial", "unanswered"])
+def test_core_question_gap_blocks_even_when_ready_flag_is_true(credible_research, status):
+    credible_research["question_coverage"][0]["status"] = status
+    with pytest.raises(RuntimeError, match="essential requested question"):
+        require_research_evidence(json.dumps(credible_research))
+
+
+def test_missing_question_assessment_blocks_legacy_research(credible_research):
+    del credible_research["question_coverage"]
+    with pytest.raises(RuntimeError, match="assessment"):
+        require_research_evidence(json.dumps(credible_research))
+
+
+def test_unused_links_cannot_disguise_single_publisher_findings(credible_research):
+    credible_research["key_findings"][0]["sources"] = ["https://nature.com/study"]
+    with pytest.raises(RuntimeError, match="two publishers"):
+        require_research_evidence(json.dumps(credible_research))
+
+
+@pytest.mark.parametrize("url,score", [("https://unapproved.test/a", 5), ("https://noaa.gov/data", 1)])
+def test_unapproved_or_low_credibility_sources_block(credible_research, url, score):
+    credible_research["source_list"][1] = {"url": url, "credibility_score": score}
+    with pytest.raises(RuntimeError, match="unapproved or low-credibility"):
+        require_research_evidence(json.dumps(credible_research))
+
+
+def test_published_article_must_actually_cite_varied_evidence(credible_research):
+    single = "Evidence [Nature](https://nature.com/study)."
+    with pytest.raises(RuntimeError, match="only one publisher"):
+        require_article_evidence(single, json.dumps(credible_research))
+    require_article_evidence(single + " And [NOAA](https://noaa.gov/data).", json.dumps(credible_research))
+
+
+def test_article_cannot_introduce_unresearched_citation(credible_research):
+    with pytest.raises(RuntimeError, match="approved research evidence"):
+        require_article_evidence("[Other](https://nature.com/invented)", json.dumps(credible_research))
+
+
+async def test_redirect_to_unapproved_site_is_never_requested():
+    from pipeline.tools.search import _get_approved_page
+    client = AsyncMock()
+    client.get.return_value = httpx.Response(302, headers={"location": "https://unapproved.test/payload"})
+    with pytest.raises(httpx.HTTPError, match="outside"):
+        await _get_approved_page(client, "https://nature.com/study")
+    client.get.assert_awaited_once_with("https://nature.com/study")
+
+
+async def test_direct_fetch_refuses_unapproved_source_before_network(mocker):
+    from pipeline.tools.search import fetch_page
+    from tests.conftest import call_tool
+    client = mocker.patch("pipeline.tools.search.httpx.AsyncClient")
+    assert "Refused" in await call_tool(fetch_page, url="https://unapproved.test/a")
+    client.assert_not_called()
+
+
+def test_missing_allowlist_fails_closed(mocker):
+    from pipeline.tools.search import _is_approved
+    mocker.patch("pipeline.tools.search._get_approved_domains", return_value=set())
+    assert not _is_approved("https://nature.com/study")
+
+
+def test_existing_draft_cannot_skip_publication_gate(tmp_path, credible_research):
+    from pipeline.main import _require_publish_evidence
+    article = tmp_path / "topic-edited.md"
+    article.write_text("[Nature](https://nature.com/study) [NOAA](https://noaa.gov/data)")
+    with pytest.raises(RuntimeError, match="No research evidence"):
+        _require_publish_evidence(article)
+    cache = tmp_path / "topic-research.json"
+    cache.write_text(json.dumps(credible_research))
+    _require_publish_evidence(article)
+    credible_research["ready_to_write"] = False
+    cache.write_text(json.dumps(credible_research))
+    with pytest.raises(RuntimeError):
+        _require_publish_evidence(article)
+
+
+def test_financial_comparison_needs_primary_evidence_and_citation(credible_research):
+    question = credible_research["question_coverage"][0]
+    question["question"] = "How do CoreWeave liabilities compare with expected revenue?"
+    with pytest.raises(RuntimeError, match="primary evidence"):
+        require_research_evidence(json.dumps(credible_research))
+    credible_research["source_list"].append({"url": "https://sec.gov/filing", "credibility_score": 5})
+    question["sources"].append("https://sec.gov/filing")
+    require_research_evidence(json.dumps(credible_research))
+    article = "[Nature](https://nature.com/study) [NOAA](https://noaa.gov/data)"
+    with pytest.raises(RuntimeError, match="omits primary"):
+        require_article_evidence(article, json.dumps(credible_research))
+    require_article_evidence(article + " [SEC](https://sec.gov/filing)", json.dumps(credible_research))
+
+
+@pytest.mark.parametrize("padding", ["<!-- [NOAA](https://noaa.gov/data) -->", "`[NOAA](https://noaa.gov/data)`", "![NOAA](https://noaa.gov/data)"])
+def test_hidden_links_and_images_do_not_count_as_citations(credible_research, padding):
+    with pytest.raises(RuntimeError, match="only one publisher"):
+        require_article_evidence("[Nature](https://nature.com/study) " + padding, json.dumps(credible_research))
+
+
+async def test_publisher_tool_blocks_before_any_ghost_request(tmp_path, mocker):
+    from pipeline.tools.ghost import publish_file_to_ghost
+    from tests.conftest import call_tool
+    mocker.patch("pipeline.tools.ghost._RESEARCH_DIR", tmp_path)
+    (tmp_path / "article-edited.md").write_text("---\ntitle: An Article With No Supporting Research\n---\nBody")
+    client = mocker.patch("pipeline.tools.ghost.httpx.AsyncClient")
+    result = await call_tool(publish_file_to_ghost, filename="article-edited.md")
+    assert result.startswith("Error: No research evidence")
+    client.assert_not_called()

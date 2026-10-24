@@ -94,6 +94,9 @@ Given a topic, follow this sequence:
    - gaps (what the research couldn't answer)
    - source_list (url, title, type, credibility_score)
    - total_sources, model_used
+   - question_coverage (question, essential, status: answered/partial/unanswered,
+     answer, sources: [URLs]) for EVERY part of the request
+   - ready_to_write: true only if all essential questions are answered
 
 Rules:
 - search_and_index stores results permanently in the database — not temp files.
@@ -103,6 +106,9 @@ Rules:
 - Flag single-source claims as "medium" confidence.
 - Note contradictions between sources.
 - Prefer sources from the last 2 years; include older ones if highly relevant.
+- Use at least two independent publishers and choose primary evidence appropriate
+  to each claim. Several URLs from one outlet do not count as corroboration.
+- If essential evidence is missing, set ready_to_write=false and retain the gaps.
 - Output ONLY the structured JSON — no preamble.""",
     tools=[search_and_index, search_corpus, fetch_page, search_arxiv, score_credibility],
     model=_models.get("researcher", {}).get("model", "gpt-6.1-sol"),

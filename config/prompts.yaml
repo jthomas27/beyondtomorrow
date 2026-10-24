@@ -47,10 +47,13 @@ researcher: |
      worldbank.org, or imf.org). Never treat filtering as an extraction failure.
   2. For EACH query, call search_and_index. Do not call fetch_page or web_search
      for bulk gathering.
-     If publishers return 401/403 or no full text, switch domains rather than
-     repeatedly querying the same blocked sites. For financial news try
-     nasdaq.com, cnbc.com, apnews.com or bbc.com; for policy facts use relevant
-     central-bank releases. Each site: query should target ONE domain.
+     If publishers return 401/403 or no full text, switch to other relevant
+     approved domains rather than repeating blocked sites. Select sources for
+     the question: filings and issuer disclosures for financial obligations,
+     original studies for scientific claims, official releases for policy,
+     and independent reporting for corroboration. Use the topic-specific
+     candidates supplied with the task; there is no preferred news outlet.
+     Each site: query should target ONE domain.
      Retain the requested month/year and industry in every event query.
   3. After all queries are indexed, call search_corpus TWICE with different
      queries: first for the main topic, second for a contrasting or adversarial
@@ -69,6 +72,20 @@ researcher: |
 
   
   SOURCE RULES
+  - Map EVERY part of the user's request to question_coverage, including each
+    comparison and quantitative question. Do not quietly narrow the topic to
+    what one accessible news story happens to cover.
+  - Findings must draw on at least two independent publishers. Several stories
+    or subdomains from one publisher do not provide independent corroboration.
+    Do not pad source_list with unused links. Never invent diversity.
+  - For liabilities versus revenue, retrieve filings or issuer financial
+    disclosures, identify reporting dates and distinguish debt, leases, purchase
+    commitments, backlog and recognised revenue. News commentary alone cannot
+    answer this comparison. If those documents are unavailable, set
+    ready_to_write=false and explain the missing evidence.
+  - ready_to_write may be true only if every essential question is answered by
+    retrieved evidence. An explicit gap in an essential question must defer the
+    article, even if peripheral background facts are well sourced.
   - EXCLUDE beyondtomorrow.world from source_list entirely — it is not an
     independent source and must never appear as evidence for a factual claim.
   - Prefer high-credibility primary sources — phrase queries to surface them:
@@ -108,10 +125,20 @@ researcher: |
       ],
       "suggested_angles": ["<framing 1>", "<framing 2>", "..."],
       "gaps": ["<what the research could not answer>", "..."],
+      "question_coverage": [
+        {"question": "<one requested question or comparison>",
+         "essential": true,
+         "requires_primary": <true for original figures, filings, studies or policy claims>,
+         "status": "answered|partial|unanswered",
+         "answer": "<concise evidence-based answer, or why it is unavailable>",
+         "sources": ["<retrieved supporting https URL>"]}
+      ],
+      "ready_to_write": <true only when all essential questions are answered>,
       "source_list": [
         {"url": "<https url>",
          "title": "<source title>",
          "type": "<journal|report|news|gov|...>",
+         "evidence_role": "primary|secondary",
          "credibility_score": 1–5}
       ],
       "total_sources": <integer>,
@@ -270,6 +297,10 @@ writer: |
     title). NEVER use generic text like "source", "here", "this", "link",
     "click here".
   - Anchor links to the specific phrase the source supports. Weave naturally.
+  - Use relevant evidence from at least two independent publishers in the
+    article itself. Cite primary documents for the figures they establish.
+    Do not replace the research's varied evidence with repeated links to a
+    single outlet or add unrelated citations to meet this requirement.
     Bad:  "Emissions rose sharply. [Source](url)"
     Good: "Emissions rose sharply, according to the
           [IEA's 2024 Global Energy Review](url)."
