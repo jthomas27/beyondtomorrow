@@ -91,6 +91,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
     _current_stage = "init"
     _pipeline_t0 = monotonic()
     run_log = None
+    published_url = ""
     _pipeline_result: dict = {
         "status": "failed", "published_url": "", "run_log": None, "total_elapsed_s": 0.0
     }
@@ -101,10 +102,10 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         set_db_pool(pool)
 
         # Stale-run janitor — close any stuck RUNNING runs before starting this one.
-        # stale_after_hours=0 catches runs of any age with no terminal event.
+        # Only close runs older than the recovery threshold, never every active run.
         # Safe because the new run_start is logged AFTER this call.
         try:
-            _stale = await mark_stale_runs_failed(pool, stale_after_hours=0)
+            _stale = await mark_stale_runs_failed(pool, stale_after_hours=2)
             if _stale:
                 logger.warning(
                     "Stale-run janitor: closed %d orphaned run(s): %s",
@@ -448,6 +449,9 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                 f"Tool output: {publish_output.strip()}"
             )
 
+        from pipeline.workflows.publishing import confirmed_publication
+        published = await confirmed_publication(edited_filename)
+        published_url = published['url']
         logger.info("Published: %s", publish_output)
         run_log.stage_ok("Publish", elapsed_s=round(monotonic() - _t0, 1), url=publish_output)
         logger.info("[4/5] Publish done in %.1fs", monotonic() - _t0)
@@ -467,7 +471,7 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         _current_stage = "LinkedIn"
         run_log.stage_start("LinkedIn")
         _t0_li = monotonic()
-        ghost_url, feature_image_url = _parse_publish_output(publish_output)
+        ghost_url, feature_image_url = published['url'], published.get('feature_image', '')
         if not ghost_url:
             _li_parse_exc = RuntimeError(
                 f"Could not parse Ghost URL from publisher output — "
@@ -598,26 +602,33 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             logger.warning("Skipped indexing: %s not found", edited_filename)
 
         _total = monotonic() - _pipeline_t0
-        run_log.stage_ok("Index", elapsed_s=round(monotonic() - _t0, 1), detail=index_output)
+        if str(index_output).startswith(('Error:', 'Failed', 'Skipped')):
+            run_log.stage_error('Index', RuntimeError(str(index_output)))
+        else:
+            run_log.stage_ok("Index", elapsed_s=round(monotonic() - _t0, 1), detail=index_output)
         logger.info("[5/5] Index done in %.1fs", monotonic() - _t0)
         logger.info("BLOG pipeline complete in %.1fs (%.1f min)", _total, _total / 60)
         logger.info("Published: %s", publish_output)
         logger.info("Corpus: %s", index_output)
         run_log.run_complete(published_url=publish_output, total_elapsed_s=_total)
+        from pipeline.workflows.results import failed_stages
+        incomplete = failed_stages(run_log)
         _pipeline_result = {
-            "status": "published",
-            "published_url": publish_output,
+            "status": "partial" if incomplete else "published",
+            "published_url": published_url,
+            "ghost_post_id": published["id"],
+            "failed_stages": incomplete,
             "run_log": run_log,
             "total_elapsed_s": _total,
         }
         # Notify personal email: pipeline succeeded
         _mins = _total / 60
         _send_pipeline_notification(
-            subject=f"[BeyondTomorrow] Published: {topic}",
+            subject=f"[BeyondTomorrow] {'Partial' if incomplete else 'Published'}: {topic}",
             body=(
                 f"Command  : BLOG\n"
                 f"Topic    : {topic}\n"
-                f"Status   : Published\n"
+                f"Status   : {'Partially complete' if incomplete else 'Published'}\n"
                 f"URL      : {publish_output}\n"
                 f"Duration : {int(_total // 60)}m {int(_total % 60)}s\n"
                 f"\nStages:\n{_fmt_pipeline_stages(run_log)}"
@@ -625,12 +636,19 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
         )
     except Exception as exc:
         _total = monotonic() - _pipeline_t0
+        if not published_url and _current_stage == 'Publish':
+            try:
+                from pipeline.workflows.publishing import confirmed_publication
+                published_url = (await confirmed_publication(edited_filename))['url']
+            except Exception:
+                pass  # No confirmed receipt; do not claim that Ghost published.
         if run_log is not None:
             run_log.stage_error(_current_stage, exc)
             run_log.run_failed(_current_stage, exc, total_elapsed_s=_total)
         _pipeline_result = {
-            "status": "failed",
-            "published_url": "",
+            "status": "partial" if published_url else "failed",
+            "published_url": published_url,
+            "failed_stages": [_current_stage],
             "run_log": run_log,
             "total_elapsed_s": _total,
         }

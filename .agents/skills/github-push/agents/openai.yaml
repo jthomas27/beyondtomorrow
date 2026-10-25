@@ -1,0 +1,4 @@
+interface:
+  display_name: "Github Push"
+  short_description: "Review, commit and push requested code changes"
+  default_prompt: "Use $github-push to complete the requested github push task."

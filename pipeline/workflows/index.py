@@ -14,7 +14,7 @@ logger = logging.getLogger("pipeline")
 
 
 
-async def _run_index(task: str) -> None:
+async def _run_index(task: str) -> dict:
     """Handle INDEX: path — extract text, check dedup, index to corpus.
 
     Supports files in research/, reports/, or any path relative to the project root.
@@ -35,7 +35,7 @@ async def _run_index(task: str) -> None:
     if not file_path.exists():
         print(f"File not found: {raw_path}")
         await close_pool()
-        return
+        return {"status": "failed"}
 
     # Use the normalised relative path as the dedup source key.
     try:
@@ -52,7 +52,7 @@ async def _run_index(task: str) -> None:
     if already_indexed:
         print(f"Already indexed — skipping: {source}")
         await close_pool()
-        return
+        return {"status": "complete"}
 
     suffix = file_path.suffix.lower()
     if suffix == ".pdf":
@@ -64,19 +64,19 @@ async def _run_index(task: str) -> None:
         except Exception as exc:
             print(f"PDF extraction failed for {raw_path}: {exc}")
             await close_pool()
-            return
+            return {"status": "failed"}
     else:
         try:
             content = file_path.read_text(encoding="utf-8")
         except Exception as exc:
             print(f"Could not read {raw_path}: {exc}")
             await close_pool()
-            return
+            return {"status": "failed"}
 
     if not content.strip():
         print(f"No extractable content in: {raw_path}")
         await close_pool()
-        return
+        return {"status": "failed"}
 
     doc_type = "pdf" if suffix == ".pdf" else "article"
     doc_date = str(date.today())
@@ -85,7 +85,9 @@ async def _run_index(task: str) -> None:
     try:
         result = await _index_document_impl(content, source, doc_type, doc_date)
         print(result)
+        return {"status": "failed" if str(result).startswith("Error:") else "complete"}
     except Exception as exc:
         print(f"Indexing failed: {exc}")
+        return {"status": "failed"}
     finally:
         await close_pool()

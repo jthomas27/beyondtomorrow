@@ -83,7 +83,7 @@ privacy__useStructuredData     = true
 The repo contains utility scripts and documentation:
 - `db-test.js` — pgvector connectivity test and table creation
 - `mysql-test.js` — MySQL connectivity test and Ghost table verification
-- `fix-migration-lock.js` — Utility to clear Ghost migration locks
+- Historical MySQL repair helpers are archived; follow the current `infra/README.md` recovery procedure.
 
 ---
 
@@ -208,7 +208,7 @@ DNS is managed via Cloudflare (free tier). Nameservers:
 - [x] Note: app code lives in `pipeline/` not `agents/` — the `openai-agents` SDK uses the `agents` Python package name; `pipeline/` avoids the clash
 
 ## Next Steps
-- [ ] **REQUIRED: Enable TCP proxy on pgvector Railway service** → run `node scripts/db-test.js` to create schema, then `python scripts/migrate-embeddings.py` if migrating
+- Use the external PostgreSQL proxy and explicit `pipeline.storage.migrate` procedure in `infra/README.md`. Historical 384-dimensional migration scripts are retired.
 - [ ] **REQUIRED: Create GitHub PAT** with `models:read` scope → set as `GITHUB_TOKEN` in Railway Ghost service
 - [ ] **REQUIRED: Set GitHub Actions secrets** — `AGENT_GITHUB_TOKEN`, `DATABASE_URL`, `GHOST_URL`, `GHOST_ADMIN_KEY`
 - [ ] Configure Hostinger email IMAP for Railway worker

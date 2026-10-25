@@ -361,10 +361,33 @@ def test_approved_supported_research_passes(credible_research):
     require_research_evidence(json.dumps(credible_research))
 
 
-@pytest.mark.parametrize("status", ["partial", "unanswered"])
+@pytest.mark.parametrize("status", ["unanswered"])
 def test_core_question_gap_blocks_even_when_ready_flag_is_true(credible_research, status):
     credible_research["question_coverage"][0]["status"] = status
     with pytest.raises(RuntimeError, match="essential requested question"):
+        require_research_evidence(json.dumps(credible_research))
+
+
+def test_sourced_partial_assessment_can_proceed_with_disclosed_gaps(credible_research):
+    question = credible_research["question_coverage"][0]
+    question.update(status="partial", requires_primary=True,
+                    answer="Reported spending estimates exist, but paid AI demand is not separately disclosed.")
+    credible_research["ready_to_write"] = False
+    credible_research["gaps"] = ["Issuer AI-only revenue and utilisation are unavailable."]
+    require_research_evidence(json.dumps(credible_research))
+    require_article_evidence(
+        "Spending remains uncertain. [Nature](https://nature.com/study) [NOAA](https://noaa.gov/data)",
+        json.dumps(credible_research),
+    )
+    question["sources"] = []
+    with pytest.raises(RuntimeError, match="essential requested question"):
+        require_research_evidence(json.dumps(credible_research))
+
+
+def test_partial_assessment_without_gap_disclosure_is_blocked(credible_research):
+    credible_research["question_coverage"][0]["status"] = "partial"
+    credible_research["gaps"] = []
+    with pytest.raises(RuntimeError, match="disclose"):
         require_research_evidence(json.dumps(credible_research))
 
 

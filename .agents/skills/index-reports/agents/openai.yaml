@@ -1,0 +1,4 @@
+interface:
+  display_name: "Index Reports"
+  short_description: "Inventory or index requested PDF reports"
+  default_prompt: "Use $index-reports to complete the requested index reports task."

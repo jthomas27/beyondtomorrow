@@ -352,12 +352,12 @@ def main() -> None:
     try:
         token_data = _exchange_code(code)
     except httpx.HTTPStatusError as e:
-        sys.exit(f"\n❌ Token exchange failed: {e.response.status_code} — {e.response.text}")
+        sys.exit(f"\n❌ Token exchange failed: HTTP {e.response.status_code}")
 
     access_token = token_data.get("access_token", "")
     expires_in = token_data.get("expires_in", 5183944)  # LinkedIn default ~60 days
     if not access_token:
-        sys.exit(f"\n❌ No access_token in response:\n{token_data}")
+        sys.exit("\n❌ No access_token in response; response details withheld.")
 
     # Verify granted scopes — warn if w_organization_social is missing
     print("Verifying granted scopes...")
@@ -443,8 +443,8 @@ def main() -> None:
         print(f"  Company URN   : {company_urn}")
     print(f"  Token expires : {expiry_str} (in {expires_in // 86400} days)")
     print()
-    print("Add these to your .env:")
-    print(f"  LINKEDIN_ACCESS_TOKEN={access_token}")
+    print("Credentials are ready for local save (token value hidden):")
+    print("  LINKEDIN_ACCESS_TOKEN=[hidden]")
     print(f"  LINKEDIN_PERSON_URN={person_urn}")
     if company_urn:
         print(f"  LINKEDIN_COMPANY_URN={company_urn}")
@@ -455,7 +455,7 @@ def main() -> None:
     if answer == "y":
         _write_to_dotenv(access_token, person_urn, expiry_str, company_urn)
     else:
-        print("Skipped. Copy the values above into .env manually.")
+        print("Skipped local save. Rerun and choose y to save refreshed credentials.")
 
     print()
     print(f"⚠️  Reminder: this token expires on {expiry_str}.")

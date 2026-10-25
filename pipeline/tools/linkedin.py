@@ -34,7 +34,7 @@ _MAX_COMMENTARY_CHARS = 700
 _RETRY_ATTEMPTS = 3
 _RETRY_DELAYS = [5, 15, 30]  # seconds; conservative — LinkedIn rate limits are strict
 
-# Path to the local dedup log — prevents reposting the same Ghost URL twice.
+# Read-only legacy receipts, imported into PostgreSQL when encountered.
 _POSTS_LOG = pathlib.Path(__file__).parents[2] / "logs" / "linkedin_posts.json"
 
 
@@ -46,15 +46,6 @@ def _load_posts_log() -> dict:
     except Exception as exc:
         logger.warning("Could not read LinkedIn posts log (%s): %s", _POSTS_LOG, exc)
     return {}
-
-
-def _save_posts_log(log: dict) -> None:
-    """Persist the LinkedIn posts dedup log to disk."""
-    try:
-        _POSTS_LOG.parent.mkdir(parents=True, exist_ok=True)
-        _POSTS_LOG.write_text(json.dumps(log, indent=2), encoding="utf-8")
-    except Exception as exc:
-        logger.warning("Could not write LinkedIn posts log (%s): %s", _POSTS_LOG, exc)
 
 
 async def _upload_image_to_linkedin(
@@ -222,10 +213,12 @@ async def _post_as_author(
             logger.warning(
                 "LinkedIn %s request error (attempt %d): %s", label, attempts_made, exc
             )
-            continue
+            return "Error: uncertain LinkedIn delivery after network failure; reconcile before retrying"
 
         if resp.status_code == 201:
             post_id = resp.headers.get("x-restli-id", resp.headers.get("X-RestLi-Id", ""))
+            if not post_id:
+                return "Error: uncertain LinkedIn delivery: response omitted its post ID"
             # x-restli-id already contains the full URN (e.g. urn:li:share:...)
             # Only prepend the prefix if it's a bare numeric ID.
             linkedin_urn = (
@@ -254,6 +247,9 @@ async def _post_as_author(
                 f"Ensure 'Share on LinkedIn' / 'w_organization_social' product is approved "
                 f"in the developer portal. Response: {resp.text[:300]}"
             )
+
+        if resp.status_code >= 500 or resp.status_code == 408:
+            return "Error: uncertain LinkedIn delivery after provider failure; reconcile before retrying"
 
         # Any other non-2xx — non-retriable
         last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
@@ -340,33 +336,26 @@ async def _post_to_linkedin_impl(
 
     async with httpx.AsyncClient(timeout=30) as client:
 
-        # ── Personal post ──────────────────────────────────────────────────
-        personal_log_key = post_url
-        existing_entry = posts_log.get(personal_log_key)
-        # Normalize: entry may be a plain URN string or a history dict — extract the current URN.
-        previous_urn = (
-            existing_entry.get("current") if isinstance(existing_entry, dict) else existing_entry
-        )
-        if previous_urn:
-            logger.info(
-                "LinkedIn personal: previous post %s exists — re-posting and updating log.",
-                previous_urn,
+        from pipeline.storage.deliveries import delivery_record, private_key
+        async with delivery_record('linkedin', post_url, private_key(person_urn)) as receipt:
+            if receipt.status == 'sent':
+                return f"Personal: {receipt.external_id}"
+            existing = posts_log.get(post_url)
+            previous = existing.get('current') if isinstance(existing, dict) else existing
+            if previous and receipt.status == 'pending':
+                await receipt.save('sent', previous)
+                return f"Personal: {previous}"
+            if receipt.status == 'sending':
+                return 'Error: uncertain LinkedIn delivery; reconcile the saved receipt before retrying'
+            await receipt.save('sending')
+            personal_result = await _post_as_author(
+                client, person_urn, 'personal', commentary, title, post_url, description,
+                feature_image_url, access_token, headers,
             )
-
-        personal_result = await _post_as_author(
-            client, person_urn, "personal",
-            commentary, title, post_url, description,
-            feature_image_url, access_token, headers,
-        )
-        if personal_result.startswith("urn:li:share:"):
-            posts_log[personal_log_key] = {
-                "current": personal_result,
-                "previous": previous_urn,
-                "reposted_at": date.today().isoformat(),
-            } if previous_urn else personal_result
-            _save_posts_log(posts_log)
-            results.append(f"Personal: {personal_result}")
-        else:
+            if personal_result.startswith('urn:li:'):
+                await receipt.save('sent', personal_result)
+            elif 'uncertain' not in personal_result.lower():
+                await receipt.save('failed')
             results.append(f"Personal: {personal_result}")
 
     return " | ".join(results)

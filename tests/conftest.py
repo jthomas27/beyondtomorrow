@@ -41,6 +41,37 @@ def block_accidental_unit_test_http(request, monkeypatch):
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", blocked)
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", async_blocked)
+    import asyncpg
+    async def blocked_database(*args, **kwargs):
+        raise RuntimeError('Live PostgreSQL disabled in unit tests; mock the database boundary')
+    monkeypatch.setattr(asyncpg, 'connect', blocked_database)
+    monkeypatch.setattr(asyncpg, 'create_pool', blocked_database)
+
+
+@pytest.fixture
+def memory_deliveries(monkeypatch):
+    """Explicit offline ledger stand-in for provider tests; state survives retries."""
+    from contextlib import asynccontextmanager
+    from datetime import datetime, timezone
+    records = {}
+    class Receipt:
+        status = 'pending'
+        external_id = None
+        data = None
+        updated_at = datetime.now(timezone.utc)
+        async def save(self, status, external_id=None, data=None):
+            self.status, self.external_id = status, external_id
+            if data is not None:
+                self.data = data
+    @asynccontextmanager
+    async def delivery(channel, article, recipient=''):
+        key = (channel, article, recipient)
+        if key not in records:
+            records[key] = Receipt()
+            records[key].data = {}
+        yield records[key]
+    monkeypatch.setattr('pipeline.storage.deliveries.delivery_record', delivery)
+    return records
 
 
 # ---------------------------------------------------------------------------

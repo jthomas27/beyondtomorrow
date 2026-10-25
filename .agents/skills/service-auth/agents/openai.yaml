@@ -1,0 +1,4 @@
+interface:
+  display_name: "Service Auth"
+  short_description: "Verify only the service access a task needs"
+  default_prompt: "Use $service-auth to complete the requested service auth task."

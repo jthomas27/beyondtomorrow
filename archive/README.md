@@ -16,3 +16,6 @@ They may also target older schemas or already-completed repairs.
 
 Current security recovery notes and Ghost migration evidence remain at the
 project root. Backups and incident evidence remain under `logs/`.
+
+Original Copilot skills/prompts and Cline setup notes are preserved in
+[reference/copilot/2026-10-25/](reference/copilot/2026-10-25/).

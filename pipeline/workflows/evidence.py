@@ -51,6 +51,11 @@ def _compact_research(research_output: str, max_chars: int = 3000) -> str:
         return research_output[:max_chars] + ("\n[truncated]" if len(research_output) > max_chars else "")
 
     parts: list[str] = []
+    if any(q.get("essential") is True and q.get("status") == "partial"
+           for q in data.get("question_coverage", [])):
+        parts.append("EVIDENCE LIMITS: This is a partial, sourced assessment. State the gaps, "
+                     "attribute secondary estimates, and keep forecasts distinct from observed demand. "
+                     "Do not present unresolved questions as established facts.")
     if data.get("question_coverage"):
         parts.append("REQUESTED QUESTIONS / EVIDENCE:")
         for question in data["question_coverage"]:

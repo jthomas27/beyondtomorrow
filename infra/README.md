@@ -18,6 +18,15 @@ It contains no credentials and is not an automatic infrastructure reconciler.
 4. Deploy the worker once and perform one status check. If still building,
    report that state. Do not repeatedly poll or send test publications/emails.
 
+Prefer the connected GitHub `main` release path after a requested commit/push.
+It avoids the direct CLI upload limit encountered with the image asset library.
+If an exceptional source upload needs a compact bundle, the existing
+`scripts/restore_release_assets.py` can restore images listed in a generated
+`release-manifest.json`: include SHA-256 checksums only for files unchanged from
+the script's immutable upstream revision, and include any changed/new assets in
+the bundle. Preserve the originals locally. Do not upload `.env`, logs, private
+backups or dependency directories. `.railwayignore` records exclusions.
+
 The initial SQL migration creates the current 1536-dimensional corpus tables
 on an empty PostgreSQL database and adopts existing compatible objects with
 `IF NOT EXISTS`. It does not convert incompatible legacy table layouts or
@@ -27,6 +36,11 @@ add a new file instead of changing an applied file.
 
 Pool creation no longer creates tables or indexes. Existing deployments retain
 their existing objects; fresh databases require the explicit migration command.
+
+Migration `0002_delivery_and_email_jobs.sql` adds durable requests, publication
+receipts and recipient delivery state. Apply it before deploying the hardened
+worker. See [delivery recovery](../docs/DELIVERY_RECOVERY.md) for lease recovery,
+explicit retries, sender authentication and ambiguous provider outcomes.
 
 ## Ghost/MySQL upgrades
 

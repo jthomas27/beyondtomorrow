@@ -49,7 +49,7 @@ Runs the complete chain: Researcher → Writer → Editor → Publisher (Ghost +
 2. **Writer** picks the most compelling angle, drafts a 1,200–1,800 word post with YAML frontmatter, saves as `YYYY-MM-DD-slug.md`
 3. **Editor** fact-checks, tightens prose, audits British English punctuation, saves as `YYYY-MM-DD-slug-edited.md`
 4. **Publisher** picks a feature image, uploads it to Ghost, publishes the post live, cross-posts to LinkedIn
-5. **Newsletter** sends the post to all Ghost members via Resend
+5. **Newsletter** sends via Resend to unsuppressed free members subscribed to the selected newsletter, with durable receipts per recipient
 6. **Indexer** chunks and embeds the published post into pgvector for future RAG retrieval
 
 ### Writing effective `BLOG:` topics
@@ -309,5 +309,5 @@ These flags work with any command prefix.
 | Using system Python instead of `.venv` | Always prefix with `.venv/bin/python -m` |
 | Forgetting the `BLOG:` / `RESEARCH:` prefix | Without a prefix the command is unrecognised |
 | Passing a filename without path to `PUBLISH:` that isn't in `research/` | Ensure the `-edited.md` file is in the `research/` directory |
-| Running `BLOG:` on a topic already published recently | The Indexer will still run; the newsletter dedup guard prevents duplicate sends |
+| Retrying a previously published request | Its stored Ghost receipt preserves the article; channel/recipient receipts prevent repeat delivery. Matching title slugs are never deleted automatically. See [recovery](DELIVERY_RECOVERY.md). |
 | Using the Railway internal `DATABASE_URL` locally | Always use the external TCP proxy: `caboose.proxy.rlwy.net:21688` |

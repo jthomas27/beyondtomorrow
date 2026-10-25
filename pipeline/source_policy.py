@@ -114,15 +114,22 @@ def require_research_evidence(research_output: str) -> dict:
         if len({publisher(u) for u in used}) < 2:
             raise ValueError("findings need evidence from at least two publishers; extra unused URLs do not count")
         coverage = data.get("question_coverage", [])
-        if data.get("ready_to_write") is not True or not coverage or not any(q.get("essential") is True for q in coverage):
+        if not coverage or not any(q.get("essential") is True for q in coverage):
             raise ValueError("missing assessment of the requested questions")
+        partial = any(q.get("essential") is True and q.get("status") == "partial" for q in coverage)
+        if partial and not any(isinstance(gap, str) and gap.strip() for gap in data.get("gaps", [])):
+            raise ValueError("a partial assessment must disclose its evidence gaps")
+        if data.get("ready_to_write") is not True and not (
+            data.get("ready_to_write") is False and partial
+        ):
+            raise ValueError("research is not ready and has no disclosed partial assessment")
         for question in coverage:
             if question.get("essential") is True and (
-                question.get("status") != "answered" or not question.get("answer") or
+                question.get("status") not in {"answered", "partial"} or not question.get("answer") or
                 not question.get("sources") or not set(question["sources"]) <= sources.keys()
             ):
                 raise ValueError("an essential requested question remains unanswered")
-            if question.get("essential") is True and _needs_primary(question):
+            if question.get("essential") is True and question.get("status") == "answered" and _needs_primary(question):
                 supporting = [sources[u] for u in question.get("sources", []) if u in sources]
                 if not any(_is_primary(s) for s in supporting):
                     raise ValueError("an essential question needs primary evidence, not news commentary alone")
@@ -171,7 +178,7 @@ def require_article_evidence(content: str, research_output: str) -> None:
     if len({publisher(u) for u in links}) < 2:
         raise RuntimeError("Article still cites only one publisher; defer publication")
     for question in data["question_coverage"]:
-        if question.get("essential") is True and _needs_primary(question):
+        if question.get("essential") is True and question.get("status") == "answered" and _needs_primary(question):
             primary = {normalise(s["url"]) for s in data["source_list"]
                        if s["url"] in question.get("sources", []) and _is_primary(s)}
             if not primary & links:

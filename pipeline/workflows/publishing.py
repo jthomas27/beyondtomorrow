@@ -13,6 +13,28 @@ from pipeline.workflows.common import _AGENT_TIMEOUT, _STAGE_COOLDOWN, _RETRY_BA
 logger = logging.getLogger("pipeline")
 
 
+async def confirmed_publication(filename: str) -> dict:
+    """Use the tool's durable receipt, never an LLM's claimed publication URL."""
+    import json
+    from pipeline.db import get_pool
+    from pipeline.storage.deliveries import job_key
+    pool = await get_pool()
+    row = await pool.fetchrow(
+        "SELECT external_id,data FROM pipeline_deliveries WHERE channel='ghost' "
+        "AND article_key=$1 AND recipient_key='' AND status='sent'",
+        job_key.get() or 'file:' + filename,
+    )
+    if not row:
+        raise RuntimeError('No confirmed Ghost publication receipt; downstream delivery blocked')
+    post = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
+    from urllib.parse import urlsplit
+    expected = urlsplit(os.environ.get('GHOST_URL', ''))
+    actual = urlsplit(post.get('url', ''))
+    if not row['external_id'] or post.get('status') != 'published' or not expected.netloc or actual.netloc != expected.netloc or actual.scheme != expected.scheme:
+        raise RuntimeError('Ghost receipt does not confirm a live article on the configured site')
+    return post
+
+
 
 def _build_publish_input(filename: str) -> str:
     """Build the Publisher agent prompt for a given edited markdown filename."""

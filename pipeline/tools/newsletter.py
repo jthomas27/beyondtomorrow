@@ -17,6 +17,7 @@ import os
 import time
 from pathlib import Path
 from urllib.parse import quote as _url_quote
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import httpx
 import jwt
@@ -95,27 +96,70 @@ _FEATURE_IMAGE_BLOCK = """\
 </tr>
 """
 
-# Best-effort local dedup guard — tracks post URLs already emailed.
-# On Railway (ephemeral filesystem) the file won't persist across restarts,
-# but each pipeline run creates a fresh Ghost post URL so re-sends are safe.
+# Legacy sent URLs are read only during transition; all new receipts are in PostgreSQL.
 _SENT_LOG = Path(__file__).resolve().parent.parent.parent / "logs" / "newsletter_sent.json"
 
 
 def _load_sent_urls() -> set:
     try:
         return set(json.loads(_SENT_LOG.read_text()))
-    except Exception:
+    except (OSError, ValueError):
         return set()
 
 
-def _save_sent_url(url: str) -> None:
-    sent = _load_sent_urls()
-    sent.add(url)
-    try:
-        _SENT_LOG.parent.mkdir(parents=True, exist_ok=True)
-        _SENT_LOG.write_text(json.dumps(sorted(sent), indent=2))
-    except Exception as exc:
-        logger.warning("Newsletter: could not update sent log — %s", exc)
+def _eligible_member(member: dict, newsletter_id: str) -> bool:
+    if member.get('status') != 'free' or member.get('subscribed') is False or member.get('subscribed_to_emails') is False:
+        return False
+    if (member.get('email_suppression') or {}).get('suppressed'):
+        return False
+    return any(n.get('id') == newsletter_id for n in member.get('newsletters', []))
+
+
+def _unsubscribe_url(member, newsletter, site):
+    native = member.get('unsubscribe_url')
+    if native:
+        parts = urlsplit(native)
+        origin = urlsplit(site)
+        if (parts.scheme, parts.netloc) != (origin.scheme, origin.netloc):
+            raise ValueError('Ghost returned an unsubscribe URL outside the configured site')
+        query = dict(parse_qsl(parts.query))
+        query['newsletter'] = newsletter['uuid']
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ''))
+    return (f"{site}/unsubscribe/?uuid={_url_quote(member['uuid'], safe='')}"
+            f"&newsletter={_url_quote(newsletter['uuid'], safe='')}")
+
+
+async def _send_member(client, headers, article, recipient, payload):
+    from pipeline.storage.deliveries import delivery_record, private_key
+    async with delivery_record('newsletter', article, private_key(recipient.lower())) as receipt:
+        if receipt.status == 'sent':
+            return 'already_sent'
+        if receipt.status == 'sending':
+            if time.time() - receipt.data.get('started_at', 0) > 23 * 3600:
+                raise RuntimeError('Uncertain newsletter delivery requires reconciliation after idempotency expiry')
+            payload = receipt.data['payload']
+        else:
+            await receipt.save('sending', data={'payload': payload, 'started_at': time.time()})
+        request_headers = {**headers, 'Idempotency-Key': 'newsletter/' + private_key(article + '/' + recipient.lower())}
+        for attempt in range(2):
+            try:
+                response = await client.post('https://api.resend.com/emails', json=payload, headers=request_headers)
+            except httpx.RequestError:
+                if attempt == 0:
+                    await asyncio.sleep(2)
+                    continue
+                raise RuntimeError('Newsletter response uncertain; receipt retained for safe retry') from None
+            if response.status_code in (200, 201):
+                await receipt.save('sent', response.json().get('id'), data={})
+                return 'sent'
+            if response.status_code >= 500 or response.status_code in (408, 429):
+                if attempt == 0:
+                    await asyncio.sleep(2)
+                    continue
+                raise RuntimeError('Newsletter provider unavailable; receipt retained for safe retry')
+            # A definitive validation/auth rejection did not deliver the email.
+            await receipt.save('failed', data={})
+            raise RuntimeError(f'Newsletter provider rejected request (HTTP {response.status_code})')
 
 
 def _ghost_token() -> str:
@@ -186,6 +230,16 @@ async def send_newsletter(
         except Exception as _exc:
             logger.warning("Newsletter: could not fetch live post data — %s; using frontmatter values", _exc)
 
+        newsletters_response = await client.get(f"{ghost_url}/ghost/api/admin/newsletters/?limit=100", headers=ghost_headers())
+        newsletters_response.raise_for_status()
+        newsletters = [n for n in newsletters_response.json().get('newsletters', []) if n.get('status') == 'active']
+        requested_id = os.environ.get('GHOST_NEWSLETTER_ID', '').strip()
+        if requested_id:
+            newsletters = [n for n in newsletters if n.get('id') == requested_id]
+        if len(newsletters) != 1 or not newsletters[0].get('uuid'):
+            return 'Error: select one active newsletter with GHOST_NEWSLETTER_ID before sending'
+        newsletter = newsletters[0]
+
         # ── Fetch all free members from Ghost Admin API ───────────────────────
         try:
             members: list[dict] = []
@@ -197,13 +251,13 @@ async def send_newsletter(
                 # name and causes a 400 if passed in &fields=.
                 members_url = (
                     f"{ghost_url}/ghost/api/admin/members/"
-                    f"?filter=status:free&limit=100&page={page}"
+                    f"?filter=status:free&include=newsletters&limit=100&page={page}"
                 )
                 r = await client.get(members_url, headers=ghost_headers())
                 r.raise_for_status()
                 data = r.json()
                 batch = data.get("members", [])
-                members.extend(batch)
+                members.extend(m for m in batch if _eligible_member(m, newsletter['id']))
                 # Ghost pagination — stop when fewer than 100 returned
                 if len(batch) < 100:
                     break
@@ -218,7 +272,7 @@ async def send_newsletter(
 
         # ── Build HTML email ──────────────────────────────────────────────────
         feature_block = (
-            _FEATURE_IMAGE_BLOCK.format(src=feature_image_url)
+            _FEATURE_IMAGE_BLOCK.format(src=_html.escape(feature_image_url, quote=True))
             if feature_image_url
             else ""
         )
@@ -233,23 +287,24 @@ async def send_newsletter(
 
         sent = 0
         errors: list[str] = []
+        already_sent = 0
 
         for member in members:
             email_addr = member.get("email", "")
             if not email_addr:
                 continue
             name = member.get("name") or ""
-            unsubscribe_url = (
-                member.get("unsubscribe_url")
-                or f"{ghost_url}/unsubscribe/?email={_url_quote(email_addr, safe='')}"
-            )
+            if not member.get('uuid'):
+                errors.append('Member lacks unsubscribe identifier')
+                continue
+            unsubscribe_url = _unsubscribe_url(member, newsletter, ghost_url)
 
             html = _EMAIL_TEMPLATE.format(
                 title=safe_title,
                 excerpt=safe_excerpt,
-                post_url=post_url,
-                site_url=ghost_url,
-                unsubscribe_url=unsubscribe_url,
+                post_url=_html.escape(post_url, quote=True),
+                site_url=_html.escape(ghost_url, quote=True),
+                unsubscribe_url=_html.escape(unsubscribe_url, quote=True),
                 feature_image_block=feature_block,
             )
 
@@ -260,37 +315,19 @@ async def send_newsletter(
                 "html": html,
             }
 
-            for _attempt in range(2):
-                try:
-                    resp = await client.post(
-                        "https://api.resend.com/emails",
-                        json=payload,
-                        headers=resend_headers,
-                    )
-                    if resp.status_code == 200:
-                        sent += 1
-                        logger.info("Newsletter: sent to %s (id=%s)", email_addr, resp.json().get("id"))
-                        break
-                    elif resp.status_code >= 500 and _attempt == 0:
-                        logger.warning("Newsletter: 5xx for %s, retrying...", email_addr)
-                        await asyncio.sleep(2)
-                    else:
-                        err = f"{email_addr}: {resp.status_code} {resp.text[:100]}"
-                        errors.append(err)
-                        logger.warning("Newsletter: failed for %s", err)
-                        break
-                except Exception as exc:
-                    if _attempt == 0:
-                        logger.warning("Newsletter: exception for %s, retrying: %s", email_addr, exc)
-                        await asyncio.sleep(2)
-                    else:
-                        errors.append(f"{email_addr}: {exc}")
-                        logger.warning("Newsletter: exception for %s: %s", email_addr, exc)
-            await asyncio.sleep(0.1)  # brief pause between sends (rate-limit guard)
+            try:
+                outcome = await _send_member(client, resend_headers, post_url, email_addr, payload)
+                if outcome == 'already_sent':
+                    already_sent += 1
+                else:
+                    sent += 1
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+                logger.warning('Newsletter recipient delivery incomplete (%s)', type(exc).__name__)
+            await asyncio.sleep(0.1)
 
-    if errors and sent == 0:
-        return f"Error: all {len(errors)} sends failed — {errors[0]}"
-    _save_sent_url(post_url)
     if errors:
-        return f"Newsletter sent to {sent}/{len(members)} member(s) via Resend; {len(errors)} failed: {errors[0]}"
-    return f"Newsletter sent to {sent} member(s) via Resend"
+        return f"Error: newsletter incomplete: {sent} sent, {already_sent} previously sent, {len(errors)} failed; retry only unfinished deliveries"
+    if already_sent == len(members):
+        return 'SKIPPED: newsletter already delivered to all subscribed members'
+    return f"Newsletter sent to {sent} member(s) via Resend; {already_sent} previously delivered"

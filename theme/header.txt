@@ -3,6 +3,10 @@
      headers via a Cloudflare Transform Rule. Do not reinstate meta-tag versions
      here — they are largely non-functional for most of those directives. -->
 
+<!-- Use our archive loader with visible links on failure instead of Casper's
+     automatic loader. Set before the deferred theme script to avoid duplicates. -->
+<script>document.documentElement.classList.add('no-infinite-scroll');</script>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -426,10 +430,84 @@ a:hover {
     color: var(--bt-text) !important;
 }
 
+/* Keep footer branding and navigation compact; omit default social accounts. */
+.site-footer .site-footer-social-links,
+.gh-foot .site-footer-social-links {
+    display: none !important;
+}
+
+.site-footer {
+    padding-top: 28px !important;
+    padding-bottom: 28px !important;
+    font-size: 1.4rem;
+    line-height: 1.6;
+}
+
+.site-footer > .inner {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px 24px;
+}
+
+.site-footer .copyright,
+.site-footer .site-footer-center,
+.site-footer .gh-powered-by {
+    margin: 0;
+    position: static;
+    transform: none;
+}
+
+.site-footer .site-footer-nav .nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 16px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+@media (max-width: 600px) {
+    .site-footer > .inner {
+        flex-direction: column;
+        text-align: center;
+    }
+}
+
 /* ─── Pagination ─── */
 .pagination,
 .gh-pagination {
     color: var(--bt-text-muted) !important;
+}
+
+.post-feed + .pagination {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin: 48px 0 24px;
+}
+
+.post-feed + .pagination .page-number {
+    display: inline !important;
+}
+
+.post-feed + .pagination.bt-auto-archive {
+    display: none !important;
+}
+
+.pagination a[aria-disabled="true"] {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.bt-archive-status {
+    text-align: center;
+    color: var(--bt-text-muted);
+    margin: 16px 0 32px;
 }
 
 .pagination a,
@@ -588,38 +666,78 @@ hr {
     to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ─── Right-align header actions (hamburger mirrors logo on opposite side) ─── */
-.gh-head-inner {
+/* ─── Responsive banner controls: one row at every viewport width ─── */
+#gh-head {
+    padding-inline: clamp(16px, 4vw, 64px);
+}
+#gh-head .gh-head-inner {
     display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
     align-items: center !important;
     justify-content: space-between !important;
-    position: relative !important;   /* anchor for the actions absolute fallback */
+    gap: clamp(12px, 2vw, 24px) !important;
+    width: 100%;
+    max-width: none !important;
+    height: 100%;
+    position: relative !important;
 }
-.gh-head-actions {
-    margin-left: auto !important;
+#gh-head .gh-head-brand {
     display: flex !important;
-    align-items: center !important;
-    gap: 4px !important;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: auto !important;
 }
-
-/* On mobile Ghost overrides margin-left:auto and moves .gh-head-actions to the
-   left (where its own native burger used to sit). Force it to the right with
-   absolute positioning so search + our burger always stay top-right.
-   Also override Ghost's mobile nav "closed" state (visibility:hidden /
-   opacity:0 / translateY) which permanently hides the actions block on
-   portrait mobile when .gh-burger is suppressed. */
-@media (max-width: 767px) {
-    .gh-head-actions {
-        position: absolute !important;
-        right: clamp(0.75rem, 3vw, 1.5rem) !important;
-        top: 50% !important;
-        transform: translateY(-50%) !important;
-        margin-left: 0 !important;
-        /* Override Ghost's hidden mobile-nav closed state */
-        visibility: visible !important;
-        opacity: 1 !important;
-        pointer-events: auto !important;
-    }
+#gh-head .gh-head-logo {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: clamp(20px, 2.4vw, 27.5px) !important;
+}
+#gh-head .gh-head-actions {
+    position: static !important;
+    transform: none !important;
+    margin-left: auto !important;
+    padding: 0 !important;
+    flex: 0 0 auto;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    gap: 10px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+#gh-head .gh-head-actions .gh-search,
+#gh-head .bt-burger-btn {
+    box-sizing: border-box;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    margin: 0 !important;
+    padding: 0 !important;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--bt-border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--bt-text);
+    cursor: pointer;
+}
+#gh-head .gh-head-actions .gh-search svg {
+    width: 20px;
+    height: 20px;
+}
+#gh-head .gh-head-actions .gh-search:hover {
+    background: var(--bt-accent-dim);
+}
+#gh-head .gh-head-actions button:focus-visible {
+    outline: 2px solid var(--bt-accent);
+    outline-offset: 3px;
 }
 
 /* ─── Category Tab Bar ─── */
@@ -858,7 +976,6 @@ hr {
     background: var(--bt-accent-dim) !important;
     color: var(--bt-accent) !important;
 }
-
 </style>
 
 <script>

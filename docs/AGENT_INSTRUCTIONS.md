@@ -1,5 +1,8 @@
 # Agent Custom Instructions — BeyondTomorrow.World
 
+Publication-agent reference: runtime configuration is in `config/prompts.yaml`
+and `pipeline/definitions.py`. Codex repository guidance is in `AGENTS.md`.
+
 _Last updated: 2026-04-09_
 
 ---

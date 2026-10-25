@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy Worker"
+  short_description: "Release the worker with one deployment status check"
+  default_prompt: "Use $deploy-worker to complete the requested deploy worker task."

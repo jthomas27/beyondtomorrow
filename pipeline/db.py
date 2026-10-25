@@ -57,6 +57,10 @@ async def get_pool() -> asyncpg.Pool:
 async def close_pool() -> None:
     """Close the connection pool. Call on graceful shutdown."""
     global _pool
+    from pipeline.storage.deliveries import job_key
+    if job_key.get():
+        # The email runner also uses this pool for its durable lease heartbeat.
+        return
     if _pool is not None:
         await _pool.close()
         _pool = None

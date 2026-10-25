@@ -21,7 +21,7 @@ import httpx
 import jwt
 import markdown as md_converter
 from pipeline._sdk import function_tool
-from pipeline.integrations.ghost import create_admin_token, _ghost_post_with_retry
+from pipeline.integrations.ghost import create_admin_token, create_post_safely
 
 logger = logging.getLogger(__name__)
 
@@ -123,16 +123,13 @@ async def publish_to_ghost(
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await _ghost_post_with_retry(
-                client,
-                f"{ghost_url}/ghost/api/admin/posts/",
-                post_data,
+            from pipeline.storage.deliveries import private_key
+            post = await create_post_safely(client, ghost_url, post_payload,
                 {"Authorization": f"Ghost {token}", "Content-Type": "application/json"},
-            )
-    except httpx.HTTPError as exc:
-        return f"Failed to publish to Ghost: {exc}"
+                'title:' + private_key(title))
+    except (httpx.HTTPError, RuntimeError) as exc:
+        return f"Error: Ghost publication failed: {exc}"
 
-    post = resp.json()["posts"][0]
     return f"Published: '{post['title']}' → {post['url']} (status: {post['status']})"
 
 
@@ -490,44 +487,13 @@ async def publish_file_to_ghost(
         post_payload["feature_image"] = feature_image_url
         post_payload["feature_image_alt"] = image_alt
 
-    # Derive the slug Ghost would assign (mirrors Ghost's own slugification).
-    slug = re.sub(r"[^\w\s-]", "", title.lower()).strip()
-    slug = re.sub(r"[\s_]+", "-", slug)
-
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             auth_headers = {"Authorization": f"Ghost {token}", "Content-Type": "application/json"}
 
-            # ── Delete any existing posts with this slug or numbered variants ──
-            # Ghost appends -2, -3 etc. when a slug already exists. Check the
-            # canonical slug plus up to 5 variants so stale duplicates are removed.
-            slug_variants = [slug] + [f"{slug}-{i}" for i in range(2, 7)]
-            slug_filter = ",".join(slug_variants)
-            check = await client.get(
-                f"{ghost_url}/ghost/api/admin/posts/?filter=slug:[{slug_filter}]&fields=id,slug&limit=20",
-                headers=auth_headers,
-                timeout=15.0,
-            )
-            if check.status_code == 200:
-                for ep in check.json().get("posts", []):
-                    del_resp = await client.delete(
-                        f"{ghost_url}/ghost/api/admin/posts/{ep['id']}/",
-                        headers=auth_headers,
-                        timeout=15.0,
-                    )
-                    logger.info(
-                        "Ghost: deleted existing post '%s' (id=%s, status=%d) before re-publish.",
-                        ep.get("slug"), ep.get("id"), del_resp.status_code,
-                    )
+            post = await create_post_safely(client, ghost_url, post_payload,
+                                           auth_headers, 'file:' + filename)
+    except (httpx.HTTPError, RuntimeError) as exc:
+        return f"Error: Ghost publication failed: {exc}"
 
-            resp = await _ghost_post_with_retry(
-                client,
-                f"{ghost_url}/ghost/api/admin/posts/",
-                {"posts": [post_payload]},
-                auth_headers,
-            )
-    except httpx.HTTPError as exc:
-        return f"Failed to publish to Ghost: {exc}"
-
-    post = resp.json()["posts"][0]
     return f"Published: '{post['title']}' → {post['url']} (status: {post['status']})"

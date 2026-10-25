@@ -20,6 +20,8 @@ HTTP calls are mocked via pytest-mock; no network access occurs.
 
 import json
 import pytest
+
+pytestmark = pytest.mark.usefixtures("memory_deliveries")
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -155,7 +157,7 @@ async def test_invalid_company_urn_skips_company_post(monkeypatch, mocker, tmp_p
 # Duplicate-post guard
 # ---------------------------------------------------------------------------
 
-async def test_duplicate_post_records_repost_history(monkeypatch, tmp_path, mocker):
+async def test_duplicate_post_imports_receipt_without_reposting(monkeypatch, tmp_path, mocker):
     monkeypatch.setenv("LINKEDIN_ACCESS_TOKEN", _VALID_TOKEN)
     monkeypatch.setenv("LINKEDIN_PERSON_URN", _VALID_URN)
     monkeypatch.delenv("LINKEDIN_COMPANY_URN", raising=False)
@@ -169,15 +171,15 @@ async def test_duplicate_post_records_repost_history(monkeypatch, tmp_path, mock
             post_to_linkedin, title="T", excerpt="E", post_url=_GHOST_URL
         )
 
-    assert "Personal: urn:li:share:replacement" in result
-    assert json.loads(fake_log.read_text())[_GHOST_URL]["previous"] == "urn:li:share:existing123"
+    assert "Personal: urn:li:share:existing123" in result
+    assert json.loads(fake_log.read_text())[_GHOST_URL] == "urn:li:share:existing123"
 
 
 # ---------------------------------------------------------------------------
 # Successful 201 publish
 # ---------------------------------------------------------------------------
 
-async def test_successful_publish(monkeypatch, mocker, tmp_path):
+async def test_successful_publish(monkeypatch, mocker, tmp_path, memory_deliveries):
     monkeypatch.setenv("LINKEDIN_ACCESS_TOKEN", _VALID_TOKEN)
     monkeypatch.setenv("LINKEDIN_PERSON_URN", _VALID_URN)
     monkeypatch.delenv("LINKEDIN_COMPANY_URN", raising=False)
@@ -197,13 +199,11 @@ async def test_successful_publish(monkeypatch, mocker, tmp_path):
 
     assert "urn:li:share:share999" in result
     assert "Personal:" in result
-    # Dedup log should be updated
-    assert fake_log.is_file()
-    saved = json.loads(fake_log.read_text())
-    assert saved[_GHOST_URL] == "urn:li:share:share999"
+    assert not fake_log.exists()
+    assert any(r.external_id == "urn:li:share:share999" for r in memory_deliveries.values())
 
 
-async def test_company_configuration_does_not_enable_company_posting(monkeypatch, mocker, tmp_path):
+async def test_company_configuration_does_not_enable_company_posting(monkeypatch, mocker, tmp_path, memory_deliveries):
     """Current integration posts to the personal profile only, even with legacy company config."""
     monkeypatch.setenv("LINKEDIN_ACCESS_TOKEN", _VALID_TOKEN)
     monkeypatch.setenv("LINKEDIN_PERSON_URN", _VALID_URN)
@@ -239,11 +239,9 @@ async def test_company_configuration_does_not_enable_company_posting(monkeypatch
     assert "Personal: urn:li:share:personalShare" in result
     assert "Company:" not in result
     assert mock_client.post.await_count == 1
-    # Both logged in dedup store
-    saved = json.loads(fake_log.read_text())
-    assert saved[_GHOST_URL] == "urn:li:share:personalShare"
-    company_key = f"{_GHOST_URL}|{_VALID_COMPANY_URN}"
-    assert company_key not in saved
+    assert not fake_log.exists()
+    assert len(memory_deliveries) == 1
+    assert next(iter(memory_deliveries.values())).external_id == 'urn:li:share:personalShare'
 
 
 async def test_company_duplicate_skipped_personal_not(monkeypatch, mocker, tmp_path):

@@ -107,15 +107,19 @@ def main() -> None:
 
     task_upper = args.task.upper()
     if task_upper.startswith("BLOG:"):
-        asyncio.run(_run_blog_pipeline(args.task, debug=args.debug))
+        result = asyncio.run(_run_blog_pipeline(args.task, debug=args.debug))
     elif task_upper.startswith("PUBLISH:"):
-        asyncio.run(_run_publish_only(args.task, debug=args.debug))
+        result = asyncio.run(_run_publish_only(args.task, debug=args.debug))
     elif task_upper.startswith(("RESEARCH:", "REPORT:")):
-        asyncio.run(_run_research_pipeline(args.task, debug=args.debug))
+        result = asyncio.run(_run_research_pipeline(args.task, debug=args.debug))
     elif task_upper.startswith("INDEX:"):
-        asyncio.run(_run_index(args.task))
+        result = asyncio.run(_run_index(args.task))
     else:
-        asyncio.run(_run_agent(args.task, model_override=args.model, debug=args.debug))
+        result = asyncio.run(_run_agent(args.task, model_override=args.model, debug=args.debug))
+    from pipeline.workflows.results import exit_code
+    code = exit_code(result)
+    if code:
+        sys.exit(code)
 
 
 if __name__ == "__main__":

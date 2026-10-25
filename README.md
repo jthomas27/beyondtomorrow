@@ -60,7 +60,7 @@ Run tests for the component being changed, for example:
 .venv/bin/python -m pytest tests/test_model_migration.py tests/test_ghost.py -m "not integration"
 ```
 
-Unit tests block accidental live HTTP. Live database, browser and publication
+Unit tests block accidental live HTTP and PostgreSQL connections. Live database, browser and publication
 checks are separate operations; they are not prerequisites for every edit.
 CI uses Python 3.11. The scheduled research workflow requires an
 `OPENAI_API_KEY` GitHub Actions secret plus its configured service secrets.
@@ -69,7 +69,10 @@ or dependency upgrade is required for this restructure.
 
 ## Project guide
 
+- [Codex workspace and skills](docs/CODEX_WORKFLOW.md)
 - [Architecture and module ownership](docs/CODEBASE_STRUCTURE.md)
+- [Email jobs, publishing receipts and delivery recovery](docs/DELIVERY_RECOVERY.md)
+- [Ghost theme build, deployment and rollback](theme/README.md)
 - [Deployment, schema migrations and rollback](infra/README.md)
 - [Service inventory](infra/services.json)
 - [Operational rules](AGENTS.md)

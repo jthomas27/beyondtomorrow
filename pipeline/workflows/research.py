@@ -74,7 +74,7 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
 
         # Stale-run janitor — close any stuck RUNNING runs before starting.
         try:
-            _stale = await mark_stale_runs_failed(pool, stale_after_hours=0)
+            _stale = await mark_stale_runs_failed(pool, stale_after_hours=2)
             if _stale:
                 logger.warning(
                     "Stale-run janitor: closed %d orphaned run(s): %s",

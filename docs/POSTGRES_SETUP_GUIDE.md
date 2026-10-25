@@ -1,3 +1,6 @@
+> Current schema and migration procedure: [infra/README.md](../infra/README.md).
+> Historical setup details below are reference material; do not recreate the database.
+
 # PostgreSQL + pgvector Setup Guide
 
 A step-by-step guide to adding a PostgreSQL database with pgvector to your **caring-alignment** project on Railway.
@@ -78,12 +81,12 @@ Or via the dashboard:
 
 From Railway's environment:
 ```bash
-railway run npm run db:test
+.venv/bin/python -m pipeline.storage.migrate
 ```
 
 Or locally (use the **public** `DATABASE_URL`, not the private one):
 ```bash
-DATABASE_URL='<paste public DATABASE_URL here>' npm run db:test
+.venv/bin/python -m pipeline.storage.migrate --apply
 ```
 
 > **Note:** The private URL (`pgvector.railway.internal`) only works between Railway services. When running from your local machine, use the public URL (the one with `proxy.rlwy.net`).

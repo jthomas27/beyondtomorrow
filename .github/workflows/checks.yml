@@ -21,4 +21,9 @@ jobs:
         run: >-
           python -m pytest tests/test_model_migration.py tests/test_ghost.py
           tests/test_db.py tests/test_schema_migrations.py
-          tests/test_workflow_paths.py -m 'not integration' -q
+          tests/test_workflow_paths.py tests/test_delivery_recovery.py
+          tests/test_email_listener.py tests/test_linkedin.py tests/test_search.py
+          -m 'not integration' -q
+      - run: python scripts/build_theme.py --check
+      - name: Check theme JavaScript syntax
+        run: for file in theme/src/*.js; do node --check "$file"; done

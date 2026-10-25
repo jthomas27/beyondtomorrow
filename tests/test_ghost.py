@@ -14,6 +14,8 @@ HTTP calls are mocked via pytest-mock; no network access occurs.
 
 import json
 import pytest
+
+pytestmark = pytest.mark.usefixtures("memory_deliveries")
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -32,6 +34,7 @@ def _make_mock_httpx(mocker, *, status_code=201, post_json=None):
         post_json = {
             "posts": [
                 {
+                    "id": "test-post-id",
                     "title": "Test Post",
                     "url": "https://ghost.example.com/test-post/",
                     "status": "draft",
@@ -39,11 +42,15 @@ def _make_mock_httpx(mocker, *, status_code=201, post_json=None):
             ]
         }
     mock_resp = MagicMock()
+    mock_resp.status_code = status_code
     mock_resp.json.return_value = post_json
     mock_resp.raise_for_status = MagicMock()
 
     mock_http = AsyncMock()
     mock_http.post = AsyncMock(return_value=mock_resp)
+    existing = MagicMock()
+    existing.json.return_value = {'posts': []}
+    mock_http.get = AsyncMock(return_value=existing)
 
     mock_cm = MagicMock()
     mock_cm.__aenter__ = AsyncMock(return_value=mock_http)
@@ -230,6 +237,9 @@ async def test_http_error_returns_error_string(monkeypatch, mocker):
     mock_http.post = AsyncMock(
         side_effect=httpx.HTTPError("connection refused")
     )
+    existing = MagicMock()
+    existing.json.return_value = {'posts': []}
+    mock_http.get = AsyncMock(return_value=existing)
     mock_cm = MagicMock()
     mock_cm.__aenter__ = AsyncMock(return_value=mock_http)
     mock_cm.__aexit__ = AsyncMock(return_value=False)
@@ -240,5 +250,5 @@ async def test_http_error_returns_error_string(monkeypatch, mocker):
         title="Test Post",
         html_content="<p>Hello</p>",
     )
-    assert result.startswith("Failed to publish")
+    assert result.startswith("Error:")
     assert "connection refused" in result

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Query Pipeline Logs"
+  short_description: "Inspect pipeline outcomes and publication URLs"
+  default_prompt: "Use $query-pipeline-logs to complete the requested query pipeline logs task."

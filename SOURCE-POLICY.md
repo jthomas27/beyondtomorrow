@@ -14,12 +14,15 @@ citations must respect the approved list. Missing configuration fails closed.
 
 Research must contain at least three credible approved source URLs, with findings
 supported by at least two publishers. It must also assess every requested question
-in `question_coverage` and set `ready_to_write` only when essential questions are
-answered. Questions needing original figures or documents require primary
-evidence. Liabilities-versus-revenue comparisons cannot rely on news alone.
+in `question_coverage`. Sourced partial assessments may proceed with explicit
+`gaps`, including retained research that conservatively marks `ready_to_write=false`.
+Unanswered or unsupported essential questions still block publication. Definitive
+answers needing original figures/documents require primary evidence. Partial
+assessments must attribute secondary estimates and disclose what is unknown;
+forecasts are not observed demand or established facts.
 
 The rendered article must cite its supporting research across at least two
-publishers and retain required primary citations. Old caches without a coverage
+publishers and retain required primary citations for definitive answers. Old caches without a coverage
 assessment, existing drafts, recovery edits and direct `PUBLISH:` commands cannot
 bypass the gate. A standalone edited file needs its matching `*-research.json`.
 Insufficient evidence stops publication and retains the files for review.

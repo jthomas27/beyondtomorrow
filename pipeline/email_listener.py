@@ -230,7 +230,32 @@ def parse_email(raw_message: bytes) -> dict:
         "body": body,
         "command": command,
         "topic": topic,
+        "authenticated": _authenticated_sender(msg, from_addr),
     }
+
+
+def _authenticated_sender(message, sender: str) -> bool:
+    """Trust only the receiving Hostinger server's first authentication result.
+
+    Never accept a later attacker-supplied pass after the receiver reports fail.
+    DMARC must pass for the actual From domain, in addition to the allowlist.
+    """
+    import re
+    from email.utils import getaddresses
+    addresses = getaddresses([sender])
+    if len(addresses) != 1 or '@' not in addresses[0][1]:
+        return False
+    domain = addresses[0][1].rsplit('@', 1)[1].lower()
+    headers = message.get_all('Authentication-Results', [])
+    if not headers:
+        return False
+    result = re.sub(r'\s+', ' ', headers[0]).strip().lower()
+    server = result.split(';', 1)[0].strip()
+    if not re.fullmatch(r'[a-z]{2}-int-smtpin\d+\.hostinger\.io', server):
+        return False
+    return any(re.search(r'\bdmarc=pass\b', section) and
+               re.search(r'\bheader\.from=' + re.escape(domain) + r'(?=[;\s]|$)', section)
+               for section in result.split(';')[1:])
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +315,7 @@ def fetch_unread_messages(
     conn: imaplib.IMAP4_SSL,
     mailbox: str = "INBOX",
 ) -> list[bytes]:
-    """Fetch all unread messages from *mailbox* and mark them as seen.
+    """Read unread messages without acknowledging them (compatibility helper).
 
     Args:
         conn: An authenticated IMAP4_SSL connection (from :func:`connect_imap`).
@@ -303,11 +328,10 @@ def fetch_unread_messages(
     _, message_ids = conn.search(None, "UNSEEN")
     messages: list[bytes] = []
     for msg_id in message_ids[0].split():
-        _, data = conn.fetch(msg_id, "(RFC822)")
+        _, data = conn.fetch(msg_id, "(BODY.PEEK[])")
         for part in data:
             if isinstance(part, tuple):
                 messages.append(part[1])
-        conn.store(msg_id, "+FLAGS", "\\Seen")
     return messages
 
 
@@ -421,209 +445,272 @@ def _load_allowlist() -> list[dict]:
 
 
 async def poll_once() -> None:
-    """Check IMAP for new messages and dispatch any valid commands."""
-    from pipeline.main import _run_blog_pipeline, _run_research_pipeline, _run_index  # local import to avoid circular
-
-    allowlist = _load_allowlist()
-
+    """Persist requests before marking read; drain durable jobs even if IMAP fails."""
+    from contextlib import suppress
+    from pipeline.storage import email_jobs
+    from pipeline.storage.deliveries import job_key
+    conn = None
     try:
         conn = connect_imap()
+        conn.select("INBOX")
+        code, ids = conn.uid("search", None, "UNSEEN")
+        if code != "OK":
+            raise RuntimeError("IMAP search failed")
+        for uid in ids[0].split():
+            code, data = conn.uid("fetch", uid, "(BODY.PEEK[])")
+            if code != "OK":
+                raise RuntimeError("IMAP fetch failed")
+            raw = next((part[1] for part in data if isinstance(part, tuple)), None)
+            if raw is None:
+                continue
+            await email_jobs.enqueue(raw)
+            # Only acknowledge after PostgreSQL has committed the request.
+            conn.uid("store", uid, "+FLAGS", "\\Seen")
     except Exception as exc:
-        logger.error("IMAP connection failed: %s", exc)
-        return
+        logger.error("Email ingestion paused (%s); queued jobs remain recoverable", type(exc).__name__)
+    finally:
+        if conn:
+            with suppress(Exception):
+                conn.logout()
+
+    async def renew(identifier, attempt):
+        while True:
+            await asyncio.sleep(45)
+            try:
+                await email_jobs.heartbeat(identifier, attempt)
+            except Exception as exc:
+                logger.error("Email lease renewal failed (%s)", type(exc).__name__)
+                raise
+
+    while True:
+        job = await email_jobs.claim()
+        if not job:
+            break
+        token = job_key.set('email:' + job['id'])
+        renewal = asyncio.create_task(renew(job['id'], job['attempts']))
+        processing = asyncio.create_task(_process_message(bytes(job['raw_message'])))
+        try:
+            # If a lease cannot be renewed, stop work instead of allowing two owners.
+            done, _ = await asyncio.wait([processing, renewal], return_when=asyncio.FIRST_COMPLETED)
+            if renewal in done:
+                processing.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await processing
+                renewal.result()
+            result = await processing
+            state = result.get('status', 'failed')
+            state = 'complete' if state in {'complete', 'published'} else state
+            if state not in {'complete', 'partial', 'failed'}:
+                state = 'failed'
+            await email_jobs.finish(job['id'], state, {'published_url': result.get('published_url', '')}, attempt=job['attempts'])
+        except Exception as exc:
+            logger.error("Email job failed (%s)", type(exc).__name__)
+            await email_jobs.finish(job['id'], 'failed', attempt=job['attempts'])
+        finally:
+            processing.cancel()
+            renewal.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await processing
+            with suppress(asyncio.CancelledError, Exception):
+                await renewal
+            job_key.reset(token)
+
+
+async def _process_message(raw: bytes) -> dict:
+    from pipeline.main import _run_blog_pipeline, _run_research_pipeline, _run_index
+    allowlist = _load_allowlist()
+    parsed = parse_email(raw)
+    sender = parsed["from"]
+    command = parsed["command"]
+    topic = parsed["topic"]
+
+    if not command or not topic:
+        logger.info("Ignoring email from %s — no valid command in subject.", sender)
+        _log({"event": "email_ignored", "from": sender, "subject": parsed["subject"], "reason": "no_valid_command"})
+        return {"status": "complete", "ignored": True}
+
+    if not is_sender_allowed(sender, allowlist):
+        logger.warning("Rejected email from unapproved sender: %s", sender)
+        _log({"event": "email_rejected", "from": sender, "subject": parsed["subject"], "reason": "sender_not_in_allowlist"})
+        return {"status": "complete", "ignored": True}
+
+    if not parsed.get('authenticated'):
+        logger.warning("Rejected email command: receiving-server authentication missing or failed")
+        _log({"event": "email_rejected", "reason": "sender_authentication_failed"})
+        return {"status": "complete", "ignored": True, "reason": "sender_authentication_failed"}
+
+    result = {"status": "complete"}
+    task_str = f"{command}: {topic}"
+    logger.info("Processing email task: %s (from %s)", task_str, sender)
+
+    # Strip display name from sender to get plain address for reply
+    reply_to = sender
+    if "<" in sender and ">" in sender:
+        reply_to = sender.split("<")[-1].rstrip(">")
+
+    _log({"event": "email_received", "from": reply_to, "command": command, "topic": topic})
+    # Acknowledge receipt immediately
+    send_reply(
+        reply_to,
+        f"[BeyondTomorrow] Received: {command}: {topic}",
+        f"Command  : {command}\nTopic    : {topic}\nStatus   : Processing",
+    )
 
     try:
-        raw_messages = fetch_unread_messages(conn)
-    except Exception as exc:
-        logger.error("Failed to fetch unread messages: %s", exc)
-        return
-    finally:
-        try:
-            conn.logout()
-        except Exception:
-            pass
+        if command == "BLOG":
+            result = await _run_blog_pipeline(task_str)
+            if result.get("status") in {"published", "partial"}:
+                # Determine LinkedIn status
+                run_log_obj = result.get("run_log")
+                summary = run_log_obj.summary() if run_log_obj else {}
+                li_stage = next(
+                    (s for s in summary.get("stages", []) if s.get("stage") == "LinkedIn"),
+                    None,
+                )
+                li_status = li_stage.get("status") if li_stage else None
+                # "error"   → LinkedIn was configured but failed (action required)
+                # "skipped" → LinkedIn env vars missing on Railway (warning)
+                # None/ok   → success or not configured at startup
+                li_failed = li_status == "error"
+                li_skipped = li_status == "skipped"
 
-    if not raw_messages:
-        logger.debug("No new messages.")
-        return
-
-    for raw in raw_messages:
-        parsed = parse_email(raw)
-        sender = parsed["from"]
-        command = parsed["command"]
-        topic = parsed["topic"]
-
-        if not command or not topic:
-            logger.info("Ignoring email from %s — no valid command in subject.", sender)
-            _log({"event": "email_ignored", "from": sender, "subject": parsed["subject"], "reason": "no_valid_command"})
-            continue
-
-        if not is_sender_allowed(sender, allowlist):
-            logger.warning("Rejected email from unapproved sender: %s", sender)
-            _log({"event": "email_rejected", "from": sender, "subject": parsed["subject"], "reason": "sender_not_in_allowlist"})
-            continue
-
-        task_str = f"{command}: {topic}"
-        logger.info("Processing email task: %s (from %s)", task_str, sender)
-
-        # Strip display name from sender to get plain address for reply
-        reply_to = sender
-        if "<" in sender and ">" in sender:
-            reply_to = sender.split("<")[-1].rstrip(">")
-
-        _log({"event": "email_received", "from": reply_to, "command": command, "topic": topic})
-        # Acknowledge receipt immediately
-        send_reply(
-            reply_to,
-            f"[BeyondTomorrow] Received: {command}: {topic}",
-            f"Command  : {command}\nTopic    : {topic}\nStatus   : Processing",
-        )
-
-        try:
-            if command == "BLOG":
-                result = await _run_blog_pipeline(task_str)
-                if result.get("status") == "published":
-                    # Determine LinkedIn status
-                    run_log_obj = result.get("run_log")
-                    summary = run_log_obj.summary() if run_log_obj else {}
-                    li_stage = next(
-                        (s for s in summary.get("stages", []) if s.get("stage") == "LinkedIn"),
-                        None,
-                    )
-                    li_status = li_stage.get("status") if li_stage else None
-                    # "error"   → LinkedIn was configured but failed (action required)
-                    # "skipped" → LinkedIn env vars missing on Railway (warning)
-                    # None/ok   → success or not configured at startup
-                    li_failed = li_status == "error"
-                    li_skipped = li_status == "skipped"
-
-                    if li_failed:
-                        # Ghost published but LinkedIn failed — post is NOT yet cross-platform.
-                        # Send a failure notification rather than a success email so the
-                        # operator knows action is required before the post is fully live.
-                        logger.error("Task partially failed: %s — LinkedIn stage errored", task_str)
-                        _log({
-                            "event": "email_task_failed",
-                            "command": command,
-                            "topic": topic,
-                            "failed_stage": "LinkedIn",
-                            "url": result.get("published_url", ""),
-                        })
-                        send_reply(
-                            reply_to,
-                            f"[BeyondTomorrow] Failed: {topic} (LinkedIn failed)",
-                            _build_failure_email(command, topic, result),
-                        )
-                    elif li_skipped:
-                        # Ghost published but LinkedIn env vars are missing on Railway.
-                        # Post is live on Ghost but not cross-posted — flag prominently so
-                        # the operator knows to set LINKEDIN_ACCESS_TOKEN + LINKEDIN_PERSON_URN
-                        # as Railway service variables for the agent worker.
-                        logger.warning(
-                            "Task complete but LinkedIn skipped (not configured): %s", task_str
-                        )
-                        _log({
-                            "event": "email_task_complete",
-                            "command": command,
-                            "topic": topic,
-                            "url": result.get("published_url", ""),
-                            "linkedin_ok": False,
-                            "linkedin_skipped": True,
-                        })
-                        send_reply(
-                            reply_to,
-                            f"[BeyondTomorrow] Published: {topic} (LinkedIn skipped — env vars missing)",
-                            _build_success_email(command, topic, result)
-                            + "\n\nNOTE: LinkedIn cross-posting was skipped because "
-                            "LINKEDIN_ACCESS_TOKEN and/or LINKEDIN_PERSON_URN are not set "
-                            "as Railway service variables for the agent worker. "
-                            "Run scripts/linkedin_auth.py locally, then copy the "
-                            "LINKEDIN_* variables to Railway.",
-                        )
-                    else:
-                        # Ghost succeeded + LinkedIn succeeded.
-                        # The post is live on all expected platforms.
-                        logger.info("Task complete: %s", task_str)
-                        _log({
-                            "event": "email_task_complete",
-                            "command": command,
-                            "topic": topic,
-                            "url": result.get("published_url", ""),
-                            "linkedin_ok": True,
-                        })
-                        send_reply(
-                            reply_to,
-                            f"[BeyondTomorrow] Published: {topic}",
-                            _build_success_email(command, topic, result),
-                        )
-                else:
-                    run_log = result.get("run_log")
-                    failed_stage = run_log.summary().get("failed_stage") if run_log else "Unknown"
-                    logger.error("Task failed: %s — stage: %s", task_str, failed_stage)
-                    _log({"event": "email_task_failed", "command": command, "topic": topic, "failed_stage": failed_stage})
+                if result.get('status') == 'partial' and not li_failed:
+                    logger.error('Article published with incomplete stages: %s', result.get('failed_stages', []))
+                    _log({'event': 'email_task_partial', 'url': result.get('published_url', ''),
+                          'failed_stages': result.get('failed_stages', [])})
+                    send_reply(reply_to, f'[BeyondTomorrow] Partially complete: {topic}',
+                               _build_failure_email(command, topic, result))
+                elif li_failed:
+                    # Ghost published but LinkedIn failed — post is NOT yet cross-platform.
+                    # Send a failure notification rather than a success email so the
+                    # operator knows action is required before the post is fully live.
+                    logger.error("Task partially failed: %s — LinkedIn stage errored", task_str)
+                    _log({
+                        "event": "email_task_failed",
+                        "command": command,
+                        "topic": topic,
+                        "failed_stage": "LinkedIn",
+                        "url": result.get("published_url", ""),
+                    })
                     send_reply(
                         reply_to,
-                        f"[BeyondTomorrow] Failed: {command}: {topic}",
+                        f"[BeyondTomorrow] Failed: {topic} (LinkedIn failed)",
                         _build_failure_email(command, topic, result),
                     )
-
-            elif command in ("RESEARCH", "REPORT"):
-                result = await _run_research_pipeline(task_str)
-                if result.get("status") == "complete":
-                    run_log_r = result.get("run_log")
-                    summary_r = run_log_r.summary() if run_log_r else {}
-                    duration_r = _fmt_duration(result.get("total_elapsed_s", 0))
-                    stage_lines_r = _fmt_stages(summary_r.get("stages", []))
+                elif li_skipped:
+                    # Ghost published but LinkedIn env vars are missing on Railway.
+                    # Post is live on Ghost but not cross-posted — flag prominently so
+                    # the operator knows to set LINKEDIN_ACCESS_TOKEN + LINKEDIN_PERSON_URN
+                    # as Railway service variables for the agent worker.
+                    logger.warning(
+                        "Task complete but LinkedIn skipped (not configured): %s", task_str
+                    )
+                    _log({
+                        "event": "email_task_complete",
+                        "command": command,
+                        "topic": topic,
+                        "url": result.get("published_url", ""),
+                        "linkedin_ok": False,
+                        "linkedin_skipped": True,
+                    })
+                    send_reply(
+                        reply_to,
+                        f"[BeyondTomorrow] Published: {topic} (LinkedIn skipped — env vars missing)",
+                        _build_success_email(command, topic, result)
+                        + "\n\nNOTE: LinkedIn cross-posting was skipped because "
+                        "LINKEDIN_ACCESS_TOKEN and/or LINKEDIN_PERSON_URN are not set "
+                        "as Railway service variables for the agent worker. "
+                        "Run scripts/linkedin_auth.py locally, then copy the "
+                        "LINKEDIN_* variables to Railway.",
+                    )
+                else:
+                    # Ghost succeeded + LinkedIn succeeded.
+                    # The post is live on all expected platforms.
                     logger.info("Task complete: %s", task_str)
-                    _log({"event": "email_task_complete", "command": command, "topic": topic,
-                          "index_result": result.get("index_result", "")})
+                    _log({
+                        "event": "email_task_complete",
+                        "command": command,
+                        "topic": topic,
+                        "url": result.get("published_url", ""),
+                        "linkedin_ok": True,
+                    })
                     send_reply(
                         reply_to,
-                        f"[BeyondTomorrow] {command} done: {topic}",
-                        (
-                            f"Command  : {command}\n"
-                            f"Topic    : {topic}\n"
-                            f"Status   : Indexed to corpus\n"
-                            f"Result   : {result.get('index_result', '')}\n"
-                            f"Duration : {duration_r}\n"
-                            f"\nStages:\n{stage_lines_r}"
-                        ),
+                        f"[BeyondTomorrow] Published: {topic}",
+                        _build_success_email(command, topic, result),
                     )
-                else:
-                    run_log_r = result.get("run_log")
-                    failed_stage_r = run_log_r.summary().get("failed_stage") if run_log_r else "Unknown"
-                    logger.error("Task failed: %s — stage: %s", task_str, failed_stage_r)
-                    _log({"event": "email_task_failed", "command": command, "topic": topic,
-                          "failed_stage": failed_stage_r})
-                    send_reply(
-                        reply_to,
-                        f"[BeyondTomorrow] Failed: {command}: {topic}",
-                        _build_failure_email(command, topic, result),
-                    )
-
-            elif command == "INDEX":
-                await _run_index(task_str)
-                logger.info("Task complete: %s", task_str)
-                _log({"event": "email_task_complete", "command": command, "topic": topic})
+            else:
+                run_log = result.get("run_log")
+                failed_stage = run_log.summary().get("failed_stage") if run_log else "Unknown"
+                logger.error("Task failed: %s — stage: %s", task_str, failed_stage)
+                _log({"event": "email_task_failed", "command": command, "topic": topic, "failed_stage": failed_stage})
                 send_reply(
                     reply_to,
-                    f"[BeyondTomorrow] Indexed: {topic}",
-                    f"Command  : {command}\nTopic    : {topic}\nStatus   : Complete",
+                    f"[BeyondTomorrow] Failed: {command}: {topic}",
+                    _build_failure_email(command, topic, result),
                 )
 
-        except Exception as exc:
-            logger.error("Task raised unhandled exception: %s — %s", task_str, exc, exc_info=True)
-            _log({"event": "email_task_failed", "command": command, "topic": topic, "failed_stage": "unhandled", "error_type": type(exc).__name__, "error_message": str(exc)})
+        elif command in ("RESEARCH", "REPORT"):
+            result = await _run_research_pipeline(task_str)
+            if result.get("status") == "complete":
+                run_log_r = result.get("run_log")
+                summary_r = run_log_r.summary() if run_log_r else {}
+                duration_r = _fmt_duration(result.get("total_elapsed_s", 0))
+                stage_lines_r = _fmt_stages(summary_r.get("stages", []))
+                logger.info("Task complete: %s", task_str)
+                _log({"event": "email_task_complete", "command": command, "topic": topic,
+                      "index_result": result.get("index_result", "")})
+                send_reply(
+                    reply_to,
+                    f"[BeyondTomorrow] {command} done: {topic}",
+                    (
+                        f"Command  : {command}\n"
+                        f"Topic    : {topic}\n"
+                        f"Status   : Indexed to corpus\n"
+                        f"Result   : {result.get('index_result', '')}\n"
+                        f"Duration : {duration_r}\n"
+                        f"\nStages:\n{stage_lines_r}"
+                    ),
+                )
+            else:
+                run_log_r = result.get("run_log")
+                failed_stage_r = run_log_r.summary().get("failed_stage") if run_log_r else "Unknown"
+                logger.error("Task failed: %s — stage: %s", task_str, failed_stage_r)
+                _log({"event": "email_task_failed", "command": command, "topic": topic,
+                      "failed_stage": failed_stage_r})
+                send_reply(
+                    reply_to,
+                    f"[BeyondTomorrow] Failed: {command}: {topic}",
+                    _build_failure_email(command, topic, result),
+                )
+
+        elif command == "INDEX":
+            result = await _run_index(task_str)
+            if result.get("status") == "failed":
+                raise RuntimeError("Indexing failed; see pipeline logs")
+            logger.info("Task complete: %s", task_str)
+            _log({"event": "email_task_complete", "command": command, "topic": topic})
             send_reply(
                 reply_to,
-                f"[BeyondTomorrow] Failed: {command}: {topic}",
-                (
-                    f"Command  : {command}\n"
-                    f"Topic    : {topic}\n"
-                    f"Status   : FAILED (unhandled exception)\n"
-                    f"Error    : {type(exc).__name__}: {exc}"
-                ),
+                f"[BeyondTomorrow] Indexed: {topic}",
+                f"Command  : {command}\nTopic    : {topic}\nStatus   : Complete",
             )
+
+    except Exception as exc:
+        logger.error("Task raised unhandled exception: %s — %s", task_str, exc, exc_info=True)
+        _log({"event": "email_task_failed", "command": command, "topic": topic, "failed_stage": "unhandled", "error_type": type(exc).__name__, "error_message": str(exc)})
+        send_reply(
+            reply_to,
+            f"[BeyondTomorrow] Failed: {command}: {topic}",
+            (
+                f"Command  : {command}\n"
+                f"Topic    : {topic}\n"
+                f"Status   : FAILED (unhandled exception)\n"
+                f"Error    : {type(exc).__name__}: {exc}"
+            ),
+        )
+        return {"status": "failed"}
+    return result
 
 
 async def run_poll_loop() -> None:
@@ -658,11 +745,11 @@ async def run_poll_loop() -> None:
         logger.warning("DB pool init failed — pipeline logs will be file-only: %s", exc)
 
     # Stale-run janitor — auto-close any runs stuck as RUNNING from prior crashes.
-    # stale_after_hours=0 catches any unterminated run; called at startup before
+    # The age threshold preserves recent runs from other workers; called before
     # any new run_start is logged so there is no race condition.
     if _pool is not None:
         try:
-            stale_ids = await mark_stale_runs_failed(_pool, stale_after_hours=0)
+            stale_ids = await mark_stale_runs_failed(_pool, stale_after_hours=2)
             if stale_ids:
                 logger.warning(
                     "Stale-run janitor: closed %d orphaned run(s): %s",

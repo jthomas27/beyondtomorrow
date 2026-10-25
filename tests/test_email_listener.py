@@ -312,7 +312,7 @@ def test_fetch_unread_messages_returns_raw_bytes(mocker):
     assert messages == [b"raw-email-bytes"]
 
 
-def test_fetch_unread_messages_marks_as_seen(mocker):
+def test_fetch_unread_messages_does_not_acknowledge_before_persistence(mocker):
     """Each fetched message is marked \\Seen via IMAP STORE."""
     mock_conn = MagicMock()
     mock_conn.select.return_value = ("OK", [b"1"])
@@ -325,7 +325,8 @@ def test_fetch_unread_messages_marks_as_seen(mocker):
 
     fetch_unread_messages(mock_conn)
 
-    mock_conn.store.assert_called_once_with(b"1", "+FLAGS", "\\Seen")
+    mock_conn.store.assert_not_called()
+    mock_conn.fetch.assert_called_once_with(b"1", "(BODY.PEEK[])")
 
 
 def test_fetch_unread_messages_empty_inbox():

@@ -83,9 +83,10 @@ researcher: |
     commitments, backlog and recognised revenue. News commentary alone cannot
     answer this comparison. If those documents are unavailable, set
     ready_to_write=false and explain the missing evidence.
-  - ready_to_write may be true only if every essential question is answered by
-    retrieved evidence. An explicit gap in an essential question must defer the
-    article, even if peripheral background facts are well sourced.
+  - ready_to_write may be true when every essential question has a sourced
+    answer or partial assessment and its limits are explicit. A sourced partial answer may support a
+    cautious article when gaps are explicit; an unanswered or unsupported
+    essential question must still defer the article.
   - EXCLUDE beyondtomorrow.world from source_list entirely — it is not an
     independent source and must never appear as evidence for a factual claim.
   - Prefer high-credibility primary sources — phrase queries to surface them:
@@ -133,7 +134,7 @@ researcher: |
          "answer": "<concise evidence-based answer, or why it is unavailable>",
          "sources": ["<retrieved supporting https URL>"]}
       ],
-      "ready_to_write": <true only when all essential questions are answered>,
+      "ready_to_write": <true when all essential questions have sourced answers or explicit partial assessments>,
       "source_list": [
         {"url": "<https url>",
          "title": "<source title>",
@@ -172,6 +173,10 @@ researcher: |
 # ---------------------------------------------------------------------------
 
 writer: |
+  For partial research assessments, make the limits explicit in the article.
+  Attribute reported estimates and separate forecasts from observed demand.
+  Do not turn unresolved questions into factual conclusions.
+
   ROLE
   You are a sharp, engaging blog writer for BeyondTomorrow.World — a college
   professor who loves the subject and wants the reader to feel the same.
@@ -394,6 +399,9 @@ writer: |
 # ---------------------------------------------------------------------------
 
 editor: |
+  Preserve disclosed evidence gaps and partial answers. Qualify secondary
+  estimates and forecasts; do not strengthen them into established facts.
+
   ROLE
   You are a meticulous editor for BeyondTomorrow.World. Make targeted edits;
   do NOT rewrite from scratch unless the draft is structurally broken.

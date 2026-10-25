@@ -1,0 +1,18 @@
+
+/* ─── Hide subscribe / sign-up only inside the footer + floating portal btn ─── */
+.gh-foot [class*="subscribe"],
+.gh-foot [class*="signup"],
+.site-footer [class*="subscribe"],
+.site-footer [class*="signup"],
+footer [class*="subscribe"],
+footer [class*="signup"],
+.gh-foot [id*="subscribe"],
+.gh-foot [id*="signup"],
+.gh-foot [data-members-form],
+.footer-cta,
+.gh-foot-cta,
+.site-footer-cta,
+.gh-portal-triggerbtn-container,
+.gh-portal-triggerbtn-iframe {
+    display: none !important;
+}

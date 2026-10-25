@@ -17,7 +17,7 @@ from pipeline.workflows.execution import _fix_title_via_llm, _run_agent_with_fal
 from pipeline.workflows.publishing import _build_publish_input, _linkedin_post_direct, _parse_publish_output
 
 
-async def _run_publish_only(task: str, debug: bool = False) -> None:
+async def _run_publish_only(task: str, debug: bool = False) -> dict:
     """Run only the Publisher step for an already-edited file.
 
     Usage:  python -m pipeline.main "PUBLISH: 2026-03-13-my-post-edited.md"
@@ -37,6 +37,8 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
 
     _pipeline_t0 = monotonic()
     run_log = None
+    ghost_url = ""
+    result = {"status": "failed", "published_url": ""}
     _current_stage = "init"
 
     try:
@@ -44,9 +46,9 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
         from pipeline.pipeline_logger import PipelineRunLogger, set_db_pool, mark_stale_runs_failed
         set_db_pool(pool)
 
-        # Stale-run janitor — stale_after_hours=0 closes any unterminated run immediately.
+        # Stale-run janitor — use an age threshold to preserve concurrent active runs.
         try:
-            _stale = await mark_stale_runs_failed(pool, stale_after_hours=0)
+            _stale = await mark_stale_runs_failed(pool, stale_after_hours=2)
             if _stale:
                 logger.warning("Stale-run janitor: closed %d run(s): %s", len(_stale), ", ".join(_stale))
         except Exception as _jex:
@@ -82,6 +84,9 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
                 f"Unresolved: {publish_output}"
             )
 
+        from pipeline.workflows.publishing import confirmed_publication
+        published = await confirmed_publication(filename)
+        ghost_url, feature_image_url = published['url'], published.get('feature_image', '')
         logger.info("Ghost result: %s", publish_output)
         run_log.stage_ok("Publish", elapsed_s=round(monotonic() - _t0, 1), url=publish_output)
 
@@ -89,7 +94,7 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
         _current_stage = "LinkedIn"
         run_log.stage_start("LinkedIn")
         _t0_li = monotonic()
-        ghost_url, feature_image_url = _parse_publish_output(publish_output)
+        ghost_url, feature_image_url = published['url'], published.get('feature_image', '')
         if not ghost_url:
             _li_exc = RuntimeError(
                 f"Could not parse Ghost URL from publisher output — LinkedIn blocked. "
@@ -176,13 +181,27 @@ async def _run_publish_only(task: str, debug: bool = False) -> None:
         publish_output = f"{publish_output} | Newsletter: {newsletter_result}"
 
         logger.info("Result: %s", publish_output)
-        run_log.run_complete(published_url=publish_output, total_elapsed_s=round(monotonic() - _pipeline_t0, 1))
+        run_log.run_complete(published_url=ghost_url, total_elapsed_s=round(monotonic() - _pipeline_t0, 1))
+        from pipeline.workflows.results import failed_stages
+        incomplete = failed_stages(run_log)
+        result = {'status': 'partial' if incomplete else 'published', 'published_url': ghost_url,
+                  'ghost_post_id': published['id'], 'failed_stages': incomplete, 'run_log': run_log}
     except Exception as exc:
         _total = monotonic() - _pipeline_t0
+        if not ghost_url and _current_stage == 'Publish':
+            try:
+                from pipeline.workflows.publishing import confirmed_publication
+                ghost_url = (await confirmed_publication(filename))['url']
+            except Exception:
+                pass
         if run_log is not None:
             run_log.stage_error(_current_stage, exc)
             run_log.run_failed(_current_stage, exc, total_elapsed_s=_total)
+        result = {'status': 'partial' if ghost_url else 'failed', 'published_url': ghost_url,
+                  'failed_stages': [_current_stage], 'run_log': run_log}
         logger.error("PUBLISH pipeline failed: %s", exc, exc_info=True)
     finally:
         await asyncio.sleep(0.5)
         await close_pool()
+
+    return result

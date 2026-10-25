@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refresh Linkedin Token"
+  short_description: "Refresh LinkedIn OAuth and verify saved access"
+  default_prompt: "Use $refresh-linkedin-token to complete the requested refresh linkedin token task."
