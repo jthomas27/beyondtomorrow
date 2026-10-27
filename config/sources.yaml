@@ -256,6 +256,23 @@ approved_domains:
     credibility: 4
     notes: "DeepMind research blog — primary source for their AI research"
 
+  - domain: opensource.org
+    category: technology
+    credibility: 5
+    primary: true
+    notes: "Open Source Initiative — primary definition and criteria for open-source AI"
+
+  - domain: huggingface.co
+    category: technology
+    credibility: 4
+    notes: "Hugging Face documentation and model cards — technical model components, files, and model-specific license metadata"
+
+  - domain: ai.google.dev
+    category: technology
+    credibility: 4
+    primary: true
+    notes: "Google AI developer documentation and model cards — primary technical details for Google models"
+
   - domain: openai.com
     category: technology
     credibility: 4

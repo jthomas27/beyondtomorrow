@@ -26,9 +26,10 @@ def _valid_research_cache(path, *, require_evidence: bool = False) -> bool:
     except (OSError, ValueError, TypeError, RuntimeError):
         return False
 
-def _require_research_evidence(research_output: str) -> None:
+def _require_research_evidence(research_output: str) -> str:
+    import json
     from pipeline.source_policy import require_research_evidence
-    require_research_evidence(research_output)
+    return json.dumps(require_research_evidence(research_output), ensure_ascii=False, indent=2)
 
 def _require_publish_evidence(path, research_output: str | None = None) -> None:
     from pipeline.source_policy import require_publish_file
@@ -51,10 +52,11 @@ def _compact_research(research_output: str, max_chars: int = 3000) -> str:
         return research_output[:max_chars] + ("\n[truncated]" if len(research_output) > max_chars else "")
 
     parts: list[str] = []
-    if any(q.get("essential") is True and q.get("status") == "partial"
-           for q in data.get("question_coverage", [])):
-        parts.append("EVIDENCE LIMITS: This is a partial, sourced assessment. State the gaps, "
-                     "attribute secondary estimates, and keep forecasts distinct from observed demand. "
+    if data.get("gaps") or any(q.get("status") != "answered"
+                             for q in data.get("question_coverage", [])):
+        parts.append("EVIDENCE LIMITS: Use the sourced findings as the factual basis. "
+                     "State material gaps and attribute claims with limited corroboration. "
+                     "Omit unsupported details or explain that they are unknown. "
                      "Do not present unresolved questions as established facts.")
     if data.get("question_coverage"):
         parts.append("REQUESTED QUESTIONS / EVIDENCE:")

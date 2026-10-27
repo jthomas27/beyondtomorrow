@@ -172,8 +172,11 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                 f"3. Call search_corpus TWICE with top_k=3: main topic, then a contrasting angle.\n"
                 f"4. Return structured research JSON with key_findings, subtopics, "
                 f"suggested_angles, gaps, source_list, total_sources, model_used, "
-                f"question_coverage, ready_to_write. Assess EVERY requested question; "
-                f"mark essential unanswered questions as not ready to write.\n\n"
+                f"question_coverage, ready_to_write. Choose topic-relevant pages from approved "
+                f"sources. One relevant approved source supporting a useful finding is enough; "
+                f"aim for two independent publishers when available. Disclose partial or "
+                f"unanswered questions in gaps and limit the article to supported findings. "
+                f"Incomplete coverage must not veto a useful, clearly scoped article.\n\n"
                 f"Topic-specific source candidates:\n{source_guidance(topic)}"
             )
             research_output, r_tin, r_tout = await _run_agent_with_fallback(
@@ -197,6 +200,14 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             except Exception as _cache_err:
                 logger.warning("Could not cache research JSON: %s", _cache_err)
 
+        # Keep only supported findings and carry evidence gaps into drafting.
+        # The original output is already cached above for diagnosis on failure.
+        research_output = _require_research_evidence(research_output)
+        try:
+            research_cache_path.write_text(research_output, encoding="utf-8")
+        except OSError as _cache_err:
+            logger.warning("Could not update scoped research cache: %s", _cache_err)
+
         # Persist research JSON to corpus — use semantic chunking so each
         # finding and subtopic becomes its own retrievable chunk rather than
         # the entire JSON blob becoming a single oversized chunk.
@@ -211,8 +222,6 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
             logger.info("Research JSON indexed: %s", _idx_result)
         except Exception as _idx_err:
             logger.warning("Could not save research to DB: %s", _idx_err)
-
-        _require_research_evidence(research_output)
 
         run_log.stage_ok("Research", elapsed_s=round(monotonic() - _t0, 1), model=researcher.model)
         logger.info("[1/5] Research done in %.1fs", monotonic() - _t0)

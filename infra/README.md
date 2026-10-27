@@ -68,3 +68,7 @@ gitignored operational storage, not in this inventory.
 
 The service named `ghost-mysql8-validation` is the live MySQL service. The
 separate `ghost-validation` application was temporary. Do not confuse them.
+
+The legacy MySQL and temporary Ghost deployments were stopped on 26 October
+2026 with their volumes retained. See [cost controls](../docs/COST_CONTROL.md)
+for the live MySQL memory settings, billing thresholds and configuration rollback.

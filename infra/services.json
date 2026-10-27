@@ -14,15 +14,24 @@
     "service_name": "ghost-mysql8-validation",
     "role": "LIVE database; retain despite validation-era service name",
     "image": "mysql:8.4.13@sha256:76f0358884cb92d9a086d24e5671c38048d3fef40f2588703d73eb55392d6b69",
-    "data_mount": "/var/lib/mysql"
+    "data_mount": "/var/lib/mysql",
+    "start_command": "/usr/local/bin/docker-entrypoint.sh mysqld --innodb-buffer-pool-size=128M --innodb-log-buffer-size=16M --max-connections=40 --table-open-cache=512 --table-definition-cache=400 --temptable-max-ram=64M",
+    "memory_tuning_reviewed_on": "2026-10-26"
   },
   "legacy_mysql": {
     "service_id": "375d48d7-df84-4acc-a93b-9fc69159a44e",
-    "role": "Preserved write-protected rollback data; do not downgrade its data directory"
+    "role": "Preserved write-protected rollback data; do not downgrade its data directory",
+    "deployment_state": "Stopped on 2026-10-26; volume and rollback data retained"
   },
   "email_worker": {
     "service_id": "15b13afb-8515-49e9-ab38-7e138069064f",
     "configuration": "railway.toml",
     "start_command": "python3 -m pipeline.email_listener"
+  },
+  "ghost_validation": {
+    "service_id": "418825b1-d75c-4072-8fbd-baf2e45c0225",
+    "role": "Temporary migration application; deployment stopped 2026-10-26",
+    "content_mount": "/var/lib/ghost/content",
+    "volume_retained": true
   }
 }

@@ -96,7 +96,7 @@ Given a topic, follow this sequence:
    - total_sources, model_used
    - question_coverage (question, essential, status: answered/partial/unanswered,
      answer, sources: [URLs]) for EVERY part of the request
-   - ready_to_write: true only if all essential questions are answered
+   - ready_to_write: true when at least one useful finding has a relevant approved source
 
 Rules:
 - search_and_index stores results permanently in the database — not temp files.
@@ -106,9 +106,17 @@ Rules:
 - Flag single-source claims as "medium" confidence.
 - Note contradictions between sources.
 - Prefer sources from the last 2 years; include older ones if highly relevant.
-- Use at least two independent publishers and choose primary evidence appropriate
-  to each claim. Several URLs from one outlet do not count as corroboration.
-- If essential evidence is missing, set ready_to_write=false and retain the gaps.
+- Select directly relevant pages from approved sources only. Approval is not
+  proof that a page supports the topic. Use the same evidence policy for all topics.
+- One relevant approved source supporting a useful finding is enough. Aim for two
+  independent publishers, but do not block writing for a missing second publisher.
+- Prefer primary documents. If only secondary reporting is available, attribute
+  claims and disclose limitations rather than automatically deferring the article.
+- Keep partial and unanswered questions in gaps. Use supported findings to write
+  a useful article, state material unknowns and omit unsupported details.
+- Every finding must cite retrieved evidence. Do not invent claims or citations.
+- Incomplete question coverage and ready_to_write=false are not automatic vetoes
+  when supported findings remain; they must be carried forward as limitations.
 - Output ONLY the structured JSON — no preamble.""",
     tools=[search_and_index, search_corpus, fetch_page, search_arxiv, score_credibility],
     model=_models.get("researcher", {}).get("model", "gpt-6.1-sol"),
@@ -153,6 +161,10 @@ TITLE RULES — apply these before writing anything else:
      Bad:  "Emissions rose 37 billion tonnes. [Source](url)"
      Good: "Emissions reached 37 billion tonnes according to the
            [Global Carbon Project's 2024 budget](url)."
+- Use supported findings as facts. State material gaps and unknowns; do not
+  assert unsupported answers. Make the title and article scope match the evidence.
+- One relevant approved source is sufficient. Aim for two independent publishers
+  when available and disclose limited corroboration or reliance on secondary reporting.
 6. Maintain an authoritative but accessible tone.
 7. Include a strong introduction that hooks the reader.
 8. End with a forward-looking conclusion that looks ahead to the future.

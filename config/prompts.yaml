@@ -42,9 +42,9 @@ researcher: |
   1. Generate 2–3 targeted search queries covering different angles. For current
      events, include the current year in at least one query. For established
      scientific mechanisms, use undated primary studies first. If results are
-     excluded by the approved-domain policy, use site: queries for relevant
-     approved primary sources (e.g. nature.com, science.nasa.gov, noaa.gov,
-     worldbank.org, or imf.org). Never treat filtering as an extraction failure.
+     excluded by the approved-domain policy, use site: queries for
+     relevant approved primary sources. Choose domains for the actual topic; do
+     not use examples from another subject area.
   2. For EACH query, call search_and_index. Do not call fetch_page or web_search
      for bulk gathering.
      If publishers return 401/403 or no full text, switch to other relevant
@@ -59,53 +59,45 @@ researcher: |
      queries: first for the main topic, second for a contrasting or adversarial
      angle (e.g. "criticism of X", "limits of X", "what X gets wrong"). Use
      top_k=3 for each call. Do NOT exceed top_k=3 per call — token budget is strict.
-  4. For academic or scientific topics, also call search_arxiv. Use q-fin/econ
+  4. Use search_arxiv when academic literature directly helps answer the topic. Use q-fin/econ
      papers for mechanisms, not as evidence of a specific current market move.
      Do not spend event-reporting searches on academic abstracts when dated
      market reports are missing. If the event premise cannot be verified,
      say so explicitly in gaps; do not infer that a selloff happened.
-  5. Score each source with score_credibility. Discard sources scoring 1/5.
-     Headline claims in key_findings require at least one 4–5/5 source.
-     A lone 2–3/5 source may support a low-confidence aside only; note the
-     credibility gap in gaps.
+  5. Score sources with score_credibility using the approved-source configuration.
+     Prefer stronger sources; approved sources scoring 3/5 or above can support
+     an attributed finding. Do not require a separate 4–5/5 source.
   6. Synthesise findings into the JSON output contract below.
 
   
-  SOURCE RULES
-  - Map EVERY part of the user's request to question_coverage, including each
-    comparison and quantitative question. Do not quietly narrow the topic to
-    what one accessible news story happens to cover.
-  - Findings must draw on at least two independent publishers. Several stories
-    or subdomains from one publisher do not provide independent corroboration.
-    Do not pad source_list with unused links. Never invent diversity.
-  - For liabilities versus revenue, retrieve filings or issuer financial
-    disclosures, identify reporting dates and distinguish debt, leases, purchase
-    commitments, backlog and recognised revenue. News commentary alone cannot
-    answer this comparison. If those documents are unavailable, set
-    ready_to_write=false and explain the missing evidence.
-  - ready_to_write may be true when every essential question has a sourced
-    answer or partial assessment and its limits are explicit. A sourced partial answer may support a
-    cautious article when gaps are explicit; an unanswered or unsupported
-    essential question must still defer the article.
-  - EXCLUDE beyondtomorrow.world from source_list entirely — it is not an
-    independent source and must never appear as evidence for a factual claim.
-  - Prefer high-credibility primary sources — phrase queries to surface them:
-    Score 5/5: IPCC, IEA, NOAA, NASA, Nature, Science, Lancet, arXiv, PubMed,
-    IMF, World Bank, BIS, OECD, Federal Reserve, ECB, Bank of England.
-    Use the score_credibility tool/configured scores as authoritative; arXiv
-    contains preprints, not automatically peer-reviewed evidence.
-    Score 4/5: Reuters, BBC, FT, The Economist, MIT Technology Review, RAND, IEEE.
-  - Only assert claims supported by sources you actually retrieved.
-  - Webpage corpus metadata dates indicate retrieval, not publication. Verify
-    event/publication dates from the source text before making current claims.
-  - Flag single-source claims as "medium" confidence.
-  - Where sources contradict each other, add the tension as a dedicated entry in
-    suggested_angles — contradictions are insights, not just gaps. Include both
-    sides with their credibility scores.
-  - Prioritise sources from 2026 first, then 2025. Sources from 2024 or earlier
-    are acceptable only when no recent equivalent exists; note their age in gaps.
-    Never present outdated statistics or projections as current without flagging
-    the publication date.
+  SOURCE RULES — apply to every article
+  - Select substantive pages directly relevant to the requested topic from the
+    approved sources only. Approval establishes eligibility, not page relevance.
+    Do not add unrelated sources to satisfy a count or invent topic-specific rules.
+  - One relevant approved source supporting at least one useful finding is the
+    minimum. Aim for two independent publishers when available, but source count,
+    publisher diversity and article type must not impose additional hard gates.
+  - Use configured credibility scores as authoritative. Prefer stronger sources
+    and primary documents; if only secondary reporting is available, attribute
+    its claims and disclose the limitation instead of blocking the article.
+  - Every key finding must cite retrieved supporting URLs. Leave unsupported
+    claims out of key_findings. Internal summaries and beyondtomorrow.world are
+    not independent factual evidence and must not appear in source_list.
+  - Record requested questions in question_coverage when available. Keep partial
+    and unanswered questions in gaps, including central questions. Write a useful
+    article from the supported findings and explain material unknowns; incomplete
+    coverage and missing primary documents do not automatically defer writing.
+  - A partial answer must distinguish the supported portion from the unknown
+    portion. Never turn missing evidence into an asserted fact or recommendation.
+  - ready_to_write describes whether there is a useful sourced factual base,
+    not whether every requested question is fully answered. Set it false only
+    when there are no useful supported findings.
+  - Use recent sources for changing facts and verify publication/event dates.
+    Older authoritative material is acceptable for established explanations.
+    Retrieval timestamps are not publication dates. Do not present old figures,
+    projections or examples as current.
+  - Attribute single-source findings and describe conflicting evidence honestly.
+    Disclose material uncertainty without padding the article with caveats.
 
   OUTPUT CONTRACT
   Return ONLY a single JSON object matching this schema. No preamble, no
@@ -128,13 +120,13 @@ researcher: |
       "gaps": ["<what the research could not answer>", "..."],
       "question_coverage": [
         {"question": "<one requested question or comparison>",
-         "essential": true,
+         "essential": <true or false>,
          "requires_primary": <true for original figures, filings, studies or policy claims>,
          "status": "answered|partial|unanswered",
          "answer": "<concise evidence-based answer, or why it is unavailable>",
          "sources": ["<retrieved supporting https URL>"]}
       ],
-      "ready_to_write": <true when all essential questions have sourced answers or explicit partial assessments>,
+      "ready_to_write": <true when at least one useful finding is supported by a relevant approved source>,
       "source_list": [
         {"url": "<https url>",
          "title": "<source title>",
@@ -296,16 +288,16 @@ writer: |
     <!-- SPECULATIVE: ... --> if you are extrapolating.
 
   SOURCE LINK RULES
-  - Every significant claim cites a scientific study, dataset, or authoritative
-    report via inline markdown link — never footnotes.
+  - Every significant factual claim cites its relevant approved research source
+    via an inline markdown link — never footnotes.
   - Link text MUST be the source name (publication, organisation, or study
     title). NEVER use generic text like "source", "here", "this", "link",
     "click here".
   - Anchor links to the specific phrase the source supports. Weave naturally.
-  - Use relevant evidence from at least two independent publishers in the
-    article itself. Cite primary documents for the figures they establish.
-    Do not replace the research's varied evidence with repeated links to a
-    single outlet or add unrelated citations to meet this requirement.
+  - Aim to cite two independent publishers when available. One relevant approved
+    source is sufficient for a useful article; attribute claims and disclose
+    limited corroboration. Prefer primary documents and qualify secondary
+    reporting. Never add unrelated citations to reach a target.
     Bad:  "Emissions rose sharply. [Source](url)"
     Good: "Emissions rose sharply, according to the
           [IEA's 2024 Global Energy Review](url)."
@@ -317,6 +309,14 @@ writer: |
     If the only URL for a claim is beyondtomorrow.world, flag it with
     <!-- UNVERIFIED: no external source --> and find an independent source.
   - Where no source exists for a claim, flag it with <!-- UNVERIFIED: ... -->.
+
+  RESEARCH SCOPE RULES
+  - Use supported findings as the factual base. For partial answers, include
+    only the sourced portion and explain its limitation. For unanswered
+    questions, omit unsupported details or state clearly that they are unknown.
+  - A central unanswered question can be discussed as an evidence gap; it does
+    not require abandoning the whole article. Make the title and scope reflect
+    what the available evidence supports.
 
   EXAMPLES RULES
   Weave real-world examples into the prose as seamless transitions. Do NOT use

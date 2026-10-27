@@ -352,6 +352,10 @@ def test_candidates_follow_topic_and_avoid_unrelated_issuers():
     assert "cnbc.com" not in climate[:3]
 
 
+def test_generic_article_words_do_not_select_unrelated_sources():
+    assert ranked_sources("a beginners guide what you need to know") == []
+
+
 def test_multiple_subdomains_do_not_count_as_independent_publishers():
     urls = ["https://www.cnbc.com/a", "https://cnbc.com/b", "https://reuters.com/c", "https://bbc.com/d"]
     assert diversify(urls, lambda u: u)[:3] == [urls[0], urls[2], urls[3]]
@@ -361,11 +365,14 @@ def test_approved_supported_research_passes(credible_research):
     require_research_evidence(json.dumps(credible_research))
 
 
-@pytest.mark.parametrize("status", ["unanswered"])
-def test_core_question_gap_blocks_even_when_ready_flag_is_true(credible_research, status):
-    credible_research["question_coverage"][0]["status"] = status
-    with pytest.raises(RuntimeError, match="essential requested question"):
-        require_research_evidence(json.dumps(credible_research))
+def test_central_unanswered_question_becomes_a_disclosed_gap(credible_research):
+    credible_research["question_coverage"][0]["status"] = "unanswered"
+    result = require_research_evidence(json.dumps(credible_research))
+    assert result["ready_to_write"] is True
+    question = result["question_coverage"][0]
+    assert question["status"] == "unanswered" and question["sources"] == []
+    assert "A measured change" not in question["answer"]
+    assert any("Unanswered evidence" in gap for gap in result["gaps"])
 
 
 def test_sourced_partial_assessment_can_proceed_with_disclosed_gaps(credible_research):
@@ -380,40 +387,45 @@ def test_sourced_partial_assessment_can_proceed_with_disclosed_gaps(credible_res
         json.dumps(credible_research),
     )
     question["sources"] = []
-    with pytest.raises(RuntimeError, match="essential requested question"):
-        require_research_evidence(json.dumps(credible_research))
+    result = require_research_evidence(json.dumps(credible_research))
+    assert result["question_coverage"][0]["status"] == "unanswered"
 
 
-def test_partial_assessment_without_gap_disclosure_is_blocked(credible_research):
+def test_partial_assessment_gets_a_gap_when_researcher_omits_it(credible_research):
     credible_research["question_coverage"][0]["status"] = "partial"
     credible_research["gaps"] = []
-    with pytest.raises(RuntimeError, match="disclose"):
-        require_research_evidence(json.dumps(credible_research))
+    result = require_research_evidence(json.dumps(credible_research))
+    assert any("Partial evidence" in gap for gap in result["gaps"])
 
 
-def test_missing_question_assessment_blocks_legacy_research(credible_research):
+def test_missing_question_assessment_keeps_sourced_findings(credible_research):
     del credible_research["question_coverage"]
-    with pytest.raises(RuntimeError, match="assessment"):
-        require_research_evidence(json.dumps(credible_research))
+    result = require_research_evidence(json.dumps(credible_research))
+    assert result["key_findings"]
+    assert any("question coverage" in gap for gap in result["gaps"])
 
 
-def test_unused_links_cannot_disguise_single_publisher_findings(credible_research):
+def test_single_publisher_findings_are_attributed_as_limited_corroboration(credible_research):
     credible_research["key_findings"][0]["sources"] = ["https://nature.com/study"]
-    with pytest.raises(RuntimeError, match="two publishers"):
-        require_research_evidence(json.dumps(credible_research))
+    result = require_research_evidence(json.dumps(credible_research))
+    assert any("one publisher" in gap for gap in result["gaps"])
 
 
-@pytest.mark.parametrize("url,score", [("https://unapproved.test/a", 5), ("https://noaa.gov/data", 1)])
-def test_unapproved_or_low_credibility_sources_block(credible_research, url, score):
-    credible_research["source_list"][1] = {"url": url, "credibility_score": score}
+def test_unapproved_sources_still_block(credible_research):
+    credible_research["source_list"][1] = {"url": "https://unapproved.test/a", "credibility_score": 5}
     with pytest.raises(RuntimeError, match="unapproved or low-credibility"):
         require_research_evidence(json.dumps(credible_research))
 
 
-def test_published_article_must_actually_cite_varied_evidence(credible_research):
+def test_registry_credibility_overrides_researcher_scoring(credible_research):
+    credible_research["source_list"][0]["credibility_score"] = 1
+    result = require_research_evidence(json.dumps(credible_research))
+    assert result["source_list"][0]["credibility_score"] == 5
+
+
+def test_article_can_cite_one_approved_publisher(credible_research):
     single = "Evidence [Nature](https://nature.com/study)."
-    with pytest.raises(RuntimeError, match="only one publisher"):
-        require_article_evidence(single, json.dumps(credible_research))
+    require_article_evidence(single, json.dumps(credible_research))
     require_article_evidence(single + " And [NOAA](https://noaa.gov/data).", json.dumps(credible_research))
 
 
@@ -456,28 +468,47 @@ def test_existing_draft_cannot_skip_publication_gate(tmp_path, credible_research
     _require_publish_evidence(article)
     credible_research["ready_to_write"] = False
     cache.write_text(json.dumps(credible_research))
-    with pytest.raises(RuntimeError):
-        _require_publish_evidence(article)
+    _require_publish_evidence(article)
 
 
-def test_financial_comparison_needs_primary_evidence_and_citation(credible_research):
+@pytest.mark.parametrize("topic", [
+    "What does current financial reporting say about revenue?",
+    "What do clinical studies say about health outcomes?",
+    "What does the latest licensing policy permit?",
+    "How do ocean currents influence climate?",
+])
+def test_one_source_policy_applies_to_all_topics(credible_research, topic):
+    credible_research["source_list"] = credible_research["source_list"][:1]
+    credible_research["key_findings"][0]["sources"] = ["https://nature.com/study"]
     question = credible_research["question_coverage"][0]
-    question["question"] = "How do CoreWeave liabilities compare with expected revenue?"
-    with pytest.raises(RuntimeError, match="primary evidence"):
+    question.update(question=topic, requires_primary=True, sources=["https://nature.com/study"])
+    credible_research["ready_to_write"] = False
+    result = require_research_evidence(json.dumps(credible_research))
+    assert result["ready_to_write"] is True
+    assert result["question_coverage"][0]["status"] == "partial"
+    assert any("Primary evidence unavailable" in gap for gap in result["gaps"])
+    require_article_evidence("[Nature](https://nature.com/study)", json.dumps(result))
+
+
+def test_unsupported_findings_are_removed_before_drafting(credible_research):
+    from pipeline.workflows.evidence import _require_research_evidence, _compact_research
+    unsupported = "A fabricated factual claim"
+    credible_research["key_findings"].append({"finding": unsupported, "sources": []})
+    output = _require_research_evidence(json.dumps(credible_research))
+    assert len(json.loads(output)["key_findings"]) == 1
+    assert unsupported not in _compact_research(output, max_chars=8000)
+
+
+def test_no_supported_findings_still_blocks(credible_research):
+    credible_research["key_findings"][0]["sources"] = []
+    with pytest.raises(RuntimeError, match="at least one finding"):
         require_research_evidence(json.dumps(credible_research))
-    credible_research["source_list"].append({"url": "https://sec.gov/filing", "credibility_score": 5})
-    question["sources"].append("https://sec.gov/filing")
-    require_research_evidence(json.dumps(credible_research))
-    article = "[Nature](https://nature.com/study) [NOAA](https://noaa.gov/data)"
-    with pytest.raises(RuntimeError, match="omits primary"):
-        require_article_evidence(article, json.dumps(credible_research))
-    require_article_evidence(article + " [SEC](https://sec.gov/filing)", json.dumps(credible_research))
 
 
 @pytest.mark.parametrize("padding", ["<!-- [NOAA](https://noaa.gov/data) -->", "`[NOAA](https://noaa.gov/data)`", "![NOAA](https://noaa.gov/data)"])
 def test_hidden_links_and_images_do_not_count_as_citations(credible_research, padding):
-    with pytest.raises(RuntimeError, match="only one publisher"):
-        require_article_evidence("[Nature](https://nature.com/study) " + padding, json.dumps(credible_research))
+    with pytest.raises(RuntimeError, match="approved research evidence"):
+        require_article_evidence(padding, json.dumps(credible_research))
 
 
 async def test_publisher_tool_blocks_before_any_ghost_request(tmp_path, mocker):

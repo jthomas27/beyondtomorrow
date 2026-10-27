@@ -19,6 +19,28 @@ Approved domains and API configurations for the BeyondTomorrow.World research ag
 
 ---
 
+## Evidence policy for every article
+
+Choose substantive pages directly relevant to the requested topic from the
+approved domains below. Domain approval does not establish page relevance.
+Source candidates are ranked by subject overlap with their descriptions and
+broad categories; there are no rules or source quotas for individual topics.
+
+The minimum is **one relevant approved source supporting at least one useful
+finding**, plus a visible citation in the article. Aim for two independent
+publishers when available. A single publisher, missing primary documents,
+incomplete question coverage or a negative research readiness flag does not
+automatically stop writing. The approved registry's credibility scores are
+authoritative; eligible sources score at least 3/5.
+
+Unsupported findings are omitted. Remaining evidence gaps, including central
+unanswered questions, are passed to the writer and editor. They must attribute
+claims, explain material unknowns and keep the title and scope consistent with
+the supported findings. No useful supported findings, unapproved sources or
+citations outside the approved research still block publication. These are
+structural checks; factual relevance and honest qualification also depend on
+the researcher, writer and editor following their instructions.
+
 ## Approved Domains by Category
 
 ### Academic / Peer-Reviewed
@@ -62,6 +84,9 @@ Approved domains and API configurations for the BeyondTomorrow.World research ag
 | theatlantic.com | ★★★☆☆ | None (scrape) | Long-form on technology, policy, climate. |
 | deepmind.com | ★★★★☆ | None (scrape) | DeepMind research blog — primary source for their work. |
 | openai.com | ★★★★☆ | None (scrape) | OpenAI research blog — primary source. |
+| opensource.org | ★★★★★ | None (scrape) | Open Source Initiative — primary definition and criteria for open-source AI. |
+| huggingface.co | ★★★★☆ | None (scrape) | Technical documentation and model cards; verify each model's own license. |
+| ai.google.dev | ★★★★☆ | None (scrape) | Google AI developer documentation and model cards — primary for Google models. |
 
 ### Policy / Geopolitics
 
