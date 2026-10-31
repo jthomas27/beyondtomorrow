@@ -34,7 +34,7 @@ fetch:
   # NOT ENFORCED — no cumulative counter across queries in code
   max_pages_per_task: 25
 
-  # ENFORCED — search.py truncates fetched page text to this limit
+  # ENFORCED — query-relevant excerpts across long pages, within this size
   max_content_chars_per_page: 16000
 
   # ENFORCED — search.py passes this as httpx timeout
@@ -100,7 +100,7 @@ synthesis:
 # Task limits — NOT ENFORCED at runtime
 # ---------------------------------------------------------------------------
 # max_turns is hardcoded per-agent in pipeline/main.py:
-#   Researcher: 8, Writer: 6, Editor: 6, Publisher: 6, Orchestrator: 30
+#   Researcher: 20, Writer: 6, Editor: 6, Publisher: 6, Orchestrator: 30
 # Other values are loaded but never referenced in code.
 # ---------------------------------------------------------------------------
 

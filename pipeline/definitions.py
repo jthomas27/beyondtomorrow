@@ -21,6 +21,7 @@ from pipeline.tools import (
     fetch_page,
     search_and_index,
     search_corpus,
+    read_indexed_source,
     index_document,
     embed_and_store,
     publish_to_ghost,
@@ -118,7 +119,7 @@ Rules:
 - Incomplete question coverage and ready_to_write=false are not automatic vetoes
   when supported findings remain; they must be carried forward as limitations.
 - Output ONLY the structured JSON — no preamble.""",
-    tools=[search_and_index, search_corpus, fetch_page, search_arxiv, score_credibility],
+    tools=[search_and_index, search_corpus, read_indexed_source, fetch_page, search_arxiv, score_credibility],
     model=_models.get("researcher", {}).get("model", "gpt-6.1-sol"),
     model_settings=_model_settings("researcher", default_temp=0.2, default_tokens=4000),
 )

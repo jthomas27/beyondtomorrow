@@ -10,8 +10,8 @@ agents:
     model: gpt-6.1-sol
     reasoning_effort: low
     allow_fallback: false
-    # Live research truncated valid evidence at 2,000 tokens; JSON needs this headroom.
-    max_tokens: 4000
+    # Comparative findings, source provenance and counter-evidence need JSON headroom.
+    max_tokens: 6000
   writer:
     model: gpt-6.1-sol
     reasoning_effort: low

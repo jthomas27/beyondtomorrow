@@ -91,7 +91,7 @@ def _get_chunk_params() -> tuple[int, int]:
 
 
 @function_tool
-async def search_corpus(query: str, top_k: int = 5) -> str:
+async def search_corpus(query: str, top_k: int = 5, evidence_only: bool = False) -> str:
     """Search the private knowledge corpus using hybrid semantic + full-text search.
 
     When the `ts` tsvector column is present (post-migration), combines pgvector
@@ -102,6 +102,7 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
     Args:
         query: The search query — will be embedded and matched against stored documents.
         top_k: Number of results to return (default 5).
+        evidence_only: Exclude generated research and internal documents before ranking.
     """
     query_vector = embed(query)
 
@@ -113,6 +114,12 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
     fetch_k = max(top_k * 4, 12)  # allow different publishers to survive chunk ranking
 
     pool = await get_pool()
+    # Apply before LIMIT so internal summaries cannot consume the evidence window.
+    evidence_filter = """
+        AND COALESCE(d.source, e.metadata->>'source', '') ~ '^https?://'
+        AND COALESCE(d.source_type, e.metadata->>'type', '') NOT IN ('research', 'finding', 'subtopic')
+        AND COALESCE(d.source, e.metadata->>'source', '') !~* '^https?://(www\\.)?beyondtomorrow\\.world(/|$)'
+    """ if evidence_only else ""
 
     # Detect whether the ts column (generated tsvector) is available.
     async with pool.acquire() as conn:
@@ -132,7 +139,7 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
         # ---- Hybrid path: vector + full-text, merged with RRF ----
         async with pool.acquire() as conn:
             vec_rows = await conn.fetch(
-                """
+                f"""
                 SELECT
                     e.id, e.content, e.metadata, c.chunk_index,
                     d.source, d.source_type,
@@ -141,13 +148,14 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
                 LEFT JOIN chunks c ON e.chunk_id = c.id
                 LEFT JOIN documents d ON c.document_id = d.id
                 WHERE 1 - (e.embedding <=> $1::vector) > $3
+                {evidence_filter}
                 ORDER BY e.embedding <=> $1::vector
                 LIMIT $2
                 """,
                 query_vector, fetch_k, sim_threshold,
             )
             kw_rows = await conn.fetch(
-                """
+                f"""
                 SELECT
                     e.id, e.content, e.metadata, c.chunk_index,
                     d.source, d.source_type,
@@ -157,6 +165,7 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
                 LEFT JOIN documents d ON c.document_id = d.id,
                      plainto_tsquery('english', $1) AS query
                 WHERE e.ts @@ query
+                {evidence_filter}
                 ORDER BY ts_rank(e.ts, query) DESC
                 LIMIT $2
                 """,
@@ -182,7 +191,7 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
         # ---- Vector-only path (pre-migration) ----
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT
                     e.id, e.content, e.metadata, c.chunk_index,
                     d.source, d.source_type,
@@ -191,6 +200,7 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
                 LEFT JOIN chunks c ON e.chunk_id = c.id
                 LEFT JOIN documents d ON c.document_id = d.id
                 WHERE 1 - (e.embedding <=> $1::vector) > $3
+                {evidence_filter}
                 ORDER BY e.embedding <=> $1::vector
                 LIMIT $2
                 """,
@@ -208,7 +218,7 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
                 like_pattern = "%" + "%".join(keywords) + "%"
                 async with pool.acquire() as conn:
                     rows = await conn.fetch(
-                        """
+                        f"""
                         SELECT
                             e.id, e.content, e.metadata, c.chunk_index,
                             d.source, d.source_type,
@@ -217,6 +227,7 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
                         LEFT JOIN chunks c ON e.chunk_id = c.id
                         LEFT JOIN documents d ON c.document_id = d.id
                         WHERE e.content ILIKE $1
+                        {evidence_filter}
                         ORDER BY d.updated_at DESC
                         LIMIT $2
                         """,
@@ -263,10 +274,38 @@ async def search_corpus(query: str, top_k: int = 5) -> str:
             f"**[Corpus match \u2014 {label}: {score:.4f}]**\n"
             f"Source: {source}{chunk_label} {link_note}\n"
             f"Type: {doc_type}\n"
-            f"Date: {meta.get('date', 'unknown')}\n\n"
+            f"Stored date (may be ingestion, verify publication date): {meta.get('date', 'unknown')}\n\n"
             f"{snippet}"
         )
     return "\n\n---\n\n".join(results)
+
+
+@function_tool
+async def read_indexed_source(url: str, query: str = "", max_chars: int = 6000) -> str:
+    """Read an approved original by its exact URL, bypassing corpus-wide ranking.
+
+    Args:
+        url: Exact original URL returned in a search_and_index receipt.
+        query: Terms for the sections needed from this document.
+        max_chars: Maximum excerpt length (capped at 8000 characters).
+    """
+    from pipeline.tools.search import _is_approved, _evidence_excerpt
+    from urllib.parse import urlsplit
+    host = (urlsplit(url).hostname or "").lower()
+    if not _is_approved(url) or host == "beyondtomorrow.world" or host.endswith(".beyondtomorrow.world"):
+        return "Source must be an approved external original."
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT title, content, source_type FROM documents WHERE source = $1", url,
+        )
+    if not row or row["source_type"] == "research":
+        return "Original not indexed at this URL. Use fetch_page(url, query) or search an approved alternative."
+    content = row["content"] or ""
+    if not content.strip():
+        return "Indexed source has no text; use fetch_page(url, query)."
+    excerpt = _evidence_excerpt(content, query, max(500, min(max_chars, 8000)))
+    return f"Source: {url}\nTitle: {row['title'] or 'Untitled'}\nSource excerpt (verify dates and context):\n\n{excerpt}"
 
 
 async def _is_source_indexed(source: str) -> bool:

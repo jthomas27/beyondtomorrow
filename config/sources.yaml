@@ -397,22 +397,29 @@ approved_domains:
     category: economics
     credibility: 4
     primary: true
-    entities: [meta]
+    entities: [meta, facebook, big tech, hyperscalers]
     notes: "Meta investor relations — official earnings releases and financial disclosures."
 
   - domain: microsoft.com
     category: economics
     credibility: 4
     primary: true
-    entities: [microsoft]
+    entities: [microsoft, azure, big tech, hyperscalers]
     notes: "Microsoft investor relations — official earnings releases and financial disclosures."
 
   - domain: aboutamazon.com
     category: economics
     credibility: 4
     primary: true
-    entities: [amazon]
+    entities: [amazon, aws, big tech, hyperscalers]
     notes: "Amazon company news — official earnings releases and financial disclosures."
+
+  - domain: abc.xyz
+    category: economics
+    credibility: 4
+    primary: true
+    entities: [alphabet, google, big tech, hyperscalers]
+    notes: "Alphabet investor relations — official earnings releases, filings and presentations."
 
   - domain: investors.coreweave.com
     category: economics

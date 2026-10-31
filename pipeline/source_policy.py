@@ -63,14 +63,16 @@ def ranked_sources(topic: str) -> list[dict]:
         domain = entry.get("domain", "")
         if not domain:
             continue
-        if entry.get("entities") and not any(entity.lower() in topic.lower() for entity in entry["entities"]):
+        entity_match = any(re.search(r"\b" + re.escape(entity.lower()) + r"\b", topic.lower())
+                           for entity in entry.get("entities", []))
+        if entry.get("entities") and not entity_match:
             continue
         description = set(re.findall(
             r"[a-z]{2,}", (domain + " " + entry.get("notes", "")).lower()
         ))
         overlap = len(terms & description)
         category_bonus = 2 if entry.get("category") in categories else 0
-        score = overlap * 3 + category_bonus
+        score = overlap * 3 + category_bonus + (6 if entity_match else 0)
         if score and entry.get("primary"):
             score += 4
         if score:
@@ -98,6 +100,25 @@ def source_guidance(topic: str) -> str:
         "If evidence remains limited, narrow the argument and attribute the claims. "
         "Explain only limitations that materially change the conclusion, once.\n" +
         "\n".join(f'- {e["domain"]} ({e.get("credibility", 0)}/5): {e.get("notes", "")}' for e in entries)
+    )
+
+
+def research_task_input(topic: str) -> str:
+    """Shared task instructions so BLOG and RESEARCH/REPORT use the same policy."""
+    from datetime import date
+    return (
+        f"Research task (as of {date.today().isoformat()}): {topic}\n\n"
+        "Some pages have been pre-indexed, but may not cover the question. "
+        "Resolve named groups into relevant subjects and select the requested reporting period. "
+        "For a comparison, search each major subject separately using an approved original "
+        "source, document type and period. Treat the proposed headline as a hypothesis. "
+        "Use the bounded adaptive research sequence in your system instructions. "
+        "Read indexed originals with read_indexed_source; use evidence_only=True for "
+        "external corpus evidence. Seek results, explanatory mechanisms and the strongest "
+        "counter-evidence. Record supported answers and remaining gaps in the JSON contract. "
+        "No source-count quota applies: incomplete coverage permits a focused article. "
+        "Label access failures separately from facts the source does not disclose.\n\n"
+        f"Topic-specific approved source candidates:\n{source_guidance(topic)}"
     )
 
 

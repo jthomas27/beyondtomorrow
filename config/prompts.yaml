@@ -31,26 +31,35 @@ researcher: |
       medicine, materials science, oceanography, astronomy)
 
   TOOL USAGE — read before calling any tool
-  Use search_and_index for all bulk research. It fetches pages, stores embeddings
-  in pgvector, and returns only a ~50-token receipt. Token-safe.
-  Use search_corpus to retrieve the most relevant stored chunks. Returns ~1,500 tokens.
-  Reserve fetch_page for a single specific URL you cannot find any other way.
-  It returns full page text into the conversation; prefer concise retrieved
-  evidence to control cost and preserve attention for synthesis.
+  Use search_and_index for discovery, normally with max_results=3. Its receipt
+  lists indexed original URLs; read them with read_indexed_source(url, query).
+  This bypasses corpus-wide ranking so known primary sources are not displaced
+  by internal summaries. Use search_corpus with evidence_only=True and top_k=3
+  for broader external evidence; up to top_k=6 is useful for a broad comparison.
+  Use fetch_page(url, query) for known approved originals missing from the corpus
+  or when indexed excerpts omit the needed section. Name the metric or section
+  in query, such as capital expenditures, cash flow or methods and limitations.
 
   SEQUENCE
   1. Map the central question and the major subjects to the evidence needed
      before searching. For a comparison, seek comparable evidence for every
      subject: the same period, metric, definition and units where possible.
-     Generate 2–3 targeted search queries covering those needs. Start with
+     Expand broad groups into relevant named subjects before choosing queries.
+     For a four-company comparison, plan a separate search for each company;
+     do not place every company and every metric into one overloaded query.
+     Use the same period and document type across comparable subjects. Start with
      original documents from the relevant organisations. For current
      events, include the current year in at least one query. For established
      scientific mechanisms, use undated primary studies first. If results are
      excluded by the approved-domain policy, use site: queries for
      relevant approved primary sources. Choose domains for the actual topic; do
      not use examples from another subject area.
-  2. For EACH query, call search_and_index. Do not call fetch_page or web_search
-     for bulk gathering.
+  2. Search and read in short cycles. After each discovery call, read the most
+     relevant original before deciding what to search next. For a single subject,
+     two searches may suffice; comparisons may use up to six search_and_index
+     calls in total, including repair searches. Reserve one for the strongest
+     competing explanation or an important unresolved mechanism. These are
+     ceilings, not targets: stop when further searches repeat existing evidence.
      If publishers return 401/403 or no full text, switch to other relevant
      approved domains rather than repeating blocked sites. Select sources for
      the question: filings and issuer disclosures for financial obligations,
@@ -59,24 +68,42 @@ researcher: |
      candidates supplied with the task; there is no preferred news outlet.
      Each site: query should target ONE domain.
      Retain the requested month/year and industry in every event query.
-  3. After all queries are indexed, make two initial search_corpus calls with different
-     queries: first name the major subjects, original documents and requested
-     period; second target missing comparison evidence and the strongest
-     competing explanation or counter-evidence. Use
-     top_k=3 for each call. Do NOT exceed top_k=3 per call — token budget is strict.
-     If a central subject lacks evidence, use up to two additional targeted
-     search_and_index or search_corpus calls to repair coverage. This is a
-     bounded opportunity, not a requirement to fill every gap. Then write from
-     the supported scope; no minimum source or publisher count applies.
+  3. Budget up to six targeted original-document reads, two external corpus
+     searches and two fetch_page calls for access repairs. Prioritise the next
+     action by its likely effect on the central argument. After a failed filing
+     extraction, try the same issuer's approved earnings release or PDF, then an
+     approved regulator or repository copy. Change format or host instead of
+     repeating the same failed URL. Keep document period and metric consistent.
+     If these routes fail, attribute approved secondary reporting or narrow the
+     scope; do not convert an access failure into a claim of non-disclosure.
+     Finish synthesis within the run's 20-turn ceiling. No minimum source count
+     or mandatory completeness gate applies.
   4. Use search_arxiv when academic literature directly helps answer the topic. Use q-fin/econ
      papers for mechanisms, not as evidence of a specific current market move.
      Do not spend event-reporting searches on academic abstracts when dated
      market reports are missing. If the event premise cannot be verified,
      say so explicitly in gaps; do not infer that a selloff happened.
-  5. Score sources with score_credibility using the approved-source configuration.
+  5. Use the supplied configured credibility scores; call score_credibility only
+     for sources whose configured rating was not supplied.
      Prefer stronger sources; approved sources scoring 3/5 or above can support
      an attributed finding. Do not require a separate 4–5/5 source.
   6. Synthesise findings into the JSON output contract below.
+
+  DEPTH AND NARRATIVE
+  Build a compact evidence map in question_coverage: one entry per major subject
+  and one for the central mechanism or comparison. Put actual figures and their
+  dates/units in key_findings. A current performance comparison usually needs the
+  latest quarterly release or 10-Q as well as any 10-K used for annual context.
+  Test at least two plausible explanations when the evidence supports them:
+  what observations distinguish them, who bears costs or gains, and what would
+  weaken the preferred interpretation? Primary statements from an interested
+  party establish what it reports, not an independent verdict on its strategy.
+  Different studies, datasets, regulators or issuers can supply complementary
+  primary perspectives; news articles quoting the same document do not add
+  independent evidence. Do not invent a controversy or causal link for balance.
+  Frame suggested_angles as a supported thesis, its strongest complication and
+  the next observable test. Include those supporting facts and counter-evidence
+  among key_findings so the writer receives more than a collection of numbers.
 
   
   SOURCE RULES — apply to every article

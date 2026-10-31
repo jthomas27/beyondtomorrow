@@ -122,22 +122,11 @@ async def _run_research_pipeline(task: str, debug: bool = False) -> dict:
             except Exception as _pf_err:
                 logger.warning("Pre-fetch failed (non-fatal): %s", _pf_err)
 
-            from pipeline.source_policy import source_guidance
-            research_input = (
-                f"Research this topic thoroughly: {topic}\n\n"
-                f"The knowledge corpus has already been seeded with pages on this topic.\n"
-                f"REQUIRED STEPS:\n"
-                f"1. Generate 2-3 search queries covering different angles.\n"
-                f"2. For each query call search_and_index.\n"
-                f"3. Call search_corpus TWICE with top_k=3: main topic, then a contrasting angle.\n"
-                f"4. Return structured research JSON with key_findings, subtopics, "
-                f"suggested_angles, gaps, source_list, total_sources, model_used, "
-                f"question_coverage, ready_to_write.\n\n"
-                f"Topic-specific source candidates:\n{source_guidance(topic)}"
-            )
+            from pipeline.source_policy import research_task_input
+            research_input = research_task_input(task)
             research_output, r_tin, r_tout = await _run_agent_with_fallback(
                 researcher, research_input,
-                agent_name="Researcher", pool=pool, max_turns=8, run_log=run_log,
+                agent_name="Researcher", pool=pool, max_turns=20, run_log=run_log,
             )
             logger.info("Research complete (tokens: in=%d out=%d)", r_tin, r_tout)
 

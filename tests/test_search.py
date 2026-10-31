@@ -153,7 +153,7 @@ async def test_fetch_page_extracts_article_text():
 
 @pytest.mark.asyncio
 async def test_fetch_page_truncates_long_content():
-    """Content longer than 16 000 chars must be cut and marked '[... truncated]'."""
+    """Long content is bounded and explicitly marked as abridged."""
     long_text = "X" * 20_000
     with patch("pipeline.tools.search.httpx.AsyncClient") as mock_cls, \
          patch("pipeline.tools.search.trafilatura.extract", return_value=long_text):
@@ -165,7 +165,7 @@ async def test_fetch_page_truncates_long_content():
 
         result = await call_tool(fetch_page, url="https://nature.com/long-read")
 
-    assert "[... truncated]" in result
+    assert "document abridged" in result
     # Content portion should not exceed the limit by more than a small header overhead
     content_start = result.find("\n\n") + 2
     assert len(result[content_start:]) <= 16_100

@@ -148,7 +148,80 @@ def _extract_response_text(response: httpx.Response) -> str:
         return "\n\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(response.content)).pages)
     if content_type.startswith(("text/plain", "text/markdown")):
         return response.text.strip()
-    return trafilatura.extract(response.text, include_comments=False, include_tables=True) or ""
+    html = response.text
+    # SEC exhibits may use an SGML submission envelope around otherwise valid HTML.
+    # Feeding <DOCUMENT>/<TEXT> headers to trafilatura can produce an empty tree.
+    document = re.search(r"<html\b[^>]*>.*?</html\s*>", html, re.I | re.S)
+    if document:
+        html = document.group(0)
+    text = trafilatura.extract(html, include_comments=False, include_tables=True) or ""
+    # Article extraction sometimes discards short financial tables. Preserve
+    # omitted leaf tables with their headers and original cell order, not just
+    # isolated numbers. Skip layout containers holding other tables.
+    from lxml import html as lxml_html, etree
+    try:
+        root = lxml_html.fromstring(html)
+        for node in root.xpath("//script | //style | //*[local-name()='ix:hidden']"):
+            node.drop_tree()
+        normal_text = " ".join(text.split())
+        tables = []
+        for table in root.xpath("//table[not(.//table)]"):
+            if any("display:none" in (p.get("style") or "").replace(" ", "").lower()
+                   or p.get("hidden") is not None
+                   for p in [table, *table.iterancestors()]):
+                continue
+            rows = []
+            cells = []
+            for row in table.xpath(".//tr"):
+                values = [" ".join(cell.text_content().split()) for cell in row.xpath("./th | ./td")]
+                if len(values) >= 2 and any(values):
+                    rows.append(" | ".join(values))
+                    cells.extend(values)
+            if len(rows) >= 2 and any(cell and cell not in normal_text for cell in cells):
+                tables.append("\n".join(rows))
+        if tables:
+            text += "\n\nExtracted source tables (rows and cells in source order):\n" + "\n\n".join(tables)
+    except (etree.ParserError, ValueError):
+        pass
+    return text.strip()
+
+
+def _evidence_excerpt(text: str, query: str, max_chars: int) -> str:
+    """Select bounded, contiguous passages across a long source, including its tail.
+
+    Explicit separators keep unrelated passages from appearing contiguous. The
+    opening preserves document context; query matches locate material beyond it.
+    """
+    if len(text) <= max_chars:
+        return text
+    terms = set(re.findall(r"[a-z0-9]{3,}", re.sub(r"site:\S+", "", query.lower())))
+    terms -= {"the", "and", "for", "with", "from", "are", "not", "what", "how"}
+    if "capex" in terms:
+        terms.update({"capital", "expenditures", "property", "equipment"})
+    window = max(200, max_chars // 5)
+    passages = []
+    start = 0
+    while start < len(text):
+        end = min(start + window, len(text))
+        if end < len(text):
+            boundary = text.rfind("\n", start + window // 2, end)
+            if boundary < 0:
+                boundary = text.rfind(" ", start + window // 2, end)
+            if boundary >= 0:
+                end = boundary + 1
+        passages.append((start, text[start:end]))
+        start = end
+    def score(passage):
+        words = set(re.findall(r"[a-z0-9]{3,}", passage[1].lower()))
+        return len(terms & words)
+    chosen = [passages[0]]
+    size = len(passages[0][1])
+    separator = "\n\n[... selected source passage; document abridged ...]\n\n"
+    for passage in sorted(passages[1:], key=lambda item: (-score(item), item[0])):
+        if size + len(passage[1]) + len(separator) <= max_chars:
+            chosen.append(passage)
+            size += len(passage[1]) + len(separator)
+    return separator.join(p for _, p in sorted(chosen))
 
 
 @function_tool
@@ -240,7 +313,8 @@ async def _search_and_index_impl(query: str, max_results: int = 8, *, _recover: 
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT source FROM documents "
-                "WHERE source = ANY($1) AND updated_at > NOW() - INTERVAL '7 days'",
+                "WHERE source = ANY($1) AND updated_at > NOW() - INTERVAL '7 days' "
+                "AND content NOT LIKE '%[... truncated]%'",
                 urls,
             )
             recent_urls = {row["source"] for row in rows}
@@ -280,8 +354,7 @@ async def _search_and_index_impl(query: str, max_results: int = 8, *, _recover: 
                 skipped.append(f"{title} (no extractable full text)")
                 continue
 
-            if len(text) > cfg_max_chars:
-                text = text[:cfg_max_chars] + "\n\n[... truncated]"
+            text = _evidence_excerpt(text, query, cfg_max_chars)
 
             text = _sanitize_for_pg(text)
 
@@ -342,9 +415,7 @@ async def _search_and_index_impl(query: str, max_results: int = 8, *, _recover: 
 
     lines = [f"Indexed {len(indexed)} pages into pgvector corpus (query: '{used_variant}')."]
     if indexed:
-        lines.append("Pages stored: " + ", ".join(indexed[:5]))
-        if len(indexed) > 5:
-            lines.append(f"... and {len(indexed) - 5} more.")
+        lines.append("Pages stored: " + ", ".join(indexed))
     if filtered_count:
         lines.append(f"Excluded {filtered_count} search results outside approved domains.")
     if skipped:
@@ -356,7 +427,8 @@ async def _search_and_index_impl(query: str, max_results: int = 8, *, _recover: 
         # is disabled. Never substitute snippets for inaccessible full text.
         for recovery in _recovery_queries(query):
             lines.append(await _search_and_index_impl(recovery, min(max_results, 3), _recover=False))
-    lines.append("Use search_corpus to retrieve information from these pages.")
+    lines.append("Use read_indexed_source(url, query) to read each relevant original directly; "
+                 "search_corpus(query, evidence_only=True) retrieves broader external evidence.")
     return "\n".join(lines)
 
 
@@ -469,11 +541,12 @@ async def search_arxiv(query: str, max_results: int = 5) -> str:
 
 
 @function_tool
-async def fetch_page(url: str) -> str:
+async def fetch_page(url: str, query: str = "") -> str:
     """Fetch a web page and extract the main article text (strips ads, nav, boilerplate).
 
     Args:
         url: The URL of the web page to fetch and extract text from.
+        query: Terms identifying the relevant sections of a long document.
     """
     if not _is_approved(url):
         return f"Refused to fetch {url}: domain is outside the approved source policy."
@@ -496,8 +569,7 @@ async def fetch_page(url: str) -> str:
 
     # Truncate to stay within context budget
     max_chars = fetch_cfg.get("max_content_chars_per_page", 16_000)
-    if len(text) > max_chars:
-        text = text[:max_chars] + "\n\n[... truncated]"
+    text = _evidence_excerpt(text, query, max_chars)
 
     return f"Source: {url}\n\n{text}"
 
