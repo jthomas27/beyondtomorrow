@@ -393,6 +393,27 @@ approved_domains:
     primary: true
     notes: "SEC EDGAR — company financial filings, audited accounts, debt maturities, liabilities, revenue and risk disclosures."
 
+  - domain: atmeta.com
+    category: economics
+    credibility: 4
+    primary: true
+    entities: [meta]
+    notes: "Meta investor relations — official earnings releases and financial disclosures."
+
+  - domain: microsoft.com
+    category: economics
+    credibility: 4
+    primary: true
+    entities: [microsoft]
+    notes: "Microsoft investor relations — official earnings releases and financial disclosures."
+
+  - domain: aboutamazon.com
+    category: economics
+    credibility: 4
+    primary: true
+    entities: [amazon]
+    notes: "Amazon company news — official earnings releases and financial disclosures."
+
   - domain: investors.coreweave.com
     category: economics
     credibility: 4

@@ -1,6 +1,6 @@
 # BeyondTomorrow.World — Pipeline Overview
 
-> Last updated: 17 May 2026
+> Last updated: 27 October 2026
 
 This document describes the full research-and-publish pipeline: how each agent works, how they hand off to each other, and what controls are in place.
 
@@ -34,6 +34,7 @@ This document describes the full research-and-publish pipeline: how each agent w
   - [Chunking Strategy](#chunking-strategy)
   - [Research JSON Indexing](#research-json-indexing)
 - [Email Trigger System](#email-trigger-system)
+- [Source Policy and Evidence Criteria](#source-policy-and-evidence-criteria)
 - [Configuration Reference](#configuration-reference)
 - [Strengths and Weaknesses](#strengths-and-weaknesses)
 
@@ -66,11 +67,11 @@ This document describes the full research-and-publish pipeline: how each agent w
 
 | Layer | Technology | Purpose |
 |---|---|---|
-| LLM | GitHub Models API (gpt-4.1, gpt-4.1-mini, gpt-4.1-nano) | Research, writing, editing, publishing decisions |
+| LLM | OpenAI Responses API via the Agents SDK (`gpt-6.1-sol`, `gpt-6-luna`) | Research, writing, editing, publishing decisions |
 | Agent SDK | OpenAI Agents SDK (`agents` package) | Runs each agent with tool calling |
-| Vector DB | PostgreSQL + pgvector (Railway) | 384-dim embeddings + tsvector full-text for hybrid search |
-| Embeddings | `BAAI/bge-small-en-v1.5` (sentence-transformers) | Runs locally, zero API cost; 512-token context |
-| CMS | Ghost 5.x (self-hosted, Railway) | Blog publishing via Admin API |
+| Vector DB | PostgreSQL + pgvector (Railway) | 1536-dim embeddings + tsvector full-text for hybrid search |
+| Embeddings | `text-embedding-3-small` | OpenAI embeddings for semantic retrieval |
+| CMS | Ghost 6.72 (self-hosted, Railway) | Blog publishing via Admin API |
 | Email | Hostinger IMAP/SMTP | Trigger pipeline via email |
 | HTTP | httpx | Ghost API calls (Cloudflare blocks urllib) |
 
@@ -97,26 +98,26 @@ This document describes the full research-and-publish pipeline: how each agent w
                     └────────┬────────┘
                              │
                     ┌────────▼────────┐
-                    │  1. RESEARCHER  │  gpt-4.1  temp=0.2
+                    │  1. RESEARCHER  │  gpt-6.1-sol  effort=low
                     │  search_and_index│  max_turns=8
                     │  search_corpus  │  Output: research JSON
                     │  score_credibility│
                     └────────┬────────┘
                              │ 20s cooldown
                     ┌────────▼────────┐
-                    │  2. WRITER      │  gpt-4.1  temp=0.7
+                    │  2. WRITER      │  gpt-6.1-sol  effort=low
                     │  write_research │  max_turns=6
                     │  _file          │  Output: YYYY-MM-DD-slug.md
                     └────────┬────────┘
                              │ 20–60s adaptive cooldown
                     ┌────────▼────────┐
-                    │  3. EDITOR      │  gpt-4.1  temp=0.3
+                    │  3. EDITOR      │  gpt-6.1-sol  effort=low
                     │  read/write     │  max_turns=6
                     │  search_corpus  │  Output: -edited.md
                     └────────┬────────┘
                              │ 20s cooldown
                     ┌────────▼────────┐
-                    │  4. PUBLISHER   │  gpt-4.1-mini  temp=0.0
+                    │  4. PUBLISHER   │  gpt-6-luna  effort=none
                     │  pick_image     │  max_turns=6
                     │  upload_image   │  Output: live Ghost URL
                     │  publish_to_ghost│
@@ -147,7 +148,7 @@ This document describes the full research-and-publish pipeline: how each agent w
 
 ### Stage 1: Research
 
-**Agent:** Researcher (gpt-4.1, temperature 0.2, max 8,000 tokens)
+**Agent:** Researcher (`gpt-6.1-sol`, low reasoning effort, max 4,000 tokens)
 
 **Process:**
 1. **Pre-fetch** — before the LLM runs, `_prefetch_topic()` generates 2 simple search queries and calls `search_and_index` to populate the corpus. This reduces the number of tool calls the LLM needs.
@@ -155,17 +156,18 @@ This document describes the full research-and-publish pipeline: how each agent w
 3. **LLM research** — the Researcher agent:
    - Generates 2–3 targeted search queries covering different angles
    - Calls `search_and_index` for each (fetches full page text via trafilatura, stores embeddings permanently)
-   - Calls `search_corpus` once with `top_k=3` to retrieve stored knowledge
+   - Calls `search_corpus` twice with `top_k=3` to retrieve main and contrasting evidence
    - Optionally calls `search_arxiv` for academic topics
-   - Scores source credibility (1–5); discards 1/5 sources
-4. **Output** — structured JSON with `key_findings`, `subtopics`, `suggested_angles`, `gaps`, `source_list`
-5. **Post-processing** — research JSON is cached to disk and indexed into the corpus via `_index_research_json()` (see [Research JSON Indexing](#research-json-indexing))
+   - Scores sources using the approved-source registry and selects pages relevant to the topic
+4. **Evidence normalisation** — keeps supported findings, carries unanswered questions into `gaps`, and permits a scoped article when at least one approved source supports a finding
+5. **Output** — structured JSON with `key_findings`, `subtopics`, `suggested_angles`, `gaps`, `source_list`, and `question_coverage`
+6. **Post-processing** — research JSON is cached to disk and indexed into the corpus via `_index_research_json()` (see [Research JSON Indexing](#research-json-indexing))
 
-**Key constraint:** Only asserts claims supported by retrieved sources. Single-source claims flagged as "medium" confidence.
+**Source policy:** Sources must come from the approved registry and be relevant to the topic. One supported finding is the minimum; two independent publishers are preferred. Unsupported findings are omitted and gaps are disclosed rather than causing routine pipeline failure.
 
 ### Stage 2: Write
 
-**Agent:** Writer (gpt-4.1, temperature 0.7, max 4,000 tokens)
+**Agent:** Writer (`gpt-6.1-sol`, low reasoning effort, max 4,000 tokens)
 
 **Cooldown:** 20 seconds (standard `_STAGE_COOLDOWN`)
 
@@ -183,11 +185,11 @@ This document describes the full research-and-publish pipeline: how each agent w
 
 ### Stage 3: Edit
 
-**Agent:** Editor (gpt-4.1, temperature 0.3, max 2,500 tokens)
+**Agent:** Editor (`gpt-6.1-sol`, low reasoning effort, max 4,000 tokens)
 
-> **Why 2,500?** Input tokens (~5,000: system prompt + edit prompt + research compact + draft via tool) + `max_tokens` = total request body. 2,500 keeps the total under the 8,000-token hard limit, preventing a 413 fallback to `gpt-4.1-mini` which produces apostrophe/em-dash corruption in the output.
+> The Editor uses a 4,000-token response budget. Its research context is compacted to 8,000 characters and the draft is read through the file tool to keep request payloads bounded.
 >
-> **413 same-model retry:** If a 413 does occur, the pipeline retries once on the same model with `max_tokens` reduced by 500 (minimum 1,500) before falling back to gpt-4.1-mini. This preserves output quality in most cases.
+> **413 retry:** If a request is too large, the pipeline retries with a reduced response budget before using the configured fallback chain.
 >
 > **Text sanitisation pipeline:** All content saved via `write_research_file` passes through three stages: `_clean_llm_text()` (C1 control chars, split contractions, HTML entities) → `_validate_punctuation()` (double spaces, orphaned entities, broken links) → `_enforce_british_english()` (~50 American→British spelling pairs, case-preserving, URL-safe). Readability metrics (word count, Flesch score) are logged for `-edited` files.
 
@@ -213,7 +215,7 @@ This document describes the full research-and-publish pipeline: how each agent w
 
 ### Stage 4: Publish
 
-**Agent:** Publisher (gpt-4.1-mini, temperature 0.0, max 1,000 tokens)
+**Agent:** Publisher (`gpt-6-luna`, no reasoning effort, max 1,000 tokens)
 
 **Cooldown:** 20 seconds
 
@@ -291,12 +293,29 @@ The Indexer agent was bypassed to avoid 413 Payload Too Large errors. The SDK co
 **Process:**
 1. Reads edited file from disk
 2. Chunks markdown text (350 words max, 35-word overlap at paragraph and heading boundaries)
-3. Batch-embeds all chunks via `BAAI/bge-small-en-v1.5`
+3. Batch-embeds all chunks via `text-embedding-3-small`
 4. Upserts document + chunks + embeddings into pgvector
 
 Note: research JSON indexing (Stage 1) uses `_index_research_json()` rather than `_index_document_impl()` — see [Research JSON Indexing](#research-json-indexing).
 
 ---
+
+## Source Policy and Evidence Criteria
+
+The same policy applies to every topic. The researcher selects substantive pages
+that are directly relevant to the topic from `config/sources.yaml`. Approved
+domains establish eligibility, but the page still has to support the claim.
+
+The minimum evidence is one approved source supporting one useful finding. Two
+independent publishers are preferred when available, but source count and
+publisher diversity are not hard gates. Primary documents are preferred; when
+only secondary reporting is available, the article attributes it and records the
+limitation. Unsupported findings are removed before drafting. Partial or
+unanswered questions are carried into `gaps`, and the writer limits the article
+to what the evidence supports.
+
+Research is blocked only when it has no approved source or no supported finding,
+or when the article contains citations outside its approved research evidence.
 
 ## Agent Definitions
 
@@ -304,19 +323,16 @@ All agents are defined in `pipeline/definitions.py` using the OpenAI Agents SDK 
 
 | Agent | Model | Temp | Max Tokens | Tools | Purpose |
 |---|---|---|---|---|---|
-| **Orchestrator** | gpt-4.1-mini | 0.1 | 2,000 | Handoffs to all agents | Routes tasks by prefix |
-| **Researcher** | gpt-4.1 | 0.2 | 2,000 | search_and_index, search_corpus, fetch_page†, search_arxiv, score_credibility | Web research + corpus search |
-| **Writer** | gpt-4.1 | 0.7 | 4,000 | read_research_file, write_research_file | Drafts blog post from research |
-| **Editor** | gpt-4.1 | 0.3 | 2,500 | read_research_file, write_research_file, search_corpus, score_credibility | Review, fact-check, polish — 2,500 keeps total request body under 8,000-token limit |
-| **Publisher** | gpt-4.1-mini | 0.0 | 1,000 | pick_random_asset_image, upload_image_to_ghost, publish_file_to_ghost | Image upload + Ghost publish |
-| **Indexer** | gpt-4.1-mini | 0.0 | 1,000 | read_research_file, index_document, embed_and_store | Chunk + embed + store (currently bypassed) |
+| **Orchestrator** | `gpt-6-luna` | none | 2,000 | Handoffs to all agents | Routes generic tasks by prefix; BLOG runs are coordinated step-by-step by Python |
+| **Researcher** | `gpt-6.1-sol` | low | 4,000 | search_and_index, search_corpus, fetch_page†, search_arxiv, score_credibility | Topic research, source selection and RAG retrieval |
+| **Writer** | `gpt-6.1-sol` | low | 4,000 | read_research_file, write_research_file | Drafts a scoped article from supported findings |
+| **Editor** | `gpt-6.1-sol` | low | 4,000 | read_research_file, write_research_file, search_corpus, score_credibility | Fact-check, qualify gaps and polish |
+| **Publisher** | `gpt-6-luna` | none | 1,000 | pick_random_asset_image, upload_image_to_ghost, publish_file_to_ghost | Image upload and Ghost publication |
+| **Indexer** | `gpt-6-luna` | none | 500 | read_research_file, index_document, embed_and_store | Chunk, embed and store; article indexing is called directly to avoid oversized SDK payloads |
 
 † `fetch_page` is registered but restricted by prompt — only for a single specific URL not reachable via `search_and_index`. Bulk use causes 413 (full page text exhausts the 8,000-token input limit).
 
-Temperature rationale:
-- **0.0–0.1** for deterministic tasks (publishing, indexing, routing)
-- **0.2–0.3** for accuracy-critical tasks (research, editing)
-- **0.7** for creative tasks (writing)
+Reasoning rationale: Sol handles research, writing and editing with low reasoning effort; Luna handles routing, publishing and indexing with no reasoning effort for deterministic tool use. The fallback chain is `gpt-6.1-sol` → `gpt-6-luna`, while research, writing and editing disable automatic fallback until quality is validated.
 
 ---
 
@@ -340,7 +356,7 @@ The Orchestrator agent has handoff tools defined but is only used for generic/fa
 **Context compaction between stages:**
 - Only key_findings, suggested_angles, subtopics, and source_list are retained; full summaries and redundant metadata are dropped
 - **Writer** receives up to 8,000 chars — full research context including all subtopics, angles, and source URLs
-- **Editor** receives up to 2,500 chars — findings and sources only; it reads the draft directly via `read_research_file` and can call `search_corpus` for additional verification
+- **Editor** receives up to 8,000 chars — findings, question coverage, gaps and source links; it reads the draft directly via `read_research_file` and can call `search_corpus` for additional verification
 - Truncation cuts at the last complete line rather than mid-character, with a `search_corpus` hint appended
 
 ---
@@ -361,9 +377,9 @@ This avoids wasting an API call only to receive a 429.
 
 ### RPM-Wait-Before-Fallback
 
-When `gpt-4.1` is temporarily rate-limited (RPM exceeded but daily budget is fine), the
+When `gpt-6.1-sol` is temporarily rate-limited (RPM exceeded but daily budget is fine), the
 pipeline **waits for the rolling 60-second window to clear** rather than immediately
-downgrading to `gpt-4.1-mini`.
+downgrading to `gpt-6-luna`.
 
 `get_rpm_clear_wait(pool, model, max_wait=90)` in `guardrails.py`:
 - Queries `rate_limit_log` for the oldest call in the last 60 seconds
@@ -384,16 +400,14 @@ On reactive 429 (non-413):
   Else           → fall back (standard exponential backoff)
 ```
 
-This keeps `gpt-4.1` in use for all stages even when two pipeline runs are launched close
-together, preventing the quality degradation (short/dense posts) caused by `gpt-4.1-mini`
-editing.
+This keeps `gpt-6.1-sol` in use for content stages when the RPM window clears in time.
 
 ### Reactive Fallback Chain
 
 If an API call fails and the RPM window won't clear within 90 seconds:
 
 ```
-Fallback chain: gpt-4.1 → gpt-4.1-mini → gpt-4.1-nano
+Fallback chain: `gpt-6.1-sol` → `gpt-6-luna`
 
 On rate-limit error (429, unsupported-param):
   1. Check get_rpm_clear_wait() — if < 90s, wait and retry same model
@@ -422,7 +436,7 @@ The Editor stage uses an adaptive cooldown based on real RPM data:
 ```
 Before Editor runs:
   rpm_used = get_rpm_usage(pool, editor_model)  # calls in last 60s
-  rpm_limit = RPM_LIMITS[editor_model]           # e.g. 10 for gpt-4.1
+  rpm_limit = RPM_LIMITS[editor_model]
 
   If rpm_used ≥ rpm_limit - 1:
     cooldown = 60s    ← RPM pressure detected
@@ -454,9 +468,8 @@ This enables:
 
 | Model | Daily Limit | RPM Limit |
 |---|---|---|
-| gpt-4.1 | 80 calls/day | 10 req/min |
-| gpt-4.1-mini | 500 calls/day | 30 req/min |
-| gpt-4.1-nano | 500 calls/day | 30 req/min |
+| `gpt-6.1-sol` | Configured in `config/limits.yaml` | Configured in `config/limits.yaml` |
+| `gpt-6-luna` | Configured in `config/limits.yaml` | Configured in `config/limits.yaml` |
 
 Budget thresholds:
 - **Soft warning:** 80% of daily limit used
@@ -533,7 +546,7 @@ Every pipeline entry point (`_run_blog_pipeline`, `_run_publish_only`, and `emai
 
 ```
 documents (1)──────(N) chunks (1)──────(1) embeddings
-  source (unique)       chunk_index         vector(384)
+  source (unique)       chunk_index         vector(1536)
   content               content             ts tsvector (generated)
   source_type                               metadata (JSONB)
                                             model name
@@ -590,7 +603,7 @@ The cap is configurable in `config/limits.yaml` under `search.corpus.max_chars_p
 - Splits at paragraph boundaries (double newlines)
 - Respects markdown heading breaks
 - **Oversized single paragraphs** — if a paragraph (including any compact JSON blob with no `\n\n` separators) exceeds 350 words, `_word_split()` subdivides it into correctly-sized word-boundary chunks with overlap, rather than storing one oversized chunk that would be truncated by the embedding model at 512 tokens
-- Embeddings: 384 dimensions via `BAAI/bge-small-en-v1.5` (local, zero cost; 512-token context window)
+- Embeddings: 1536 dimensions via `text-embedding-3-small`
 
 ### Research JSON Indexing
 
@@ -648,6 +661,7 @@ Email-triggered commands follow the same routing as the CLI. `RESEARCH:` and `RE
 - Pre-fetch — seeds corpus via `_prefetch_topic()` before the LLM call
 - Source sanitisation — dead/hallucinated URLs stripped via concurrent HEAD checks
 - Research JSON cache — cached to disk so a failed run can be retried without re-researching
+- Durable email jobs — requests are queued in PostgreSQL before IMAP messages are acknowledged; leases and heartbeats make retries recoverable without replaying confirmed deliveries
 
 ---
 
@@ -685,7 +699,7 @@ Email-triggered commands follow the same routing as the CLI. `RESEARCH:` and `RE
 | **Pre-publish validation** | 5 checks (title, body, image, excerpt, Just For Laughs) prevent broken posts from reaching Ghost |
 | **Recovery flows** | Publisher validation failures trigger automated Editor recovery before retrying; Writer failures trigger explicit retry |
 | **Direct indexing** | Bypasses the Indexer LLM agent, avoiding 413 payload errors and saving API calls |
-| **Zero-cost embeddings** | `BAAI/bge-small-en-v1.5` runs locally — no API cost for corpus operations |
+| **Embedding cost** | `text-embedding-3-small` provides 1536-dimension semantic vectors |
 | **Corpus persistence** | All web searches are indexed permanently via `search_and_index` — knowledge accumulates across runs |
 
 ### Weaknesses
@@ -696,7 +710,7 @@ Email-triggered commands follow the same routing as the CLI. `RESEARCH:` and `RE
 | **No per-request RPM tracking** | The Agents SDK makes internal LLM calls for tool-use loops that are invisible to the pipeline's rate tracking. A stage marked as "1 call" may actually be 4–5 API requests. | Implement an SDK middleware/hook that calls `log_model_call()` on each raw request. |
 | **Hardcoded gpt-5 entries** | `DAILY_LIMITS` and `RPM_LIMITS` include gpt-5 models that aren't in the fallback chain and have never been tested. | Remove or gate behind a feature flag. |
 | **No TPM-aware throttling** | Token counts are logged but not yet used for budgeting decisions. Daily limits are call-count-only. | Add token-per-minute checks to `check_model_budget()`. |
-| ~~**Context compaction is lossy**~~ ✅ Fixed | `_compact_research()` now uses an 8,000-char limit for the Writer (full subtopics, angles, sources) and a separate 2,500-char limit for the Editor (findings + sources only). Truncation cuts at the last complete line with a `search_corpus` hint. | Resolved — 2-pass approach implemented. |
+| ~~**Context compaction is lossy**~~ ✅ Fixed | `_compact_research()` uses an 8,000-character limit for both Writer and Editor context, preserving findings, question coverage, gaps and source links. Truncation cuts at the last complete line with a `search_corpus` hint. | Resolved — scoped evidence context is retained. |
 | **Single-threaded pipeline** | All 5 stages run sequentially. There's no parallelism even where stages are independent (e.g., image upload could overlap with editing). | Overlap image selection/upload with Editor stage. |
 | **No retry on Ghost API failure** | Publisher retries on LLM rate limits but the Ghost API call itself (`publish_file_to_ghost`) has its own 3-retry loop. If both fail, the post is lost. | Save draft locally before Ghost call; add a `PUBLISH:` recovery command (already exists). |
 | **Email polling interval** | 5-minute poll means up to 5 minutes latency between sending an email and the pipeline starting. | Reduce interval or use IMAP IDLE for push-based triggers. |
