@@ -36,12 +36,11 @@ def _require_publish_evidence(path, research_output: str | None = None) -> None:
     require_publish_file(path, research_output)
 
 def _compact_research(research_output: str, max_chars: int = 3000) -> str:
-    """Return a token-budget-friendly summary of the research JSON.
+    """Budget complete evidence records before editorial context.
 
-    Extracts the fields the writer/editor actually need (key_findings,
-    suggested_angles, subtopics, source_list) and drops bulk like full
-    summaries and redundant metadata.  Falls back to a plain truncation
-    if the output is not valid JSON.
+    Keep source roles beside each finding so a truncated source appendix cannot
+    lose provenance. Reserve space for coverage and uncertainty without letting
+    repeated gaps displace the factual base. Never cut a claim or URL mid-record.
     """
     import json as _json
 
@@ -51,67 +50,74 @@ def _compact_research(research_output: str, max_chars: int = 3000) -> str:
         # Not JSON — just truncate with a note
         return research_output[:max_chars] + ("\n[truncated]" if len(research_output) > max_chars else "")
 
-    parts: list[str] = []
-    if data.get("gaps") or any(q.get("status") != "answered"
-                             for q in data.get("question_coverage", [])):
-        parts.append("EVIDENCE LIMITS: Use the sourced findings as the factual basis. "
-                     "State material gaps and attribute claims with limited corroboration. "
-                     "Omit unsupported details or explain that they are unknown. "
-                     "Do not present unresolved questions as established facts.")
-    if data.get("question_coverage"):
-        parts.append("REQUESTED QUESTIONS / EVIDENCE:")
-        for question in data["question_coverage"]:
-            parts.append(f'- {question.get("question", "")}: {question.get("answer", "")} '
-                         f'[{question.get("status", "unknown")}] ({", ".join(question.get("sources", []))})')
-
     def _is_external_url(url: str) -> bool:
         """Return True only for http/https URLs (not file paths or corpus refs)."""
         return isinstance(url, str) and url.startswith(("http://", "https://"))
 
-    # Key findings — keep finding text, confidence, and external sources only
-    findings = data.get("key_findings", [])
-    if findings:
-        parts.append("KEY FINDINGS:")
-        for f in findings:
-            ext_sources = [s for s in f.get("sources", []) if _is_external_url(s)]
-            src = ", ".join(ext_sources[:2])
-            conf = f.get("confidence", "unknown")
-            parts.append(f"- {f.get('finding', '')} [{conf}] ({src})")
+    sources = {s["url"]: s for s in data.get("source_list", [])
+               if _is_external_url(s.get("url", ""))}
 
-    gaps = data.get("gaps", [])
-    if gaps:
-        parts.append("\nGAPS / UNCERTAINTY:")
-        parts.extend(f"- {gap}" for gap in gaps)
+    def citations(urls):
+        result = []
+        for url in urls:
+            if _is_external_url(url):
+                source = sources.get(url, {})
+                result.append(f'{source.get("title", "Source")} '
+                              f'[{source.get("evidence_role", "role unknown")}] {url}')
+        return "; ".join(result)
 
-    # Suggested angles
-    angles = data.get("suggested_angles", [])
-    if angles:
-        parts.append("\nSUGGESTED ANGLES:")
-        for a in angles:
-            parts.append(f"- {a}")
+    groups = {
+        "KEY FINDINGS": [
+            f'- {f.get("finding", "")} [{f.get("confidence", "unknown")}] '
+            f'({citations(f.get("sources", []))})'
+            for f in data.get("key_findings", [])
+        ],
+        "GAPS / UNCERTAINTY (editorial context; disclose only material limits once)": [
+            f"- {gap}" for gap in dict.fromkeys(data.get("gaps", []) or [])
+        ],
+        "REQUESTED QUESTIONS / EVIDENCE": [
+            f'- {q.get("question", "")}: {q.get("answer", "")} '
+            f'[{q.get("status", "unknown")}] ({citations(q.get("sources", []))})'
+            for q in data.get("question_coverage", [])
+        ],
+        "SUGGESTED ANGLES / SUBTOPICS": [
+            *[f"- {angle}" for angle in data.get("suggested_angles", [])],
+            *[f'- {s.get("name", "")}: {"; ".join(s.get("bullet_points", []))}'
+              for s in data.get("subtopics", [])],
+        ],
+    }
+    note = "\n[Context abridged; use search_corpus for omitted evidence before making additional claims.]"
+    budget = max(0, max_chars - len(note))
+    selected = {name: [] for name in groups}
+    remaining = {name: [] for name in groups}
+    used = 0
 
-    # Subtopics — name + bullet points only, skip full summaries
-    subtopics = data.get("subtopics", [])
-    if subtopics:
-        parts.append("\nSUBTOPICS:")
-        for s in subtopics:
-            parts.append(f"  {s.get('name', '')}:")
-            for bp in s.get("bullet_points", []):
-                parts.append(f"    • {bp}")
+    def add(name, line, allowance):
+        nonlocal used
+        cost = len(line) + 1 + (len(name) + 4 if not selected[name] else 0)
+        if cost > allowance or used + cost > budget:
+            return False
+        selected[name].append(line)
+        used += cost
+        return True
 
-    # Source list — external URLs only (no corpus refs or file paths)
-    sources = data.get("source_list", [])
-    ext_sources = [s for s in sources if _is_external_url(s.get("url", ""))]
-    if ext_sources:
-        parts.append("\nSOURCES (external links only — use these for inline citations):")
-        for src in ext_sources:
-            parts.append(f"- {src.get('title', 'Untitled')}: {src.get('url', '')}")
-
-    compact = "\n".join(parts)
-    if len(compact) > max_chars:
-        truncated = compact[:max_chars].rsplit("\n", 1)[0]
-        compact = truncated + "\n[... truncated — use search_corpus for additional sources]"
-    return compact
+    # Reserve most space for facts, plus a small share for meaningful uncertainty.
+    for (name, lines), share in zip(groups.items(), (0.70, 0.10, 0.15, 0.05)):
+        start = used
+        for line in lines:
+            if not add(name, line, int(budget * share) - (used - start)):
+                remaining[name].append(line)
+    # Reuse unused allocations, prioritising complete findings and their sources.
+    omitted = False
+    for name, lines in remaining.items():
+        for line in lines:
+            if not add(name, line, budget - used):
+                omitted = True
+    compact = "\n\n".join(name + ":\n" + "\n".join(lines)
+                           for name, lines in selected.items() if lines)
+    if omitted:
+        compact += note
+    return compact[:max_chars] if max_chars < len(note) else compact
 
 async def _sanitise_research_sources(research_json: str) -> str:
     """Strip dead/fabricated URLs from a research JSON string before indexing.

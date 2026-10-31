@@ -167,21 +167,27 @@ async def _run_blog_pipeline(task: str, debug: bool = False) -> dict:
                 f"Research this topic thoroughly for a blog post: {topic}\n\n"
                 f"The knowledge corpus has already been seeded with pages on this topic.\n"
                 f"REQUIRED STEPS:\n"
-                f"1. Generate 2-3 targeted search queries covering different angles.\n"
+                f"1. Generate 2-3 targeted queries prioritising original sources for the "
+                f"major subjects and requested period.\n"
                 f"2. For each query call search_and_index to fetch and store any new pages.\n"
-                f"3. Call search_corpus TWICE with top_k=3: main topic, then a contrasting angle.\n"
+                f"3. Retrieve evidence with two search_corpus calls (top_k=3 each): "
+                f"named subjects and primary documents, then missing comparison evidence "
+                f"and competing explanations. If a central subject remains unsupported, "
+                f"allow up to two additional targeted research/retrieval calls; then "
+                f"proceed with the supported scope.\n"
                 f"4. Return structured research JSON with key_findings, subtopics, "
                 f"suggested_angles, gaps, source_list, total_sources, model_used, "
                 f"question_coverage, ready_to_write. Choose topic-relevant pages from approved "
-                f"sources. One relevant approved source supporting a useful finding is enough; "
-                f"aim for two independent publishers when available. Disclose partial or "
-                f"unanswered questions in gaps and limit the article to supported findings. "
+                f"sources. No source-count quota applies. Seek comparable evidence for "
+                f"major subjects, but permit a focused article from one supported finding. "
+                f"Keep unresolved questions in research gaps; disclose only limitations "
+                f"that materially affect the article's conclusion, once. "
                 f"Incomplete coverage must not veto a useful, clearly scoped article.\n\n"
                 f"Topic-specific source candidates:\n{source_guidance(topic)}"
             )
             research_output, r_tin, r_tout = await _run_agent_with_fallback(
                 researcher, research_input,
-                agent_name="Researcher", pool=pool, max_turns=8, run_log=run_log,
+                agent_name="Researcher", pool=pool, max_turns=12, run_log=run_log,
             )
             logger.info("Research complete (tokens: in=%d out=%d).", r_tin, r_tout)
 

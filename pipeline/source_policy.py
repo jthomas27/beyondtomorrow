@@ -92,9 +92,11 @@ def source_guidance(topic: str) -> str:
         "Select pages directly relevant to this topic from the approved sources only. "
         "These candidates are ranked by subject overlap; the full approved list remains available. "
         "An approved domain is not proof that a particular page is relevant. "
-        "Prefer primary documents for specific facts and independent reporting for context. "
-        "Aim for two publishers, but one relevant approved source with a supported finding is enough. "
-        "Disclose evidence gaps and attribute claims when corroboration is unavailable.\n" +
+        "Start with original documents for core facts; use reporting for context and scrutiny. "
+        "Seek evidence for each major comparison subject, using comparable periods and metrics. "
+        "There is no source-count quota: one supported finding can sustain a focused article. "
+        "If evidence remains limited, narrow the argument and attribute the claims. "
+        "Explain only limitations that materially change the conclusion, once.\n" +
         "\n".join(f'- {e["domain"]} ({e.get("credibility", 0)}/5): {e.get("notes", "")}' for e in entries)
     )
 
@@ -131,6 +133,7 @@ def require_research_evidence(research_output: str) -> dict:
             if not _is_approved(url) or not isinstance(score, (int, float)) or score < 3:
                 raise ValueError("research includes unapproved or low-credibility evidence")
             source["credibility_score"] = score
+            source["evidence_role"] = "primary" if _is_primary(source) else "secondary"
 
         gaps = [gap.strip() for gap in data.get("gaps", []) or []
                 if isinstance(gap, str) and gap.strip()]
@@ -149,7 +152,7 @@ def require_research_evidence(research_output: str) -> dict:
 
         used = {u for f in findings for u in f.get("sources", []) if u in sources}
         if len({publisher(u) for u in used}) < 2:
-            gaps.append("Findings rely on one publisher; attribute its claims and disclose limited corroboration.")
+            gaps.append("Findings rely on one publisher; attribute claims. Discuss limited corroboration only if it materially affects the conclusion.")
         coverage = []
         for item in data.get("question_coverage", []) or []:
             if not isinstance(item, dict):
@@ -167,7 +170,7 @@ def require_research_evidence(research_output: str) -> dict:
                 supporting = [sources[u] for u in refs]
                 if not any(_is_primary(s) for s in supporting):
                     question["status"] = "partial"
-                    gaps.append("Primary evidence unavailable; attribute secondary reporting for: "
+                    gaps.append("Primary evidence unavailable in retrieved research; attribute secondary reporting for: "
                                 + str(question.get("question", "this question")))
             if question["status"] != "answered":
                 gaps.append(f'{question["status"].capitalize()} evidence for: {question.get("question", "a requested question")}')
@@ -175,7 +178,7 @@ def require_research_evidence(research_output: str) -> dict:
         if not coverage:
             gaps.append("Detailed question coverage is unavailable; restrict factual claims to the sourced findings.")
         if data.get("ready_to_write") is False:
-            gaps.append("Research coverage is incomplete; write only the supported portion and disclose its limits.")
+            gaps.append("Research coverage is incomplete; scope the article to supported findings and explain only material limits once.")
 
         data.update(
             source_list=list(sources.values()), total_sources=len(sources),

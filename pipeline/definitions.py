@@ -239,7 +239,7 @@ transfer_to_publisher. Include the filename of the edited file.""",
 
 publisher = Agent(
     name="Publisher",
-    instructions="""You are the publishing agent for BeyondTomorrow.World.
+    instructions=_prompts.get("publisher") or """You are the publishing agent for BeyondTomorrow.World.
 
 You will be given the filename of an edited blog post (e.g. '2026-03-13-slug-edited.md').
 Follow these steps in order every time:
@@ -288,7 +288,7 @@ IMPORTANT:
 
 indexer = Agent(
     name="Indexer",
-    instructions="""You are a document processing specialist for the BeyondTomorrow.World knowledge corpus.
+    instructions=_prompts.get("indexer") or """You are a document processing specialist for the BeyondTomorrow.World knowledge corpus.
 
 Given a document (research output, article, or web content):
 1. Call read_research_file to load the document.
@@ -321,7 +321,7 @@ Do not repeat tool outputs verbatim — one short sentence is sufficient.""",
 
 orchestrator = Agent(
     name="Orchestrator",
-    instructions="""You are the orchestrator for BeyondTomorrow.World's automated blog pipeline.
+    instructions=_prompts.get("orchestrator") or """You are the orchestrator for BeyondTomorrow.World's automated blog pipeline.
 
 When given a task, determine the type from the prefix and execute the appropriate workflow:
 
