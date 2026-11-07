@@ -25,7 +25,12 @@ first Authentication-Results header from the receiving Hostinger server. This
 assumes Hostinger prepends its own result and rejects/removes forged headers
 claiming its authentication identity. Forwarded messages that fail DMARC are
 rejected; send commands directly from the approved account. Receiver hostnames
-are restricted to the observed regional Hostinger SMTP ingress format.
+are restricted to Hostinger's observed `cc-int-smtpinN` and
+`cc-xxx-smtpinN` ingress formats.
+Rejected authentication events record a safe diagnostic code such as
+`untrusted_authentication_server` or `dmarc_missing_or_unaligned`; they never
+include the sender address or message headers. The `emails` log query displays
+that code to distinguish future authentication failures.
 
 ## Publications and delivery
 

@@ -224,18 +224,20 @@ def parse_email(raw_message: bytes) -> dict:
     subject = _decode_mime_words(subject_raw)
     body = _extract_body(msg)
     command, topic = parse_subject(subject)
+    authentication_failure = _sender_authentication_failure(msg, from_addr)
     return {
         "from": from_addr,
         "subject": subject,
         "body": body,
         "command": command,
         "topic": topic,
-        "authenticated": _authenticated_sender(msg, from_addr),
+        "authenticated": authentication_failure is None,
+        "authentication_failure": authentication_failure,
     }
 
 
-def _authenticated_sender(message, sender: str) -> bool:
-    """Trust only the receiving Hostinger server's first authentication result.
+def _sender_authentication_failure(message, sender: str) -> Optional[str]:
+    """Return a safe diagnostic code unless receiver authentication is valid.
 
     Never accept a later attacker-supplied pass after the receiver reports fail.
     DMARC must pass for the actual From domain, in addition to the allowlist.
@@ -244,18 +246,30 @@ def _authenticated_sender(message, sender: str) -> bool:
     from email.utils import getaddresses
     addresses = getaddresses([sender])
     if len(addresses) != 1 or '@' not in addresses[0][1]:
-        return False
+        return "invalid_sender"
     domain = addresses[0][1].rsplit('@', 1)[1].lower()
     headers = message.get_all('Authentication-Results', [])
     if not headers:
-        return False
+        return "missing_authentication_results"
     result = re.sub(r'\s+', ' ', headers[0]).strip().lower()
     server = result.split(';', 1)[0].strip()
-    if not re.fullmatch(r'[a-z]{2}-int-smtpin\d+\.hostinger\.io', server):
-        return False
-    return any(re.search(r'\bdmarc=pass\b', section) and
+    # Hostinger has used both the older ``cc-int-smtpinN`` form and regional
+    # ingress names such as ``de-fra-smtpinN``. Keep the hostname constrained
+    # to those formats and to Hostinger; DMARC alignment is still mandatory.
+    if not re.fullmatch(
+        r'[a-z]{2}-(?:int|[a-z]{3})-smtpin\d+\.hostinger\.io', server
+    ):
+        return "untrusted_authentication_server"
+    if not any(re.search(r'\bdmarc=pass\b', section) and
                re.search(r'\bheader\.from=' + re.escape(domain) + r'(?=[;\s]|$)', section)
-               for section in result.split(';')[1:])
+               for section in result.split(';')[1:]):
+        return "dmarc_missing_or_unaligned"
+    return None
+
+
+def _authenticated_sender(message, sender: str) -> bool:
+    """Trust the receiving server's first aligned DMARC authentication result."""
+    return _sender_authentication_failure(message, sender) is None
 
 
 # ---------------------------------------------------------------------------
@@ -535,8 +549,10 @@ async def _process_message(raw: bytes) -> dict:
         return {"status": "complete", "ignored": True}
 
     if not parsed.get('authenticated'):
-        logger.warning("Rejected email command: receiving-server authentication missing or failed")
-        _log({"event": "email_rejected", "reason": "sender_authentication_failed"})
+        auth_failure = parsed.get("authentication_failure") or "unknown"
+        logger.warning("Rejected email command: sender authentication failed (%s)", auth_failure)
+        _log({"event": "email_rejected", "reason": "sender_authentication_failed",
+              "auth_failure": auth_failure})
         return {"status": "complete", "ignored": True, "reason": "sender_authentication_failed"}
 
     result = {"status": "complete"}

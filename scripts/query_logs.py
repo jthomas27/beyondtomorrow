@@ -134,6 +134,7 @@ async def main(argv: list[str] | None = None) -> None:
                        data->>'url'      AS url,
                        data->>'from'     AS sender,
                        data->>'reason'   AS reason,
+                       data->>'auth_failure' AS auth_failure,
                        ts
                 FROM pipeline_logs
                 WHERE event LIKE 'email_%'
@@ -147,6 +148,8 @@ async def main(argv: list[str] | None = None) -> None:
                 print(f"No email events in the last {args.days} days.")
             for r in rows:
                 detail = r['topic'] or r['url'] or r['reason'] or ""
+                if r['auth_failure']:
+                    detail = f"{detail} ({r['auth_failure']})"
                 cmd = r['command'] or ""
                 print(
                     f"{r['ts'].strftime('%Y-%m-%d %H:%M')}  "

@@ -94,20 +94,28 @@ async def test_expired_uncertain_newsletter_is_held_for_reconciliation(memory_de
 
 
 def test_email_sender_requires_receiver_dmarc_and_domain_alignment():
-    from pipeline.email_listener import _authenticated_sender
+    from pipeline.email_listener import _authenticated_sender, _sender_authentication_failure
     message = EmailMessage()
     assert not _authenticated_sender(message, 'allowed@example.com')
+    assert _sender_authentication_failure(message, 'allowed@example.com') == 'missing_authentication_results'
     message['Authentication-Results'] = 'fr-int-smtpin29.hostinger.io; dmarc=pass header.from=example.com; spf=pass'
     assert _authenticated_sender(message, 'Allowed <allowed@example.com>')
     assert not _authenticated_sender(message, 'allowed@other.com')
+
+    del message['Authentication-Results']
+    message['Authentication-Results'] = 'de-fra-smtpin5.hostinger.io; dmarc=pass header.from=example.com; spf=pass'
+    assert _authenticated_sender(message, 'allowed@example.com')
+
     del message['Authentication-Results']
     message['Authentication-Results'] = 'attacker.example; dmarc=pass header.from=example.com'
     assert not _authenticated_sender(message, 'allowed@example.com')
+    assert _sender_authentication_failure(message, 'allowed@example.com') == 'untrusted_authentication_server'
 
     del message['Authentication-Results']
     message['Authentication-Results'] = 'fr-int-smtpin29.hostinger.io; dmarc=fail header.from=example.com'
     message['Authentication-Results'] = 'fr-int-smtpin29.hostinger.io; dmarc=pass header.from=example.com'
     assert not _authenticated_sender(message, 'allowed@example.com')
+    assert _sender_authentication_failure(message, 'allowed@example.com') == 'dmarc_missing_or_unaligned'
 
 
 def test_unsubscribe_uses_native_ghost_url_without_email_address():
